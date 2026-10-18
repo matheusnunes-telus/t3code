@@ -297,7 +297,8 @@ describe("KeybindingsSettings.logic", () => {
   it("formats static and project script command labels", () => {
     expect(commandLabel("commandPalette.toggle")).toBe("Command Palette: Toggle");
     expect(commandLabel("themeEditor.toggle")).toBe("Theme Editor: Toggle");
-    expect(commandLabel("view.reopenClosed")).toBe("Reopen Closed Tab");
+    expect(commandLabel("view.reopenClosed")).toBe("Right Panel: Reopen Closed Tab");
+    expect(commandLabel("chatTab.reopenClosed")).toBe("Chat Tabs: Reopen Closed Tab");
     expect(commandLabel("preview.focusUrl")).toBe("Preview: Focus URL");
     expect(commandLabel("script.setup-db.run")).toBe("Run Script: Setup Db");
   });

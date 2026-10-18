@@ -1,4 +1,7 @@
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
+import { ChatTabsBar } from "./ChatTabsBar";
+import { useChatTabsStore } from "../chatTabsStore";
+import { cn } from "../lib/utils";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
@@ -149,6 +152,7 @@ export function ThreadRouteView({ target }: { target: ThreadRouteTarget }) {
     finalizePromotedDraftThreadByRef(target.threadRef);
   }, [draftThread, serverThreadStarted, target]);
 
+  const hasChatTabs = useChatTabsStore((state) => state.tabs.length > 0);
   let view: React.ReactNode = null;
   if (target.kind === "draft") {
     if (draftSession) {
@@ -176,7 +180,16 @@ export function ThreadRouteView({ target }: { target: ThreadRouteTarget }) {
 
   return (
     <SidebarInset className="h-svh min-h-0 overflow-hidden overscroll-y-none md:h-dvh">
-      {view}
+      <ChatTabsBar />
+      {/* Title-bar controls are fixed to the window top; shift them below the tab strip. */}
+      <div
+        className={cn(
+          "relative flex min-h-0 min-w-0 flex-1 flex-col",
+          hasChatTabs && "[--workspace-controls-top:calc(env(titlebar-area-y,0px)+2.25rem)]",
+        )}
+      >
+        {view}
+      </div>
     </SidebarInset>
   );
 }

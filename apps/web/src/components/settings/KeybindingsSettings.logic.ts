@@ -367,7 +367,10 @@ export function commandLabel(command: KeybindingCommand): string {
   if (usageMetric) return `Usage: ${usageMetric.label}`;
   const usagePeriod = WINDOW_OPTIONS.find((option) => option.command === command);
   if (usagePeriod) return `Usage: Period: ${usagePeriod.label}`;
-  if (command === "view.reopenClosed") return "Reopen Closed Tab";
+  if (command === "view.reopenClosed") return "Right Panel: Reopen Closed Tab";
+  if (command === "chatTab.new") return "Chat Tabs: New Tab";
+  if (command === "chatTab.close") return "Chat Tabs: Close Tab";
+  if (command === "chatTab.reopenClosed") return "Chat Tabs: Reopen Closed Tab";
   if (command === "preview.focusUrl") return "Preview: Focus URL";
   const raw = String(command);
   if (raw.startsWith("script.") && raw.endsWith(".run")) {
