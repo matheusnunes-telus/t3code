@@ -180,9 +180,19 @@ export function BranchRestoreConfirmHost(props: {
   );
 }
 
-interface PendingRevert {
+export interface RevertChangedFile {
+  readonly path: string;
+  readonly additions: number;
+  readonly deletions: number;
+}
+
+export interface PendingRevert {
   readonly turnCount: number;
   readonly messageId: MessageId;
+  /** Files changed by turns after the message, so the user can keep or revert them. */
+  readonly files: ReadonlyArray<RevertChangedFile>;
+  /** Set when the message was edited in place and should be re-sent with this text. */
+  readonly editedText?: string;
 }
 
 const revertConfirmAtom = makeThreadOverlayAtom<PendingRevert>("revert-confirm");
@@ -193,14 +203,15 @@ export function openRevertConfirm(threadKey: string, pending: PendingRevert): vo
 
 export function RevertConfirmHost(props: {
   readonly threadKey: string;
-  readonly onConfirm: (turnCount: number, messageId: MessageId, restoreFiles: boolean) => void;
+  readonly onConfirm: (pending: PendingRevert, restoreFiles: boolean) => void;
 }) {
   const pending = useThreadOverlay(revertConfirmAtom, props.threadKey);
   const confirm = (restoreFiles: boolean) => {
     if (pending === null) return;
     closeThreadOverlay(revertConfirmAtom);
-    props.onConfirm(pending.turnCount, pending.messageId, restoreFiles);
+    props.onConfirm(pending, restoreFiles);
   };
+  const files = pending?.files ?? [];
   return (
     <AlertDialog
       open={pending !== null}
@@ -210,17 +221,32 @@ export function RevertConfirmHost(props: {
     >
       <AlertDialogPopup>
         <AlertDialogHeader>
-          <AlertDialogTitle>Edit from here?</AlertDialogTitle>
+          <AlertDialogTitle>Keep or revert code changes?</AlertDialogTitle>
           <AlertDialogDescription>
-            Rewind chat to before this message. Your prompt and attachments return to the composer.
+            {files.length === 1 ? "1 file was" : `${files.length} files were`} changed after this
+            message. The chat will go back to before it.
           </AlertDialogDescription>
         </AlertDialogHeader>
+        <ul className="mx-6 mb-2 max-h-56 overflow-y-auto rounded-lg border border-border/70 text-xs">
+          {files.map((file) => (
+            <li
+              key={file.path}
+              className="flex items-center justify-between gap-3 border-b border-border/50 px-3 py-1.5 last:border-b-0"
+            >
+              <span className="min-w-0 truncate font-mono">{file.path}</span>
+              <span className="shrink-0 tabular-nums">
+                <span className="text-emerald-600 dark:text-emerald-400">+{file.additions}</span>{" "}
+                <span className="text-destructive">-{file.deletions}</span>
+              </span>
+            </li>
+          ))}
+        </ul>
         <AlertDialogFooter>
           <AlertDialogClose render={<Button variant="outline" />}>Cancel</AlertDialogClose>
           <Button variant="destructive" onClick={() => confirm(true)}>
-            Revert files too
+            Revert code changes
           </Button>
-          <Button onClick={() => confirm(false)}>Revert and keep changes</Button>
+          <Button onClick={() => confirm(false)}>Keep code changes</Button>
         </AlertDialogFooter>
       </AlertDialogPopup>
     </AlertDialog>

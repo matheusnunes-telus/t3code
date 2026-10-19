@@ -143,8 +143,8 @@ import {
   SmartphoneIcon,
   SquarePenIcon,
   TerminalIcon,
+  PencilIcon,
   RotateCwIcon,
-  Undo2Icon,
   HammerIcon,
   WrenchIcon,
   Code2Icon,
@@ -159,6 +159,7 @@ import type {
   KnownComposerContextRecord,
 } from "@t3tools/contracts";
 import { Button, InlineButton } from "../ui/button";
+import { Textarea } from "../ui/textarea";
 import { MorphIcon } from "~/components/MorphIcon";
 import { useAssetUrlRefresh, useAssetUrls, useAssetUrlState } from "../../assets/assetUrls";
 import { MediaVideoPlayer } from "../media/MediaVideoPlayer";
@@ -322,6 +323,7 @@ interface TimelineRowSharedState {
   onUseArtifactTemplate: (template: CodexArtifactTemplate) => void;
   onSendAppMessage: ((text: string) => Promise<void>) | undefined;
   onResendMessage: ((messageId: MessageId) => Promise<void>) | undefined;
+  onEditMessage: ((turnCount: number, messageId: MessageId, text: string) => void) | undefined;
   onAppFullscreenChange: (rowId: string, fullscreen: boolean) => void;
   onRunShellCommand: ((command: string) => void) | undefined;
   findActive: boolean;
@@ -484,6 +486,7 @@ interface MessagesTimelineProps {
   onUseArtifactTemplate?: (template: CodexArtifactTemplate) => void;
   onSendAppMessage?: (text: string) => Promise<void>;
   onResendMessage?: (messageId: MessageId) => Promise<void>;
+  onEditMessage?: (turnCount: number, messageId: MessageId, text: string) => void;
   onRunShellCommand?: (command: string) => void;
   isRevertingCheckpoint: boolean;
   onImageExpand: (preview: ExpandedImagePreview) => void;
@@ -580,6 +583,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   onUseArtifactTemplate = NOOP_USE_ARTIFACT_TEMPLATE,
   onSendAppMessage,
   onResendMessage,
+  onEditMessage,
   onRunShellCommand,
   isRevertingCheckpoint,
   onImageExpand,
@@ -1230,6 +1234,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
     onUseArtifactTemplate,
     onSendAppMessage,
     onResendMessage,
+    onEditMessage,
     onAppFullscreenChange,
     onFileDownload,
     openPullRequest,
@@ -2074,6 +2079,7 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
   const resources = selectMessageImageResources(row.message.attachments);
   const previewUrls = useAssetUrls(ctx.activeThreadEnvironmentId, resources);
   const [projectPreviews] = useState(createMessageAttachmentPreviewProjector);
+  const [editDraft, setEditDraft] = useState<string | null>(null);
   const previewUrlsById = new Map(
     resources.flatMap((resource, index) => {
       const url = previewUrls[index];
@@ -2094,6 +2100,17 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
   const resolvedContext = resolveUserMessageContext(row.message);
   const previewImages = userImages.filter((image) => image.name.startsWith("preview-annotation-"));
   const revertTurnCount = row.revertTurnCount;
+  const canEditInline =
+    ctx.onEditMessage !== undefined &&
+    typeof revertTurnCount === "number" &&
+    (row.message.attachments?.length ?? 0) === 0 &&
+    resolvedContext.records.length === 0;
+  const submitEdit = () => {
+    const text = editDraft?.trim();
+    if (!text || typeof revertTurnCount !== "number") return;
+    setEditDraft(null);
+    ctx.onEditMessage?.(revertTurnCount, row.message.id, text);
+  };
   const chippedAttachmentIds = new Set(
     collectComposerContextReferences(resolvedContext.text).flatMap((occurrence) => {
       const record = asKnownContextRecord(resolvedContext.recordsById.get(occurrence.contextId));
@@ -2241,7 +2258,12 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
       {row.message.inputIntent && row.message.inputIntent !== "turn_start" ? (
         <UserMessageIntentMarker intent={row.message.inputIntent} />
       ) : null}
-      <div className="relative max-w-[80%] rounded-2xl bg-message p-3 text-message-foreground">
+      <div
+        className={cn(
+          "relative max-w-[80%] rounded-2xl bg-message p-3 text-message-foreground",
+          editDraft !== null && "w-full",
+        )}
+      >
         <MessageAuthorHeading>You</MessageAuthorHeading>
         {(regularImages.length > 0 || userVideos.length > 0) && (
           <div className="mb-2 grid max-w-[210px] grid-cols-2 gap-2">
@@ -2345,14 +2367,50 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
             ))}
           </div>
         ) : null}
-        <div onCopyCapture={onBodyCopyCapture}>
-          <CollapsibleUserMessageBody
-            text={resolvedContext.text}
-            renderContextReference={renderContextReference}
-            skills={ctx.skills}
-            markdownCwd={ctx.markdownCwd}
-          />
-        </div>
+        {editDraft !== null ? (
+          <div className="flex flex-col gap-2">
+            <Textarea
+              autoFocus
+              value={editDraft}
+              aria-label="Edit message"
+              onChange={(event) => setEditDraft(event.target.value)}
+              onFocus={(event) => {
+                const end = event.currentTarget.value.length;
+                event.currentTarget.setSelectionRange(end, end);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  setEditDraft(null);
+                } else if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                  event.preventDefault();
+                  submitEdit();
+                }
+              }}
+            />
+            <div className="flex justify-end gap-2">
+              <Button size="xs" variant="outline" onClick={() => setEditDraft(null)}>
+                Cancel
+              </Button>
+              <Button
+                size="xs"
+                disabled={editDraft.trim().length === 0 || editDraft.trim() === plainText.trim()}
+                onClick={submitEdit}
+              >
+                Save and send
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div onCopyCapture={onBodyCopyCapture}>
+            <CollapsibleUserMessageBody
+              text={resolvedContext.text}
+              renderContextReference={renderContextReference}
+              skills={ctx.skills}
+              markdownCwd={ctx.markdownCwd}
+            />
+          </div>
+        )}
       </div>
       {row.projectedItem &&
       row.projectedItem.item.status !== "completed" &&
@@ -2376,7 +2434,11 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
           </Tooltip>
           <div className="flex items-center gap-0.5">
             {typeof revertTurnCount === "number" && (
-              <RevertUserMessageButton turnCount={revertTurnCount} messageId={row.message.id} />
+              <EditUserMessageButton
+                turnCount={revertTurnCount}
+                messageId={row.message.id}
+                {...(canEditInline ? { onEditInline: () => setEditDraft(plainText) } : {})}
+              />
             )}
             {ctx.onResendMessage !== undefined && (
               <ResendUserMessageButton messageId={row.message.id} />
@@ -2499,12 +2561,14 @@ function ResendUserMessageButton({ messageId }: { messageId: MessageId }) {
   );
 }
 
-function RevertUserMessageButton({
+function EditUserMessageButton({
   turnCount,
   messageId,
+  onEditInline,
 }: {
   turnCount: number;
   messageId: MessageId;
+  onEditInline?: () => void;
 }) {
   const ctx = use(TimelineRowCtx);
   const activity = use(TimelineRowActivityCtx);
@@ -2518,14 +2582,16 @@ function RevertUserMessageButton({
             size="xs"
             variant="ghost"
             disabled={activity.isRevertingCheckpoint || activity.isWorking}
-            onClick={() => ctx.onRevertToTurnCount(turnCount, messageId)}
-            aria-label="Edit from here"
+            onClick={() =>
+              onEditInline ? onEditInline() : ctx.onRevertToTurnCount(turnCount, messageId)
+            }
+            aria-label="Edit message"
           />
         }
       >
-        <Undo2Icon className="size-3" />
+        <PencilIcon className="size-3" />
       </TooltipTrigger>
-      <TooltipPopup side="top">Edit from here</TooltipPopup>
+      <TooltipPopup side="top">Edit message</TooltipPopup>
     </Tooltip>
   );
 }

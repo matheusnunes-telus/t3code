@@ -401,6 +401,8 @@ import {
   openDeviceSetupDialog,
   openPullRequestThreadDialog,
   openRevertConfirm,
+  type PendingRevert,
+  type RevertChangedFile,
   PullRequestThreadDialogHost,
   RevertConfirmHost,
 } from "./chat/ChatOverlayHosts";
@@ -5692,6 +5694,21 @@ export default function ChatView(props: ChatViewProps) {
     };
   }, [activeThreadId, composerRef]);
 
+  const changedFilesAfterTurn = (turnCount: number): RevertChangedFile[] => {
+    const byPath = new Map<string, RevertChangedFile>();
+    for (const summary of turnDiffSummaries) {
+      if (summary.checkpointTurnCount <= turnCount) continue;
+      for (const file of summary.files) {
+        const existing = byPath.get(file.path);
+        byPath.set(file.path, {
+          path: file.path,
+          additions: (existing?.additions ?? 0) + file.additions,
+          deletions: (existing?.deletions ?? 0) + file.deletions,
+        });
+      }
+    }
+    return [...byPath.values()];
+  };
   const onRevertToTurnCount = async (
     turnCount: number,
     messageId: MessageId,
@@ -5740,7 +5757,12 @@ export default function ChatView(props: ChatViewProps) {
       return;
     }
     if (restoreFiles === undefined) {
-      openRevertConfirm(routeThreadKey, { turnCount, messageId });
+      const files = changedFilesAfterTurn(turnCount);
+      if (files.length === 0) {
+        void onRevertToTurnCount(turnCount, messageId, false);
+        return;
+      }
+      openRevertConfirm(routeThreadKey, { turnCount, messageId, files });
       return;
     }
 
@@ -5779,8 +5801,79 @@ export default function ChatView(props: ChatViewProps) {
     }
   };
   const onRevertToTurnCountStable = useStableCallback(onRevertToTurnCount);
-  const onConfirmRevert = (turnCount: number, messageId: MessageId, restoreFiles: boolean) => {
-    void onRevertToTurnCount(turnCount, messageId, restoreFiles);
+  const performEditMessage = async (
+    turnCount: number,
+    messageId: MessageId,
+    text: string,
+    restoreFiles: boolean,
+  ) => {
+    if (!activeThread || activeThreadId === null) return;
+    setThreadError(activeThread.id, null);
+    try {
+      const commandId = CommandId.make(randomUUID());
+      await waitForRevertedMessage(routeThreadRef, messageId, turnCount, commandId, async () => {
+        const result = await revertThreadCheckpoint({
+          environmentId,
+          input: { commandId, threadId: activeThread.id, turnCount, restoreFiles },
+        });
+        if (result._tag === "Failure") throw squashAtomCommandFailure(result);
+      });
+      const result = await startThreadTurn({
+        environmentId,
+        input: {
+          threadId: activeThreadId,
+          message: { messageId: newMessageId(), role: "user", text, attachments: [] },
+          runtimeMode,
+          interactionMode,
+          dispatchMode: "start",
+        },
+      });
+      if (result._tag === "Failure") throw squashAtomCommandFailure(result);
+    } catch (error) {
+      setThreadError(
+        activeThread.id,
+        error instanceof Error ? error.message : "Could not edit the message.",
+      );
+    }
+  };
+  const onEditMessage = (turnCount: number, messageId: MessageId, text: string) => {
+    if (
+      !activeThread ||
+      isRevertingCheckpoint ||
+      !readEnvironmentScope(environmentId, AuthOrchestrationOperateScope)
+    ) {
+      return;
+    }
+    if (!supportsConversationRollback) {
+      setThreadError(
+        activeThread.id,
+        "This provider does not support reverting conversation history. Start a new thread instead.",
+      );
+      return;
+    }
+    if (phase === "running" || isSendBusy || isConnecting) {
+      setThreadError(activeThread.id, "Interrupt the current turn before editing a message.");
+      return;
+    }
+    const files = changedFilesAfterTurn(turnCount);
+    if (files.length === 0) {
+      void performEditMessage(turnCount, messageId, text, false);
+      return;
+    }
+    openRevertConfirm(routeThreadKey, { turnCount, messageId, files, editedText: text });
+  };
+  const onEditMessageStable = useStableCallback(onEditMessage);
+  const onConfirmRevert = (pending: PendingRevert, restoreFiles: boolean) => {
+    if (pending.editedText !== undefined) {
+      void performEditMessage(
+        pending.turnCount,
+        pending.messageId,
+        pending.editedText,
+        restoreFiles,
+      );
+      return;
+    }
+    void onRevertToTurnCount(pending.turnCount, pending.messageId, restoreFiles);
   };
   const onConfirmRevertStable = useStableCallback(onConfirmRevert);
 
@@ -8153,6 +8246,7 @@ export default function ChatView(props: ChatViewProps) {
                       onUseArtifactTemplate: useArtifactTemplateStable,
                       onSendAppMessage: sendAppMessageStable,
                       onResendMessage: onResendMessageStable,
+                      onEditMessage: onEditMessageStable,
                     }
                   : {})}
                 isRevertingCheckpoint={isRevertingCheckpoint}

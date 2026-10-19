@@ -23,6 +23,7 @@ afterEach(async () => {
 });
 
 const messageId = MessageId.make("message-1");
+const files = [{ path: "src/a.ts", additions: 3, deletions: 1 }];
 const dialog = () => document.querySelector('[role="alertdialog"]');
 
 describe("RevertConfirmHost", () => {
@@ -35,18 +36,18 @@ describe("RevertConfirmHost", () => {
     );
     await act(() => root.render(host("env:a")));
 
-    await act(() => openRevertConfirm("env:b", { turnCount: 2, messageId }));
+    await act(() => openRevertConfirm("env:b", { turnCount: 2, messageId, files }));
     expect(dialog()).toBeNull();
 
-    await act(() => openRevertConfirm("env:a", { turnCount: 2, messageId }));
+    await act(() => openRevertConfirm("env:a", { turnCount: 2, messageId, files }));
     const keep = [...(dialog()?.querySelectorAll("button") ?? [])].find(
-      (button) => button.textContent === "Revert and keep changes",
+      (button) => button.textContent === "Keep code changes",
     );
     await act(() => keep?.click());
-    expect(onConfirm).toHaveBeenCalledExactlyOnceWith(2, messageId, false);
+    expect(onConfirm).toHaveBeenCalledExactlyOnceWith({ turnCount: 2, messageId, files }, false);
     await vi.waitFor(() => expect(dialog()).toBeNull());
 
-    await act(() => openRevertConfirm("env:a", { turnCount: 3, messageId }));
+    await act(() => openRevertConfirm("env:a", { turnCount: 3, messageId, files }));
     expect(dialog()).not.toBeNull();
     await act(() => root.render(host("env:b")));
     await vi.waitFor(() => expect(dialog()).toBeNull());
