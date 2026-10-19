@@ -22,6 +22,7 @@ import {
   expandCollapsedComposerCursor,
   formatAssistantCitationForComposer,
   isCollapsedCursorAdjacentToInlineToken,
+  isStatusComposerCommand,
   parseSideChatComposerCommand,
   parseStandaloneComposerSlashCommand,
   replaceTextRange,
@@ -818,6 +819,14 @@ describe("isCollapsedCursorAdjacentToInlineToken", () => {
 
     expect(isCollapsedCursorAdjacentToInlineToken(text, tokenEnd, "left")).toBe(true);
     expect(isCollapsedCursorAdjacentToInlineToken(text, tokenStart, "right")).toBe(true);
+  });
+});
+
+describe("isStatusComposerCommand", () => {
+  it("matches only a bare /status", () => {
+    expect(isStatusComposerCommand(" /Status ")).toBe(true);
+    expect(isStatusComposerCommand("/status please")).toBe(false);
+    expect(isStatusComposerCommand("/statusline")).toBe(false);
   });
 });
 

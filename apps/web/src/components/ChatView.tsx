@@ -39,6 +39,8 @@ import {
 import type { UsageLimitSourceSnapshots } from "@t3tools/contracts";
 import { isUsageLimitsCommand } from "@t3tools/shared/usageLimits";
 import { useSideChatStore } from "../sideChatStore";
+import { ChatStatsButton } from "./chat/ChatStatsButton";
+import { ChatStatusDialog } from "./chat/ChatStatusDialog";
 import { feedbackBannerItem } from "./chat/ComposerFeedback";
 import { useUsageLimitsPanel } from "./chat/useUsageLimitsPanel";
 import { useWorktreeSetup } from "./chat/useWorktreeSetup";
@@ -170,6 +172,7 @@ import { useActiveThreadRef } from "../hooks/useActiveThreadRef";
 import {
   type ComposerSubmissionIntent,
   collapseExpandedComposerCursor,
+  isStatusComposerCommand,
   parseSideChatComposerCommand,
   parseStandaloneComposerSlashCommand,
 } from "../composer-logic";
@@ -5836,6 +5839,7 @@ export default function ChatView(props: ChatViewProps) {
   };
   const onForkFromRunStable = useStableCallback(onForkFromRun);
 
+  const [statusDialogOpen, setStatusDialogOpen] = useState(false);
   // A side chat copies this chat up to its last finished reply.
   const sideChatSourceRunId = (() => {
     if (!isServerThread || serverProjection === null) return null;
@@ -6314,6 +6318,13 @@ export default function ChatView(props: ChatViewProps) {
       ) {
         handleNewThreadInActiveProject();
       }
+      return;
+    }
+    if (isStatusComposerCommand(trimmed)) {
+      setStatusDialogOpen(true);
+      promptRef.current = "";
+      clearComposerDraftContent(composerDraftTarget);
+      composerRef.current?.resetCursorState();
       return;
     }
     const sideChatQuestion =
@@ -7833,6 +7844,13 @@ export default function ChatView(props: ChatViewProps) {
     />
   ) : null;
   const panelToggleControlProps = {
+    leadingControl: isServerThread ? (
+      <ChatStatsButton
+        environmentId={environmentId}
+        projection={serverProjection}
+        turnItems={serverVisibleTurnItems}
+      />
+    ) : null,
     terminalAvailable: activeProject !== null,
     terminalOpen: terminalUiState.terminalOpen,
     terminalShortcutLabel: shortcutLabelForCommand(keybindings, "terminal.toggle"),
@@ -8552,6 +8570,16 @@ export default function ChatView(props: ChatViewProps) {
               onAddProjectScript={saveProjectScriptStable}
               onUpdateProjectScript={updateProjectScriptStable}
               onDeleteProjectScript={deleteProjectScriptStable}
+            />
+
+            <ChatStatusDialog
+              open={statusDialogOpen}
+              onOpenChange={setStatusDialogOpen}
+              provider={activeProviderStatus}
+              projection={serverProjection}
+              runtimeMode={runtimeMode}
+              interactionMode={interactionMode}
+              cwd={gitCwd}
             />
 
             <PullRequestThreadDialogHost

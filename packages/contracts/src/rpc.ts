@@ -324,7 +324,14 @@ import {
   ProviderConsumeResetCreditInput,
   ProviderConsumeResetCreditResult,
 } from "./providerUsageLimits.ts";
-import { UsagePricing, UsageReadError, UsageSummary, UsageSummaryInput } from "./usage.ts";
+import {
+  UsagePriceInput,
+  UsagePriceResult,
+  UsagePricing,
+  UsageReadError,
+  UsageSummary,
+  UsageSummaryInput,
+} from "./usage.ts";
 import {
   StorageCleanupReport,
   DatabaseStorageStatus,
@@ -501,6 +508,7 @@ export const WS_METHODS = {
   serverGetBackgroundPolicy: "server.getBackgroundPolicy",
   serverGetUsageSummary: "server.getUsageSummary",
   serverRefreshUsageRates: "server.refreshUsageRates",
+  serverPriceUsage: "server.priceUsage",
 
   scheduledTasksList: "scheduledTasks.list",
   scheduledTasksSubscribe: "scheduledTasks.subscribe",
@@ -893,6 +901,12 @@ const WsServerGetUsageSummaryRpc = Rpc.make(WS_METHODS.serverGetUsageSummary, {
 const WsServerRefreshUsageRatesRpc = Rpc.make(WS_METHODS.serverRefreshUsageRates, {
   payload: Schema.Struct({}),
   success: UsagePricing,
+  error: EnvironmentAuthorizationError,
+});
+
+const WsServerPriceUsageRpc = Rpc.make(WS_METHODS.serverPriceUsage, {
+  payload: UsagePriceInput,
+  success: UsagePriceResult,
   error: EnvironmentAuthorizationError,
 });
 
@@ -1902,6 +1916,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerRetryResourceTelemetryRpc,
   WsServerCheckOtlpEndpointRpc,
   WsServerGetUsageSummaryRpc,
+  WsServerPriceUsageRpc,
   WsServerRefreshUsageRatesRpc,
   WsServerSignalProcessRpc,
   WsScheduledTasksListRpc,

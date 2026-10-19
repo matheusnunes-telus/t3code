@@ -12,7 +12,7 @@ import {
 import { resolveShortcutCommand, type ShortcutEventLike } from "./keybindings";
 
 export type ComposerTriggerKind = "path" | "pull-request" | "slash-command" | "skill";
-export type ComposerSlashCommand = "model" | "plan" | "default" | "btw";
+export type ComposerSlashCommand = "model" | "plan" | "default" | "btw" | "status";
 export type ComposerSubmissionIntent = "foreground" | "background" | "alternate";
 
 export interface ComposerTrigger {
@@ -326,7 +326,7 @@ export function composerStateAtPromptEnd(
 
 export function parseStandaloneComposerSlashCommand(
   text: string,
-): Exclude<ComposerSlashCommand, "model" | "btw"> | null {
+): Exclude<ComposerSlashCommand, "model" | "btw" | "status"> | null {
   const match = /^\/(plan|default)\s*$/i.exec(text.trim());
   if (!match) {
     return null;
@@ -340,6 +340,11 @@ export function parseStandaloneComposerSlashCommand(
 export function parseSideChatComposerCommand(text: string): string | null {
   const match = /^\/btw(?:\s+([\s\S]*))?$/i.exec(text.trim());
   return match ? (match[1] ?? "").trim() : null;
+}
+
+/** `/status` shows what the chat runs on instead of sending a message. */
+export function isStatusComposerCommand(text: string): boolean {
+  return /^\/status$/i.test(text.trim());
 }
 
 export function replaceTextRange(

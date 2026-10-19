@@ -2639,6 +2639,13 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 label: "/btw",
                 description: "Ask a side question in a read-only copy of this chat",
               },
+              {
+                id: "slash:status",
+                type: "slash-command",
+                command: "status",
+                label: "/status",
+                description: "Show the version, login, model and session of this chat",
+              },
             ] as const)
           : []),
         ...(planModeUiEnabled
@@ -3793,8 +3800,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         }
         return;
       }
-      if (item.command === "btw") {
-        const replacement = "/btw ";
+      if (item.command === "btw" || item.command === "status") {
+        const replacement = `/${item.command} `;
         const replacementRangeEnd = extendReplacementRangeForTrailingSpace(
           snapshot.value,
           trigger.rangeEnd,

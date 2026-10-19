@@ -1111,6 +1111,12 @@ export function createServerEnvironmentAtoms<R, E>(
           ),
         ),
     }),
+    // Prices one chat's token totals; they only change when a turn finishes.
+    usagePrice: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:server:usage-price",
+      tag: WS_METHODS.serverPriceUsage,
+      staleTimeMs: 60_000,
+    }),
     resourceTelemetry: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
       label: "environment-data:server:resource-telemetry",
       tag: WS_METHODS.subscribeResourceTelemetry,

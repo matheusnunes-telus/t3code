@@ -7,6 +7,8 @@ import {
   type ServerSettings as ServerSettingsValue,
   type UsageProviderKind,
   type UsageSource,
+  type UsagePriceInput,
+  type UsagePriceResult,
   type UsagePricing,
   type UsageSummary,
   type UsageSummaryInput,
@@ -41,7 +43,12 @@ import type {
   UsageRecord,
 } from "@t3tools/provider-core/server/usage";
 import { resolveModelAliases, UsageAggregator } from "./usageAggregation.ts";
-import { createOverrideRateTable, parseRateTable, type RateTable } from "./usagePricing.ts";
+import {
+  createOverrideRateTable,
+  parseRateTable,
+  priceUsage as priceRecord,
+  type RateTable,
+} from "./usagePricing.ts";
 import {
   listTranscriptFiles,
   readDirectoryVolumeId,
@@ -154,6 +161,7 @@ export class UsageService extends Context.Service<
   {
     readonly readSummary: (input: UsageSummaryInput) => Effect.Effect<UsageSummary, UsageReadError>;
     readonly refreshRates: Effect.Effect<UsagePricing>;
+    readonly priceUsage: (input: UsagePriceInput) => Effect.Effect<UsagePriceResult>;
   }
 >()("t3/usage/UsageService") {}
 
@@ -180,6 +188,11 @@ const layerTest = Layer.succeed(
         scanDurationMs: 0,
       }),
     refreshRates: Effect.succeed(EMPTY_PRICING),
+    priceUsage: (input) =>
+      Effect.succeed({
+        items: input.items.map(() => ({ costUsd: 0, costSource: "unpriced" as const })),
+        pricing: EMPTY_PRICING,
+      }),
   }),
 );
 
@@ -826,7 +839,39 @@ export const make = Effect.gen(function* () {
     return yield* Deferred.await(deferred);
   });
 
-  return { readSummary, refreshRates, awaitPersisted } as const;
+  // 1-hour cache writes cost 2x input instead of 1.25x; the rate table only has the 5-minute price.
+  const ONE_HOUR_CACHE_WRITE_SCALE = 2 / 1.25;
+
+  const priceUsage = Effect.fn("UsageService.priceUsage")(function* (input: UsagePriceInput) {
+    yield* ensureRates(false);
+    const settings = yield* settingsService.getSettings.pipe(Effect.option);
+    const overrides = Option.isSome(settings)
+      ? createOverrideRateTable(settings.value.usagePriceOverrides)
+      : undefined;
+    const aliases = Option.isSome(settings)
+      ? resolveModelAliases(settings.value.usageModelAliases)
+      : new Map<string, string>();
+    const items = input.items.map((item) => {
+      const priced = priceRecord(
+        rates,
+        {
+          model: aliases.get(item.model) ?? item.model,
+          totals: item.totals,
+          speed: "standard",
+          reportedCostUsd: null,
+        },
+        overrides,
+      );
+      const extraCacheWrite =
+        item.cacheWriteTtl === "1h" && priced.categoryCostUsd !== null
+          ? priced.categoryCostUsd.cacheWrite * (ONE_HOUR_CACHE_WRITE_SCALE - 1)
+          : 0;
+      return { costUsd: priced.costUsd + extraCacheWrite, costSource: priced.costSource };
+    });
+    return { items, pricing: pricing() };
+  });
+
+  return { readSummary, refreshRates, priceUsage, awaitPersisted } as const;
 });
 
 export const layer = Layer.effect(UsageService, make);

@@ -1,7 +1,7 @@
 import { PanelBottomIcon, PanelRightIcon, SquareMenuIcon } from "lucide-react";
 import { Maximize2, Minimize2 } from "lucide";
 import { MorphIcon } from "~/components/MorphIcon";
-import { memo, type ReactElement } from "react";
+import { memo, type ReactElement, type ReactNode } from "react";
 
 import type { ThreadPanelPresentation } from "../../rightPanelLayout";
 import { PopoverCreateHandle, PopoverTrigger } from "../ui/popover";
@@ -9,6 +9,8 @@ import { Toggle } from "../ui/toggle";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 export interface PanelLayoutControlsProps {
+  /** Shown before the thread details toggle, e.g. the chat stats button. */
+  leadingControl?: ReactNode;
   showThreadPanelControl?: boolean;
   showTerminalControl?: boolean;
   showRightPanelControl?: boolean;
@@ -29,6 +31,7 @@ export interface PanelLayoutControlsProps {
 }
 
 export const PanelLayoutControls = memo(function PanelLayoutControls({
+  leadingControl,
   showThreadPanelControl = true,
   showTerminalControl = true,
   showRightPanelControl = true,
@@ -76,6 +79,7 @@ export const PanelLayoutControls = memo(function PanelLayoutControls({
       className="flex h-full shrink-0 items-center gap-1 [-webkit-app-region:no-drag]"
       data-panel-layout-controls
     >
+      {showThreadPanelControl ? leadingControl : null}
       {showThreadPanelControl
         ? threadPanelPresentation === "popover"
           ? threadPanelTooltip(

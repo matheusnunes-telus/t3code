@@ -157,6 +157,25 @@ export const UsageSummary = Schema.Struct({
 });
 export type UsageSummary = typeof UsageSummary.Type;
 
+/** Prices token totals the client already has, such as one chat's turns. */
+export const UsagePriceInput = Schema.Struct({
+  items: Schema.Array(
+    Schema.Struct({
+      model: TrimmedNonEmptyString,
+      totals: UsageTokenTotals,
+      /** Anthropic bills 1-hour cache writes higher than 5-minute ones. */
+      cacheWriteTtl: Schema.optional(Schema.Literals(["5m", "1h"])),
+    }),
+  ),
+});
+export type UsagePriceInput = typeof UsagePriceInput.Type;
+
+export const UsagePriceResult = Schema.Struct({
+  items: Schema.Array(Schema.Struct({ costUsd: Schema.Number, costSource: UsageCostSource })),
+  pricing: UsagePricing,
+});
+export type UsagePriceResult = typeof UsagePriceResult.Type;
+
 export class UsageReadError extends Schema.TaggedError<UsageReadError>()("UsageReadError", {
   reason: Schema.Literals(["scanFailed", "invalidWindow"]),
   detail: TrimmedNonEmptyString,
