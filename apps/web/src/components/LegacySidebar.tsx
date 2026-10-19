@@ -4,6 +4,7 @@ import { Spinner } from "~/components/ui/spinner";
 import {
   ArchiveIcon,
   BotIcon,
+  CheckIcon,
   ArrowUpDownIcon,
   ChevronRightIcon,
   ChevronsDownUpIcon,
@@ -15,6 +16,7 @@ import {
   SearchIcon,
   SquarePenIcon,
   TriangleAlertIcon,
+  Undo2Icon,
 } from "lucide-react";
 import {
   ChangeRequestStatusIcon,
@@ -93,6 +95,7 @@ import { isMacPlatform } from "../lib/utils";
 import { useSidebarPendingFileDropStore } from "../sidebarPendingFileDropStore";
 import { makeWorkspaceFileDropHandlers } from "./chat/workspaceFileDrop";
 import {
+  readEnvironmentSupportsSettlement,
   readThreadShell,
   useProjects,
   useThreadShells,
@@ -375,6 +378,7 @@ interface SidebarThreadRowProps {
   ) => Promise<void>;
   cancelRename: () => void;
   attemptArchiveThread: (threadRef: ScopedThreadRef) => Promise<void>;
+  attemptSettleThread: (threadRef: ScopedThreadRef, settled: boolean) => Promise<void>;
   openPrLink: (
     event: React.MouseEvent<HTMLElement>,
     prUrl: string,
@@ -421,6 +425,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     commitRename,
     cancelRename,
     attemptArchiveThread,
+    attemptSettleThread,
     openPrLink,
     onFileDropThreads,
     thread,
@@ -515,11 +520,13 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     ? resolveThreadCurrentPullRequestLink(thread.pullRequests)
     : null;
   const prStatus = prStatusIndicator(pr, linkedPullRequestStatus?.sourceControlProvider);
+  const canSettleThread =
+    canOperateThread && readEnvironmentSupportsSettlement(thread.environmentId);
   const isConfirmingArchive =
     canOperateThread && confirmingArchiveThreadKey === threadKey && !isThreadRunning;
   const threadMetaClassName = isConfirmingArchive
     ? "pointer-events-none opacity-0"
-    : (canOperateThread && !isThreadRunning) || subagentCount > 0
+    : (canOperateThread && !isThreadRunning) || canSettleThread || subagentCount > 0
       ? "pointer-events-none transition-opacity duration-150 max-sm:pr-6 group-hover/menu-sub-item:opacity-0 group-focus-within/menu-sub-item:opacity-0"
       : "pointer-events-none";
   const clearConfirmingArchive = () => {
@@ -675,6 +682,12 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     event.preventDefault();
     event.stopPropagation();
     void attemptArchiveThread(threadRef);
+  };
+  const isSettled = isThreadSettled(thread);
+  const handleSettleClick = (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    void attemptSettleThread(threadRef, !isSettled);
   };
 
   return (
@@ -864,6 +877,37 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                 </Tooltip>
               </div>
             ) : null}
+            {canSettleThread && !isConfirmingArchive ? (
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <div
+                      className={cn(
+                        "pointer-events-none absolute top-1/2 -translate-y-1/2 opacity-0 transition-opacity duration-150 max-sm:pointer-events-auto max-sm:opacity-100 group-hover/menu-sub-item:pointer-events-auto group-hover/menu-sub-item:opacity-100 group-focus-within/menu-sub-item:pointer-events-auto group-focus-within/menu-sub-item:opacity-100",
+                        isThreadRunning ? "right-0.5" : "right-7",
+                      )}
+                    >
+                      <button
+                        type="button"
+                        data-thread-selection-safe
+                        data-testid={`thread-settle-${thread.id}`}
+                        aria-label={`${isSettled ? "Un-settle" : "Settle"} ${thread.title}`}
+                        className={SIDEBAR_ICON_ACTION_BUTTON_CLASS}
+                        onPointerDown={stopPropagationOnPointerDown}
+                        onClick={handleSettleClick}
+                      >
+                        {isSettled ? (
+                          <Undo2Icon className="size-3.5" />
+                        ) : (
+                          <CheckIcon className="size-3.5" />
+                        )}
+                      </button>
+                    </div>
+                  }
+                />
+                <TooltipPopup side="top">{isSettled ? "Un-settle" : "Settle"}</TooltipPopup>
+              </Tooltip>
+            ) : null}
             {isConfirmingArchive ? (
               <button
                 ref={handleConfirmArchiveRef}
@@ -1019,6 +1063,7 @@ interface SidebarProjectThreadListProps {
   ) => Promise<void>;
   cancelRename: () => void;
   attemptArchiveThread: (threadRef: ScopedThreadRef) => Promise<void>;
+  attemptSettleThread: (threadRef: ScopedThreadRef, settled: boolean) => Promise<void>;
   openPrLink: (
     event: React.MouseEvent<HTMLElement>,
     prUrl: string,
@@ -1080,6 +1125,7 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
     commitRename,
     cancelRename,
     attemptArchiveThread,
+    attemptSettleThread,
     openPrLink,
     expandThreadListForProject,
     collapseThreadListForProject,
@@ -1161,6 +1207,7 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
         commitRename={commitRename}
         cancelRename={cancelRename}
         attemptArchiveThread={attemptArchiveThread}
+        attemptSettleThread={attemptSettleThread}
         openPrLink={openPrLink}
       />
     );
@@ -1695,7 +1742,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     },
   });
   const openPrLink = useOpenPrLink();
-  const { pinThread, confirmAndUnpinThread } = useThreadActions();
+  const { pinThread, confirmAndUnpinThread, settleThread, unsettleThread } = useThreadActions();
   const {
     sidebarThreads,
     sidebarThreadByKey,
@@ -2458,6 +2505,21 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     }
   };
 
+  const attemptSettleThread = async (threadRef: ScopedThreadRef, settled: boolean) => {
+    if (!checkTaskPermission(threadRef.environmentId)) return;
+    const result = await (settled ? settleThread(threadRef) : unsettleThread(threadRef));
+    if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+      const error = squashAtomCommandFailure(result);
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: settled ? "Failed to settle thread" : "Failed to un-settle thread",
+          description: error instanceof Error ? error.message : "An error occurred.",
+        }),
+      );
+    }
+  };
+
   const cancelRename = () => {
     setRenamingThreadKey(null);
     renamingInputRef.current = null;
@@ -2638,6 +2700,15 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
                 : []),
             ],
           },
+          ...(readEnvironmentSupportsSettlement(thread.environmentId)
+            ? [
+                {
+                  id: "toggle-settled",
+                  label: isThreadSettled(thread) ? "Un-settle" : "Settle",
+                  disabled: !canOperateThread,
+                },
+              ]
+            : []),
           { id: "mark-unread", label: "Mark unread" },
           { id: "copy-path", label: "Copy Path" },
           { id: "copy-thread-id", label: "Copy Thread ID" },
@@ -2691,6 +2762,10 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
 
       if (clicked === "mark-unread") {
         markThreadUnread(threadRef);
+        return;
+      }
+      if (clicked === "toggle-settled") {
+        void attemptSettleThread(threadRef, !isThreadSettled(thread));
         return;
       }
       if (clicked === "sub-project:new") {
@@ -2960,6 +3035,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
           commitRename={commitRename}
           cancelRename={cancelRename}
           attemptArchiveThread={attemptArchiveThread}
+          attemptSettleThread={attemptSettleThread}
           openPrLink={openPrLink}
           expandThreadListForProject={expandThreadListForProject}
           collapseThreadListForProject={collapseThreadListForProject}
