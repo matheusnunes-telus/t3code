@@ -8,7 +8,7 @@ import type { ScopedThreadRef } from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
 import { useRouter } from "@tanstack/react-router";
 import { XIcon } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { useChatTabsStore } from "../chatTabsStore";
 import { useComposerDraftStore } from "../composerDraftStore";
@@ -28,6 +28,8 @@ import { ProjectFavicon } from "./ProjectFavicon";
 import { primaryServerKeybindingsAtom } from "../state/server";
 import { buildThreadRouteParams } from "../threadRoutes";
 import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "../workspaceTitlebar";
+
+const CHAT_TAB_DRAG_TYPE = "application/x-t3-chat-tab";
 
 function useNavigateToThreadKey() {
   const router = useRouter();
@@ -53,6 +55,16 @@ export function ChatTabsBar() {
   const closeTab = useChatTabsStore((state) => state.closeTab);
   const popClosedTab = useChatTabsStore((state) => state.popClosedTab);
   const removeTabs = useChatTabsStore((state) => state.removeTabs);
+  const moveTab = useChatTabsStore((state) => state.moveTab);
+  // Drag a tab sideways to reorder; the drop indicator sits on the hovered tab's near edge.
+  const [draggingTabKey, setDraggingTabKey] = useState<string | null>(null);
+  const [tabDropTarget, setTabDropTarget] = useState<{ index: number; after: boolean } | null>(
+    null,
+  );
+  const endTabDrag = () => {
+    setDraggingTabKey(null);
+    setTabDropTarget(null);
+  };
   const threads = useThreadShells();
   const threadLastVisitedAtById = useUiStateStore((state) => state.threadLastVisitedAtById);
   const projects = useProjects();
@@ -157,7 +169,7 @@ export function ChatTabsBar() {
       )}
       data-chat-tabs-bar
     >
-      {tabs.map((tab) => {
+      {tabs.map((tab, index) => {
         const thread = threadByKey.get(tab.threadKey);
         const isActive = tab.threadKey === activeThreadKey;
         const isRunning = thread ? !threadRuntimeCanArchive(thread.runtime) : false;
@@ -181,6 +193,7 @@ export function ChatTabsBar() {
             key={tab.threadKey}
             role="tab"
             tabIndex={0}
+            draggable
             aria-selected={isActive}
             aria-label={tab.preview ? `${title} (preview)` : title}
             className={cn(
@@ -188,7 +201,41 @@ export function ChatTabsBar() {
               isActive
                 ? "border-border bg-background text-foreground"
                 : "border-transparent text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+              draggingTabKey === tab.threadKey && "opacity-50",
+              tabDropTarget?.index === index &&
+                (tabDropTarget.after
+                  ? "shadow-[inset_-2px_0_0_0_var(--color-primary)]"
+                  : "shadow-[inset_2px_0_0_0_var(--color-primary)]"),
             )}
+            onDragStart={(event) => {
+              event.dataTransfer.effectAllowed = "move";
+              event.dataTransfer.setData(CHAT_TAB_DRAG_TYPE, tab.threadKey);
+              setDraggingTabKey(tab.threadKey);
+            }}
+            onDragOver={(event) => {
+              if (!draggingTabKey) return;
+              event.preventDefault();
+              event.dataTransfer.dropEffect = "move";
+              const rect = event.currentTarget.getBoundingClientRect();
+              const after = event.clientX > rect.left + rect.width / 2;
+              if (tabDropTarget?.index !== index || tabDropTarget.after !== after) {
+                setTabDropTarget({ index, after });
+              }
+            }}
+            onDragLeave={() => setTabDropTarget(null)}
+            onDrop={(event) => {
+              if (!draggingTabKey) return;
+              event.preventDefault();
+              const fromIndex = tabs.findIndex(
+                (candidate) => candidate.threadKey === draggingTabKey,
+              );
+              const after = tabDropTarget?.after ?? false;
+              let toIndex = index + (after ? 1 : 0);
+              if (fromIndex !== -1 && fromIndex < toIndex) toIndex -= 1;
+              moveTab(draggingTabKey, toIndex);
+              endTabDrag();
+            }}
+            onDragEnd={endTabDrag}
             onClick={() => {
               if (!isActive) void navigateToThreadKey(tab.threadKey);
             }}
