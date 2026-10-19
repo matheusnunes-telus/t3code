@@ -708,6 +708,15 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                 ),
           isFileDragOver && "ring-1 ring-inset ring-primary/70",
         )}
+        draggable={renamingThreadKey !== threadKey}
+        onDragStart={(event) => {
+          event.dataTransfer.effectAllowed = "move";
+          event.dataTransfer.setData(THREAD_DRAG_TYPE, threadKey);
+          draggedThreadKey = threadKey;
+        }}
+        onDragEnd={() => {
+          draggedThreadKey = null;
+        }}
         onClick={handleRowClick}
         onDoubleClick={handleRowDoubleClick}
         onKeyDown={handleRowKeyDown}
@@ -1021,6 +1030,7 @@ interface SidebarProjectThreadListProps {
   onToggleSubProject: (subProjectId: string) => void;
   onSubProjectContextMenu: (subProject: SubProject, position: { x: number; y: number }) => void;
   onMoveSubProject: (subProjectId: string, toIndex: number) => void;
+  onAssignThreadToSubProject: (threadKey: string, subProjectId: string) => void;
   onCreateThreadInSubProject: (
     event: React.MouseEvent<HTMLButtonElement>,
     subProjectId: string,
@@ -1028,6 +1038,10 @@ interface SidebarProjectThreadListProps {
 }
 
 const SUB_PROJECT_DRAG_TYPE = "application/x-t3-sub-project";
+const THREAD_DRAG_TYPE = "application/x-t3-thread";
+// The drag payload can't be read during dragover, so the dragged chat is kept here
+// to check that a drop target belongs to the chat's own project.
+let draggedThreadKey: string | null = null;
 
 const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
   props: SidebarProjectThreadListProps,
@@ -1073,10 +1087,16 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
     onToggleSubProject,
     onSubProjectContextMenu,
     onMoveSubProject,
+    onAssignThreadToSubProject,
     onCreateThreadInSubProject,
   } = props;
   // Drag a sub-project header onto another one to reorder them.
   const [draggingSubProjectId, setDraggingSubProjectId] = useState<string | null>(null);
+  const [threadDropSubProjectId, setThreadDropSubProjectId] = useState<string | null>(null);
+  const acceptsThreadDrop = (event: React.DragEvent) =>
+    draggedThreadKey !== null &&
+    event.dataTransfer.types.includes(THREAD_DRAG_TYPE) &&
+    orderedProjectThreadKeys.includes(draggedThreadKey);
   const [subProjectDropTarget, setSubProjectDropTarget] = useState<{
     index: number;
     after: boolean;
@@ -1181,10 +1201,32 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
           // nested thread rows would all show their hover actions together.
           <li
             key={subProject.id}
-            className="relative w-full"
+            className={cn(
+              "relative w-full rounded-md",
+              threadDropSubProjectId === subProject.id && "ring-1 ring-primary/70",
+            )}
             data-sidebar="menu-sub-item"
             data-slot="sidebar-menu-sub-item"
             data-thread-selection-safe
+            onDragOver={(event) => {
+              if (!acceptsThreadDrop(event)) return;
+              event.preventDefault();
+              event.dataTransfer.dropEffect = "move";
+              if (threadDropSubProjectId !== subProject.id) {
+                setThreadDropSubProjectId(subProject.id);
+              }
+            }}
+            onDragLeave={(event) => {
+              if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+              setThreadDropSubProjectId((current) => (current === subProject.id ? null : current));
+            }}
+            onDrop={(event) => {
+              if (!acceptsThreadDrop(event) || draggedThreadKey === null) return;
+              event.preventDefault();
+              onAssignThreadToSubProject(draggedThreadKey, subProject.id);
+              draggedThreadKey = null;
+              setThreadDropSubProjectId(null);
+            }}
           >
             <div className="group/sub-project-header relative">
               <button
@@ -1720,6 +1762,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     | null
   >(null);
   const [subProjectName, setSubProjectName] = useState("");
+  const [isThreadDropOverHeader, setIsThreadDropOverHeader] = useState(false);
   const openCreateSubProjectDialog = (assignThreadKey: string | null) => {
     setSubProjectName("");
     setSubProjectDialog({ mode: "create", assignThreadKey });
@@ -2733,7 +2776,35 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         )}
         data-project-bubble
       >
-        <div className="group/project-header relative">
+        <div
+          className={cn(
+            "group/project-header relative rounded-md",
+            isThreadDropOverHeader && "ring-1 ring-primary/70",
+          )}
+          onDragOver={(event) => {
+            if (
+              draggedThreadKey === null ||
+              !event.dataTransfer.types.includes(THREAD_DRAG_TYPE) ||
+              !orderedProjectThreadKeys.includes(draggedThreadKey)
+            ) {
+              return;
+            }
+            event.preventDefault();
+            event.dataTransfer.dropEffect = "move";
+            setIsThreadDropOverHeader(true);
+          }}
+          onDragLeave={(event) => {
+            if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+            setIsThreadDropOverHeader(false);
+          }}
+          onDrop={(event) => {
+            if (draggedThreadKey === null || !isThreadDropOverHeader) return;
+            event.preventDefault();
+            assignThreadToSubProject(draggedThreadKey, null);
+            draggedThreadKey = null;
+            setIsThreadDropOverHeader(false);
+          }}
+        >
           <SidebarMenuButton
             ref={isManualProjectSorting ? dragHandleProps?.setActivatorNodeRef : undefined}
             className={isManualProjectSorting ? "cursor-grab active:cursor-grabbing" : undefined}
@@ -2898,6 +2969,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
           onMoveSubProject={(subProjectId, toIndex) =>
             moveSubProject(project.projectKey, subProjectId, toIndex)
           }
+          onAssignThreadToSubProject={assignThreadToSubProject}
           onCreateThreadInSubProject={(event, subProjectId) =>
             handleCreateThreadClick(event, subProjectId)
           }
