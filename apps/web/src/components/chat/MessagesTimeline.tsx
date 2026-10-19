@@ -35,6 +35,7 @@ import {
 } from "@t3tools/contracts";
 import { parseScopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { useAtomValue } from "@effect/atom-react";
+import { serverEnvironment } from "../../state/server";
 import { environmentThreadDetails } from "../../state/threads";
 import { resolveUserMessagePresentation } from "@t3tools/client-runtime/user-message";
 import { Link } from "@tanstack/react-router";
@@ -2704,6 +2705,21 @@ function AssistantMessageMeta({
   alwaysVisible?: boolean;
 }) {
   const ctx = use(TimelineRowCtx);
+  // Chats imported from other assistants may have no run, or a run with no model.
+  const runId = projectedItem?.item.runId ?? null;
+  const run = runId === null ? undefined : ctx.runs.find((candidate) => candidate.id === runId);
+  const providerDisplayName = useAtomValue(
+    serverEnvironment.providersValueAtom(ctx.activeThreadEnvironmentId),
+    (providers) =>
+      run === undefined
+        ? undefined
+        : providers?.find((provider) => provider.instanceId === run.providerInstanceId)
+            ?.displayName,
+  );
+  const responderLabel =
+    run === undefined
+      ? null
+      : `${run.modelSelection.model || "Unknown model"} · ${providerDisplayName ?? run.providerInstanceId}`;
 
   return (
     <div
@@ -2735,6 +2751,7 @@ function AssistantMessageMeta({
           </TooltipTrigger>
           <TooltipPopup>
             {formatChatTimestampTooltip(message.updatedAt, ctx.timestampFormat)}
+            {responderLabel ? <div className="text-muted-foreground">{responderLabel}</div> : null}
           </TooltipPopup>
         </Tooltip>
       )}
