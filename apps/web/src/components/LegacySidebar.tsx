@@ -1021,6 +1021,10 @@ interface SidebarProjectThreadListProps {
   onToggleSubProject: (subProjectId: string) => void;
   onSubProjectContextMenu: (subProject: SubProject, position: { x: number; y: number }) => void;
   onMoveSubProject: (subProjectId: string, toIndex: number) => void;
+  onCreateThreadInSubProject: (
+    event: React.MouseEvent<HTMLButtonElement>,
+    subProjectId: string,
+  ) => void;
 }
 
 const SUB_PROJECT_DRAG_TYPE = "application/x-t3-sub-project";
@@ -1069,6 +1073,7 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
     onToggleSubProject,
     onSubProjectContextMenu,
     onMoveSubProject,
+    onCreateThreadInSubProject,
   } = props;
   // Drag a sub-project header onto another one to reorder them.
   const [draggingSubProjectId, setDraggingSubProjectId] = useState<string | null>(null);
@@ -1181,68 +1186,94 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
             data-slot="sidebar-menu-sub-item"
             data-thread-selection-safe
           >
-            <button
-              type="button"
-              draggable
-              data-thread-selection-safe
-              className={cn(
-                "relative flex h-7 w-full cursor-pointer items-center gap-1.5 rounded-md px-2 text-left text-xs font-medium text-sidebar-muted-foreground hover:bg-sidebar-row-hover hover:text-sidebar-foreground",
-                draggingSubProjectId === subProject.id && "opacity-50",
-                subProjectDropTarget?.index === index &&
-                  (subProjectDropTarget.after
-                    ? "after:absolute after:inset-x-1 after:-bottom-0.5 after:h-0.5 after:rounded-full after:bg-primary"
-                    : "before:absolute before:inset-x-1 before:-top-0.5 before:h-0.5 before:rounded-full before:bg-primary"),
-              )}
-              onDragStart={(event) => {
-                event.stopPropagation();
-                event.dataTransfer.effectAllowed = "move";
-                event.dataTransfer.setData(SUB_PROJECT_DRAG_TYPE, subProject.id);
-                setDraggingSubProjectId(subProject.id);
-              }}
-              onDragOver={(event) => {
-                if (!draggingSubProjectId) return;
-                event.preventDefault();
-                event.dataTransfer.dropEffect = "move";
-                const rect = event.currentTarget.getBoundingClientRect();
-                const after = event.clientY > rect.top + rect.height / 2;
-                if (subProjectDropTarget?.index !== index || subProjectDropTarget.after !== after) {
-                  setSubProjectDropTarget({ index, after });
-                }
-              }}
-              onDragLeave={(event) => {
-                if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
-                setSubProjectDropTarget(null);
-              }}
-              onDrop={(event) => {
-                if (!draggingSubProjectId) return;
-                event.preventDefault();
-                const fromIndex = subProjectSections.findIndex(
-                  (section) => section.subProject.id === draggingSubProjectId,
-                );
-                const rect = event.currentTarget.getBoundingClientRect();
-                let toIndex = event.clientY > rect.top + rect.height / 2 ? index + 1 : index;
-                // The dragged section leaves its old slot first.
-                if (fromIndex !== -1 && fromIndex < toIndex) toIndex -= 1;
-                onMoveSubProject(draggingSubProjectId, toIndex);
-                endSubProjectDrag();
-              }}
-              onDragEnd={endSubProjectDrag}
-              onClick={() => onToggleSubProject(subProject.id)}
-              onContextMenu={(event) => {
-                event.preventDefault();
-                onSubProjectContextMenu(subProject, { x: event.clientX, y: event.clientY });
-              }}
-            >
-              <ChevronRightIcon
+            <div className="group/sub-project-header relative">
+              <button
+                type="button"
+                draggable
+                data-thread-selection-safe
                 className={cn(
-                  "size-3 shrink-0 transition-transform duration-150",
-                  !collapsed && "rotate-90",
+                  "relative flex h-7 w-full cursor-pointer items-center gap-1.5 rounded-md px-2 text-left text-xs font-medium text-sidebar-muted-foreground hover:bg-sidebar-row-hover hover:text-sidebar-foreground",
+                  draggingSubProjectId === subProject.id && "opacity-50",
+                  subProjectDropTarget?.index === index &&
+                    (subProjectDropTarget.after
+                      ? "after:absolute after:inset-x-1 after:-bottom-0.5 after:h-0.5 after:rounded-full after:bg-primary"
+                      : "before:absolute before:inset-x-1 before:-top-0.5 before:h-0.5 before:rounded-full before:bg-primary"),
                 )}
-              />
-              <FolderIcon className="size-3.5 shrink-0" />
-              <span className="min-w-0 flex-1 truncate">{subProject.name}</span>
-              <span className="text-3xs tabular-nums text-secondary-label">{threads.length}</span>
-            </button>
+                onDragStart={(event) => {
+                  event.stopPropagation();
+                  event.dataTransfer.effectAllowed = "move";
+                  event.dataTransfer.setData(SUB_PROJECT_DRAG_TYPE, subProject.id);
+                  setDraggingSubProjectId(subProject.id);
+                }}
+                onDragOver={(event) => {
+                  if (!draggingSubProjectId) return;
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = "move";
+                  const rect = event.currentTarget.getBoundingClientRect();
+                  const after = event.clientY > rect.top + rect.height / 2;
+                  if (
+                    subProjectDropTarget?.index !== index ||
+                    subProjectDropTarget.after !== after
+                  ) {
+                    setSubProjectDropTarget({ index, after });
+                  }
+                }}
+                onDragLeave={(event) => {
+                  if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+                  setSubProjectDropTarget(null);
+                }}
+                onDrop={(event) => {
+                  if (!draggingSubProjectId) return;
+                  event.preventDefault();
+                  const fromIndex = subProjectSections.findIndex(
+                    (section) => section.subProject.id === draggingSubProjectId,
+                  );
+                  const rect = event.currentTarget.getBoundingClientRect();
+                  let toIndex = event.clientY > rect.top + rect.height / 2 ? index + 1 : index;
+                  // The dragged section leaves its old slot first.
+                  if (fromIndex !== -1 && fromIndex < toIndex) toIndex -= 1;
+                  onMoveSubProject(draggingSubProjectId, toIndex);
+                  endSubProjectDrag();
+                }}
+                onDragEnd={endSubProjectDrag}
+                onClick={() => onToggleSubProject(subProject.id)}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  onSubProjectContextMenu(subProject, { x: event.clientX, y: event.clientY });
+                }}
+              >
+                <ChevronRightIcon
+                  className={cn(
+                    "size-3 shrink-0 transition-transform duration-150",
+                    !collapsed && "rotate-90",
+                  )}
+                />
+                <FolderIcon className="size-3.5 shrink-0" />
+                <span className="min-w-0 flex-1 truncate">{subProject.name}</span>
+                <span className="text-3xs tabular-nums text-secondary-label transition-opacity duration-150 group-hover/sub-project-header:opacity-0 group-focus-within/sub-project-header:opacity-0">
+                  {threads.length}
+                </span>
+              </button>
+              <div className="pointer-events-none absolute top-1/2 right-1 -translate-y-1/2 opacity-0 transition-opacity duration-150 max-sm:pointer-events-auto max-sm:opacity-100 group-hover/sub-project-header:pointer-events-auto group-hover/sub-project-header:opacity-100 group-focus-within/sub-project-header:pointer-events-auto group-focus-within/sub-project-header:opacity-100">
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <button
+                        type="button"
+                        data-thread-selection-safe
+                        aria-label={`Create new thread in ${subProject.name}`}
+                        data-testid="new-sub-project-thread-button"
+                        className={SIDEBAR_ICON_ACTION_BUTTON_CLASS}
+                        onClick={(event) => onCreateThreadInSubProject(event, subProject.id)}
+                      />
+                    }
+                  >
+                    <SquarePenIcon className="size-3.5" />
+                  </TooltipTrigger>
+                  <TooltipPopup side="top">New thread</TooltipPopup>
+                </Tooltip>
+              </div>
+            </div>
             {!collapsed && threads.length > 0 ? (
               <ul className="ml-3 flex flex-col gap-1 border-l border-sidebar-border/70 pl-1 pt-1">
                 {(expandedSubProjectIds.has(subProject.id)
@@ -2285,7 +2316,10 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     );
   };
 
-  const createThreadForProjectMember = (member: SidebarProjectGroupMember) => {
+  const createThreadForProjectMember = (
+    member: SidebarProjectGroupMember,
+    subProjectId?: string,
+  ) => {
     if (isMobile) {
       setOpenMobile(false);
     }
@@ -2293,6 +2327,12 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       const result = await settlePromise(() =>
         handleNewThread(scopeProjectRef(member.environmentId, member.id)),
       );
+      if (result._tag === "Success" && result.value && subProjectId) {
+        assignThreadToSubProject(
+          scopedThreadKey(scopeThreadRef(member.environmentId, result.value.threadId)),
+          subProjectId,
+        );
+      }
       if (result._tag === "Failure") {
         const error = squashAtomCommandFailure(result);
         toastManager.add(
@@ -2306,12 +2346,15 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     })();
   };
 
-  const handleCreateThreadClick = (event: React.MouseEvent<HTMLButtonElement>) => {
+  const handleCreateThreadClick = (
+    event: React.MouseEvent<HTMLButtonElement>,
+    subProjectId?: string,
+  ) => {
     event.preventDefault();
     event.stopPropagation();
 
     if (project.memberProjects.length === 1) {
-      createThreadForProjectMember(project.memberProjects[0]!);
+      createThreadForProjectMember(project.memberProjects[0]!, subProjectId);
       return;
     }
 
@@ -2353,7 +2396,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       if (!targetMember) {
         return;
       }
-      createThreadForProjectMember(targetMember);
+      createThreadForProjectMember(targetMember, subProjectId);
     })();
   };
 
@@ -2854,6 +2897,9 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
           onSubProjectContextMenu={handleSubProjectContextMenu}
           onMoveSubProject={(subProjectId, toIndex) =>
             moveSubProject(project.projectKey, subProjectId, toIndex)
+          }
+          onCreateThreadInSubProject={(event, subProjectId) =>
+            handleCreateThreadClick(event, subProjectId)
           }
         />
         {projectExpanded && childProjects.length > 0 ? (
