@@ -141,6 +141,8 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "mod+w", command: "chatTab.close", when: "!previewFocus && !terminalFocus" },
   { key: "mod+shift+t", command: "view.reopenClosed", when: "previewFocus" },
   { key: "mod+shift+t", command: "chatTab.reopenClosed", when: "!previewFocus" },
+  { key: "ctrl+tab", command: "chatTab.cycleRecent", when: "!terminalFocus" },
+  { key: "ctrl+shift+tab", command: "chatTab.cycleRecentReverse", when: "!terminalFocus" },
   { key: "mod+d", command: "diff.toggle", when: "!terminalFocus" },
   { key: "mod+shift+j", command: "preview.toggle" },
   { key: "mod+r", command: "preview.refresh", when: "previewFocus" },

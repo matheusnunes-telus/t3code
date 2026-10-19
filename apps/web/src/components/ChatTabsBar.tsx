@@ -10,6 +10,12 @@ import { useRouter } from "@tanstack/react-router";
 import { XIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
+import {
+  moveToFront,
+  type RecentTabCycle,
+  startRecentTabCycle,
+  stepRecentTabCycle,
+} from "../chatTabCycle";
 import { useChatTabsStore } from "../chatTabsStore";
 import { useComposerDraftStore } from "../composerDraftStore";
 import { isCommandPaletteOpen } from "../commandPaletteBus";
@@ -112,6 +118,45 @@ export function ChatTabsBar() {
     removeTabs(new Set(archivedTabKeysSignature.split("|")));
   }, [archivedTabKeysSignature, removeTabs]);
 
+  // Most recently used tab first. Ctrl+Tab walks back through it while Ctrl stays down,
+  // and the tab you stop on becomes the most recent one when Ctrl is released.
+  const recentTabKeysRef = useRef<string[]>([]);
+  const recentCycleRef = useRef<RecentTabCycle | null>(null);
+  useEffect(() => {
+    if (!activeThreadKey || recentCycleRef.current) return;
+    recentTabKeysRef.current = moveToFront(recentTabKeysRef.current, activeThreadKey);
+  }, [activeThreadKey]);
+  const cycleRecentTab = (direction: 1 | -1) => {
+    const started =
+      recentCycleRef.current ??
+      startRecentTabCycle(
+        recentTabKeysRef.current,
+        useChatTabsStore.getState().tabs.map((tab) => tab.threadKey),
+        activeThreadKey,
+      );
+    const cycle = stepRecentTabCycle(started, direction);
+    recentCycleRef.current = cycle;
+    if (cycle !== started) void navigateToThreadKey(cycle.keys[cycle.index] ?? null);
+  };
+  const finishRecentCycle = useStableCallback(() => {
+    const cycle = recentCycleRef.current;
+    if (!cycle) return;
+    recentCycleRef.current = null;
+    const key = cycle.keys[cycle.index];
+    if (key) recentTabKeysRef.current = moveToFront(recentTabKeysRef.current, key);
+  });
+  useEffect(() => {
+    const onKeyUp = (event: KeyboardEvent) => {
+      if (event.key === "Control") finishRecentCycle();
+    };
+    window.addEventListener("keyup", onKeyUp, true);
+    window.addEventListener("blur", finishRecentCycle);
+    return () => {
+      window.removeEventListener("keyup", onKeyUp, true);
+      window.removeEventListener("blur", finishRecentCycle);
+    };
+  }, [finishRecentCycle]);
+
   const handleCloseTab = (threadKey: string) => {
     const next = closeTab(threadKey);
     if (threadKey === activeThreadKey) void navigateToThreadKey(next);
@@ -145,6 +190,12 @@ export function ChatTabsBar() {
       if (event.repeat) return;
       const reopened = popClosedTab();
       if (reopened) void navigateToThreadKey(reopened);
+      return;
+    }
+    if (command === "chatTab.cycleRecent" || command === "chatTab.cycleRecentReverse") {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!event.repeat) cycleRecentTab(command === "chatTab.cycleRecent" ? 1 : -1);
       return;
     }
     if (command === "chatTab.new") {

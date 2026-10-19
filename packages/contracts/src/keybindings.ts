@@ -74,6 +74,8 @@ export const STATIC_KEYBINDING_COMMANDS = [
   "chatTab.new",
   "chatTab.close",
   "chatTab.reopenClosed",
+  "chatTab.cycleRecent",
+  "chatTab.cycleRecentReverse",
   "pullRequest.copyNumber",
   "diff.toggle",
   "preview.toggle",

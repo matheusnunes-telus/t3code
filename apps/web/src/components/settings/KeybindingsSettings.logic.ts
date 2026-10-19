@@ -371,6 +371,8 @@ export function commandLabel(command: KeybindingCommand): string {
   if (command === "chatTab.new") return "Chat Tabs: New Tab";
   if (command === "chatTab.close") return "Chat Tabs: Close Tab";
   if (command === "chatTab.reopenClosed") return "Chat Tabs: Reopen Closed Tab";
+  if (command === "chatTab.cycleRecent") return "Chat Tabs: Previous Used Tab";
+  if (command === "chatTab.cycleRecentReverse") return "Chat Tabs: Next Used Tab";
   if (command === "preview.focusUrl") return "Preview: Focus URL";
   const raw = String(command);
   if (raw.startsWith("script.") && raw.endsWith(".run")) {
