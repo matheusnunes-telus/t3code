@@ -3341,6 +3341,43 @@ export default function ChatView(props: ChatViewProps) {
     }
   };
   const sendAppMessageStable = useStableCallback(sendAppMessage);
+  const onResendMessage = async (messageId: MessageId) => {
+    const sourceMessage = serverProjection?.messages.find((message) => message.id === messageId);
+    if (
+      !activeThread ||
+      !isServerThread ||
+      activeThreadId === null ||
+      !sourceMessage ||
+      sourceMessage.role !== "user"
+    ) {
+      return;
+    }
+    setThreadError(activeThread.id, null);
+    const result = await startThreadTurn({
+      environmentId,
+      input: {
+        threadId: activeThreadId,
+        message: {
+          messageId: newMessageId(),
+          role: "user",
+          text: sourceMessage.text,
+          attachments: sourceMessage.attachments ?? [],
+          ...(sourceMessage.context ? { context: sourceMessage.context } : {}),
+        },
+        runtimeMode,
+        interactionMode,
+        dispatchMode: "start",
+      },
+    });
+    if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+      const error = squashAtomCommandFailure(result);
+      setThreadError(
+        activeThread.id,
+        error instanceof Error ? error.message : "Could not re-send the message.",
+      );
+    }
+  };
+  const onResendMessageStable = useStableCallback(onResendMessage);
   const queuedRunsControlRef = useRef<QueuedRunsControlHandle>(null);
   const addTerminalContextToDraft = (selection: TerminalContextSelection) => {
     composerRef.current?.addTerminalContext(selection);
@@ -8115,6 +8152,7 @@ export default function ChatView(props: ChatViewProps) {
                   ? {
                       onUseArtifactTemplate: useArtifactTemplateStable,
                       onSendAppMessage: sendAppMessageStable,
+                      onResendMessage: onResendMessageStable,
                     }
                   : {})}
                 isRevertingCheckpoint={isRevertingCheckpoint}

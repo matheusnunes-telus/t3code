@@ -143,6 +143,7 @@ import {
   SmartphoneIcon,
   SquarePenIcon,
   TerminalIcon,
+  RotateCwIcon,
   Undo2Icon,
   HammerIcon,
   WrenchIcon,
@@ -320,6 +321,7 @@ interface TimelineRowSharedState {
   onRevertToTurnCount: (targetTurnCount: number, messageId: MessageId) => void;
   onUseArtifactTemplate: (template: CodexArtifactTemplate) => void;
   onSendAppMessage: ((text: string) => Promise<void>) | undefined;
+  onResendMessage: ((messageId: MessageId) => Promise<void>) | undefined;
   onAppFullscreenChange: (rowId: string, fullscreen: boolean) => void;
   onRunShellCommand: ((command: string) => void) | undefined;
   findActive: boolean;
@@ -481,6 +483,7 @@ interface MessagesTimelineProps {
   onRevertToTurnCount: (targetTurnCount: number, messageId: MessageId) => void;
   onUseArtifactTemplate?: (template: CodexArtifactTemplate) => void;
   onSendAppMessage?: (text: string) => Promise<void>;
+  onResendMessage?: (messageId: MessageId) => Promise<void>;
   onRunShellCommand?: (command: string) => void;
   isRevertingCheckpoint: boolean;
   onImageExpand: (preview: ExpandedImagePreview) => void;
@@ -576,6 +579,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   onRevertToTurnCount,
   onUseArtifactTemplate = NOOP_USE_ARTIFACT_TEMPLATE,
   onSendAppMessage,
+  onResendMessage,
   onRunShellCommand,
   isRevertingCheckpoint,
   onImageExpand,
@@ -1225,6 +1229,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
     onFileOpen,
     onUseArtifactTemplate,
     onSendAppMessage,
+    onResendMessage,
     onAppFullscreenChange,
     onFileDownload,
     openPullRequest,
@@ -2373,6 +2378,9 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
             {typeof revertTurnCount === "number" && (
               <RevertUserMessageButton turnCount={revertTurnCount} messageId={row.message.id} />
             )}
+            {ctx.onResendMessage !== undefined && (
+              <ResendUserMessageButton messageId={row.message.id} />
+            )}
             {resolvedContext.text && (
               <MessageCopyButton
                 text={contextClipboardFragment ? resolvedContext.text : plainText}
@@ -2463,6 +2471,31 @@ function resolvePreviewAnnotationImage(input: {
     ) ??
     input.previewImages[input.annotationRecordIds.indexOf(input.record.contextId)] ??
     null
+  );
+}
+
+function ResendUserMessageButton({ messageId }: { messageId: MessageId }) {
+  const ctx = use(TimelineRowCtx);
+  const activity = use(TimelineRowActivityCtx);
+
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            type="button"
+            size="xs"
+            variant="ghost"
+            disabled={activity.isRevertingCheckpoint || activity.isWorking}
+            onClick={() => void ctx.onResendMessage?.(messageId)}
+            aria-label="Re-send message"
+          />
+        }
+      >
+        <RotateCwIcon className="size-3" />
+      </TooltipTrigger>
+      <TooltipPopup side="top">Re-send message</TooltipPopup>
+    </Tooltip>
   );
 }
 
