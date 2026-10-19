@@ -56,3 +56,31 @@ it.effect("reuses an item's position without attempting another allocation inser
     );
   }).pipe(Effect.provide(layerTest)),
 );
+
+it.effect("keeps runs in the order their items were created", () =>
+  Effect.gen(function* () {
+    const positions = yield* TurnItemPositionStore.TurnItemPositionStoreV2;
+    const threadId = ThreadId.make("thread:queued-run-order");
+    const item = (name: string, run: number, runBucket?: number) =>
+      positions.allocate({
+        threadId,
+        turnItemId: TurnItemId.make(name),
+        runId: RunId.make(`run:${run}`),
+        runOrdinal: run,
+        ...(runBucket === undefined ? {} : { runBucket }),
+      });
+
+    // Runs in the order they started: positions follow the run number.
+    assert.equal(yield* item("a1", 1), 1_000_001);
+    assert.equal(yield* item("a2", 1), 1_000_002);
+    assert.equal(yield* item("b1", 2), 2_000_001);
+
+    // Run 3 was queued first but starts after run 4 (queued later, sent right away).
+    assert.equal(yield* item("d1", 4), 4_000_001);
+    const queuedFirst = yield* item("c1", 3);
+    assert.equal(queuedFirst, 4_000_002);
+    // Its later items stay with it, even after run 5 has started.
+    assert.equal(yield* item("e1", 5), 5_000_001);
+    assert.equal(yield* item("c2", 3, Math.floor(queuedFirst / 1_000_000)), 4_000_003);
+  }).pipe(Effect.provide(layerTest)),
+);

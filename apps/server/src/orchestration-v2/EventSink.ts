@@ -313,6 +313,9 @@ const layerBase: Layer.Layer<
             : [],
         ),
       );
+      // Items of one run share a position bucket. The projection has not seen this write's
+      // earlier items yet, so the bucket chosen for a run here is passed on to its next items.
+      const runBuckets = new Map<string, number>();
       return Effect.forEach(
         events,
         (event): Effect.Effect<OrchestrationV2DomainEvent, unknown> =>
@@ -321,8 +324,18 @@ const layerBase: Layer.Layer<
                 .normalize(
                   event.payload,
                   event.payload.runId === null ? undefined : runOrdinals.get(event.payload.runId),
+                  event.payload.runId === null ? undefined : runBuckets.get(event.payload.runId),
                 )
-                .pipe(Effect.map((payload) => ({ ...event, payload })))
+                .pipe(
+                  Effect.tap((payload) =>
+                    Effect.sync(() => {
+                      if (payload.runId !== null && !runBuckets.has(payload.runId)) {
+                        runBuckets.set(payload.runId, Math.floor(payload.ordinal / 1_000_000));
+                      }
+                    }),
+                  ),
+                  Effect.map((payload) => ({ ...event, payload })),
+                )
             : Effect.succeed(event),
         { concurrency: 1 },
       );
