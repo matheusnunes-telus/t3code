@@ -22,6 +22,7 @@ import {
   expandCollapsedComposerCursor,
   formatAssistantCitationForComposer,
   isCollapsedCursorAdjacentToInlineToken,
+  parseSideChatComposerCommand,
   parseStandaloneComposerSlashCommand,
   replaceTextRange,
 } from "./composer-logic";
@@ -817,6 +818,28 @@ describe("isCollapsedCursorAdjacentToInlineToken", () => {
 
     expect(isCollapsedCursorAdjacentToInlineToken(text, tokenEnd, "left")).toBe(true);
     expect(isCollapsedCursorAdjacentToInlineToken(text, tokenStart, "right")).toBe(true);
+  });
+});
+
+describe("parseSideChatComposerCommand", () => {
+  it("returns the question after /btw", () => {
+    expect(parseSideChatComposerCommand("/btw what does this flag do?")).toBe(
+      "what does this flag do?",
+    );
+    expect(parseSideChatComposerCommand("  /BTW   first line\nsecond line  ")).toBe(
+      "first line\nsecond line",
+    );
+  });
+
+  it("returns an empty question for a bare /btw", () => {
+    expect(parseSideChatComposerCommand("/btw")).toBe("");
+    expect(parseSideChatComposerCommand(" /btw  ")).toBe("");
+  });
+
+  it("ignores other text", () => {
+    expect(parseSideChatComposerCommand("/btwx hello")).toBeNull();
+    expect(parseSideChatComposerCommand("by the way /btw hello")).toBeNull();
+    expect(parseSideChatComposerCommand("/plan")).toBeNull();
   });
 });
 

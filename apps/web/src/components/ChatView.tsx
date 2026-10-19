@@ -38,6 +38,7 @@ import {
 } from "@t3tools/shared/orchestrationV2ThreadError";
 import type { UsageLimitSourceSnapshots } from "@t3tools/contracts";
 import { isUsageLimitsCommand } from "@t3tools/shared/usageLimits";
+import { useChatTabsStore } from "../chatTabsStore";
 import { feedbackBannerItem } from "./chat/ComposerFeedback";
 import { useUsageLimitsPanel } from "./chat/useUsageLimitsPanel";
 import { useWorktreeSetup } from "./chat/useWorktreeSetup";
@@ -169,6 +170,7 @@ import { useActiveThreadRef } from "../hooks/useActiveThreadRef";
 import {
   type ComposerSubmissionIntent,
   collapseExpandedComposerCursor,
+  parseSideChatComposerCommand,
   parseStandaloneComposerSlashCommand,
 } from "../composer-logic";
 import {
@@ -5833,6 +5835,103 @@ export default function ChatView(props: ChatViewProps) {
     });
   };
   const onForkFromRunStable = useStableCallback(onForkFromRun);
+
+  // A side chat copies this chat up to its last finished reply.
+  const sideChatSourceRunId = (() => {
+    if (!isServerThread || serverProjection === null) return null;
+    let latest: (typeof serverProjection.runs)[number] | null = null;
+    for (const run of serverProjection.runs) {
+      if (run.status === "completed" && (latest === null || run.ordinal > latest.ordinal)) {
+        latest = run;
+      }
+    }
+    return latest?.id ?? null;
+  })();
+  // /btw: fork this chat into a read-only side chat and open it in a new tab.
+  // Read-only means plan mode with approvals, set on the thread so later messages stay that way.
+  const startSideChat = async (question: string, modelSelection: ModelSelection | undefined) => {
+    if (!activeThread || activeEnvironmentUnavailable) return;
+    if (sideChatSourceRunId === null) {
+      setThreadError(
+        activeThread.id,
+        "A side chat copies this chat's last finished reply. Send a message and wait for the reply first.",
+      );
+      return;
+    }
+    const targetThreadId = newThreadId();
+    const targetThreadRef = scopeThreadRef(environmentId, targetThreadId);
+    const createdAt = new Date().toISOString();
+    const fail = (error: unknown, fallback: string) => {
+      setThreadError(activeThread.id, error instanceof Error ? error.message : fallback);
+    };
+    const forked = await forkThreadFromRun({
+      environmentId,
+      input: {
+        sourceThreadId: activeThread.id,
+        targetThreadId,
+        runId: sideChatSourceRunId,
+        title: question
+          ? `btw: ${question.length > 60 ? `${question.slice(0, 60)}…` : question}`
+          : `${activeThread.title} (side chat)`,
+      },
+    });
+    if (forked._tag === "Failure") {
+      if (!isAtomCommandInterrupted(forked)) {
+        fail(squashAtomCommandFailure(forked), "Failed to start a side chat.");
+      }
+      return;
+    }
+    if (!(await waitForThreadShell(targetThreadRef))) {
+      setThreadError(
+        activeThread.id,
+        "The side chat was created, but its thread data did not reach this client. Try opening it from the sidebar.",
+      );
+      return;
+    }
+    // Never send the question into a thread that could still edit files.
+    const runtimeResult = await setThreadRuntimeMode({
+      environmentId,
+      input: { threadId: targetThreadId, runtimeMode: "approval-required", createdAt },
+    });
+    const modeResult =
+      runtimeResult._tag === "Failure"
+        ? runtimeResult
+        : await setThreadInteractionMode({
+            environmentId,
+            input: { threadId: targetThreadId, interactionMode: "plan", createdAt },
+          });
+    if (modeResult._tag === "Failure") {
+      if (!isAtomCommandInterrupted(modeResult)) {
+        fail(
+          squashAtomCommandFailure(modeResult),
+          "The side chat could not be made read-only, so nothing was sent.",
+        );
+      }
+      return;
+    }
+    if (question) {
+      const sent = await startThreadTurn({
+        environmentId,
+        input: {
+          threadId: targetThreadId,
+          message: { messageId: newMessageId(), role: "user", text: question, attachments: [] },
+          ...(modelSelection ? { modelSelection } : {}),
+          runtimeMode: "approval-required",
+          interactionMode: "plan",
+          createdAt,
+        },
+      });
+      if (sent._tag === "Failure" && !isAtomCommandInterrupted(sent)) {
+        fail(squashAtomCommandFailure(sent), "Failed to send the side chat question.");
+      }
+    }
+    useChatTabsStore.getState().openTab(scopedThreadKey(targetThreadRef), { permanent: true });
+    await navigate({
+      to: "/$environmentId/$threadId",
+      params: buildThreadRouteParams(targetThreadRef),
+    });
+  };
+  const startSideChatStable = useStableCallback(startSideChat);
   const onCompactContext = () => {
     if (compactDisabled) return;
     void sendStandaloneCommand("/compact", "Failed to compact context.");
@@ -6213,6 +6312,23 @@ export default function ChatView(props: ChatViewProps) {
       ) {
         handleNewThreadInActiveProject();
       }
+      return;
+    }
+    const sideChatQuestion =
+      multipleModelSelections === null &&
+      composerImages.length === 0 &&
+      composerFiles.length === 0 &&
+      sendableComposerTerminalContexts.length === 0 &&
+      composerPreviewAnnotations.length === 0 &&
+      composerReviewComments.length === 0 &&
+      composerThreadContexts.length === 0
+        ? parseSideChatComposerCommand(trimmed)
+        : null;
+    if (sideChatQuestion !== null) {
+      void startSideChatStable(sideChatQuestion, sendCtx.selectedModelSelection);
+      promptRef.current = "";
+      clearComposerDraftContent(composerDraftTarget);
+      composerRef.current?.resetCursorState();
       return;
     }
     const standaloneSlashCommand =
@@ -8501,6 +8617,7 @@ export default function ChatView(props: ChatViewProps) {
           onAddPullRequest={addPullRequestSurfaceStable}
           onAddPullRequests={addPullRequestsSurfaceStable}
           onAddDevice={addDeviceSurfaceStable}
+          onAddSideChat={() => void startSideChatStable("", undefined)}
           browserAvailable={canOperatePreview && browserAvailable}
           terminalAvailable={activeProject !== null && canOperateTerminal}
           diffAvailable={isServerThread && isGitRepo}
@@ -8508,6 +8625,7 @@ export default function ChatView(props: ChatViewProps) {
           pullRequestAvailable={pullRequestSurfaceAvailable}
           pullRequestsAvailable={pullRequestsSurfaceAvailable}
           deviceAvailable={activeThreadRef !== null}
+          sideChatAvailable={sideChatSourceRunId !== null}
         >
           {rightPanelContent}
         </RightPanelTabs>
@@ -8556,6 +8674,7 @@ export default function ChatView(props: ChatViewProps) {
             onAddPullRequest={addPullRequestSurfaceStable}
             onAddPullRequests={addPullRequestsSurfaceStable}
             onAddDevice={addDeviceSurfaceStable}
+            onAddSideChat={() => void startSideChatStable("", undefined)}
             browserAvailable={canOperatePreview && browserAvailable}
             terminalAvailable={activeProject !== null && canOperateTerminal}
             diffAvailable={isServerThread && isGitRepo}
@@ -8563,6 +8682,7 @@ export default function ChatView(props: ChatViewProps) {
             pullRequestAvailable={pullRequestSurfaceAvailable}
             pullRequestsAvailable={pullRequestsSurfaceAvailable}
             deviceAvailable={activeThreadRef !== null}
+            sideChatAvailable={sideChatSourceRunId !== null}
           >
             {rightPanelContent}
           </RightPanelTabs>
