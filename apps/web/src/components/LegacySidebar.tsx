@@ -1029,6 +1029,18 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
     setDraggingSubProjectId(null);
     setSubProjectDropTarget(null);
   };
+  const subProjectThreadPreviewCount = useClientSettings<SidebarThreadPreviewCount>(
+    (settings) => settings.sidebarThreadPreviewCount,
+  );
+  const [expandedSubProjectIds, setExpandedSubProjectIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const toggleSubProjectThreadsExpanded = (subProjectId: string) =>
+    setExpandedSubProjectIds((current) => {
+      const next = new Set(current);
+      if (!next.delete(subProjectId)) next.add(subProjectId);
+      return next;
+    });
   const showMoreButtonRender = <button type="button" />;
   const renderThreadRow = (thread: SidebarThreadSummary) => {
     const threadKey = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
@@ -1149,7 +1161,24 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
             </button>
             {!collapsed && threads.length > 0 ? (
               <ul className="ml-3 flex flex-col gap-1 border-l border-sidebar-border/70 pl-1 pt-1">
-                {threads.map(renderThreadRow)}
+                {(expandedSubProjectIds.has(subProject.id)
+                  ? threads
+                  : threads.slice(0, subProjectThreadPreviewCount)
+                ).map(renderThreadRow)}
+                {threads.length > subProjectThreadPreviewCount ? (
+                  <li className="w-full">
+                    <button
+                      type="button"
+                      data-thread-selection-safe
+                      className="flex h-7 w-full items-center px-2 text-left text-xs text-sidebar-muted-foreground/75 hover:text-sidebar-foreground"
+                      onClick={() => toggleSubProjectThreadsExpanded(subProject.id)}
+                    >
+                      {expandedSubProjectIds.has(subProject.id)
+                        ? "Show less"
+                        : `Show all (${threads.length})`}
+                    </button>
+                  </li>
+                ) : null}
               </ul>
             ) : null}
           </SidebarMenuSubItem>
