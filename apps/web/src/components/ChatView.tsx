@@ -38,7 +38,7 @@ import {
 } from "@t3tools/shared/orchestrationV2ThreadError";
 import type { UsageLimitSourceSnapshots } from "@t3tools/contracts";
 import { isUsageLimitsCommand } from "@t3tools/shared/usageLimits";
-import { useChatTabsStore } from "../chatTabsStore";
+import { useSideChatStore } from "../sideChatStore";
 import { feedbackBannerItem } from "./chat/ComposerFeedback";
 import { useUsageLimitsPanel } from "./chat/useUsageLimitsPanel";
 import { useWorktreeSetup } from "./chat/useWorktreeSetup";
@@ -5847,7 +5847,7 @@ export default function ChatView(props: ChatViewProps) {
     }
     return latest?.id ?? null;
   })();
-  // /btw: fork this chat into a read-only side chat and open it in a new tab.
+  // /btw: fork this chat into a read-only side chat that lives in the right panel.
   // Read-only means plan mode with approvals, set on the thread so later messages stay that way.
   const startSideChat = async (question: string, modelSelection: ModelSelection | undefined) => {
     if (!activeThread || activeEnvironmentUnavailable) return;
@@ -5861,6 +5861,8 @@ export default function ChatView(props: ChatViewProps) {
     const targetThreadId = newThreadId();
     const targetThreadRef = scopeThreadRef(environmentId, targetThreadId);
     const createdAt = new Date().toISOString();
+    // Hidden from thread lists before it exists, so it never shows up in the sidebar.
+    useSideChatStore.getState().add(targetThreadId);
     const fail = (error: unknown, fallback: string) => {
       setThreadError(activeThread.id, error instanceof Error ? error.message : fallback);
     };
@@ -5870,9 +5872,7 @@ export default function ChatView(props: ChatViewProps) {
         sourceThreadId: activeThread.id,
         targetThreadId,
         runId: sideChatSourceRunId,
-        title: question
-          ? `btw: ${question.length > 60 ? `${question.slice(0, 60)}…` : question}`
-          : `${activeThread.title} (side chat)`,
+        title: `btw: ${activeThread.title}`,
       },
     });
     if (forked._tag === "Failure") {
@@ -5884,7 +5884,7 @@ export default function ChatView(props: ChatViewProps) {
     if (!(await waitForThreadShell(targetThreadRef))) {
       setThreadError(
         activeThread.id,
-        "The side chat was created, but its thread data did not reach this client. Try opening it from the sidebar.",
+        "The side chat was created, but its thread data did not reach this client. Try again.",
       );
       return;
     }
@@ -5909,6 +5909,13 @@ export default function ChatView(props: ChatViewProps) {
       }
       return;
     }
+    useRightPanelStore
+      .getState()
+      .openSideChat(
+        routeThreadRef,
+        targetThreadId,
+        question ? (question.length > 40 ? `${question.slice(0, 40)}…` : question) : "Side chat",
+      );
     if (question) {
       const sent = await startThreadTurn({
         environmentId,
@@ -5925,11 +5932,6 @@ export default function ChatView(props: ChatViewProps) {
         fail(squashAtomCommandFailure(sent), "Failed to send the side chat question.");
       }
     }
-    useChatTabsStore.getState().openTab(scopedThreadKey(targetThreadRef), { permanent: true });
-    await navigate({
-      to: "/$environmentId/$threadId",
-      params: buildThreadRouteParams(targetThreadRef),
-    });
   };
   const startSideChatStable = useStableCallback(startSideChat);
   const onCompactContext = () => {

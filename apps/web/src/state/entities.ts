@@ -25,6 +25,7 @@ import type {
 import type { ThreadCheckpointSummary } from "@t3tools/client-runtime/state/thread-checkpoints";
 import { Atom } from "effect/reactivity";
 import { appAtomRegistry } from "../rpc/atomRegistry";
+import { useSideChatStore } from "../sideChatStore";
 import { environmentProjects } from "./projects";
 import { environmentPresentations } from "./presentation";
 import { environmentServerConfigsAtom } from "./server";
@@ -102,9 +103,21 @@ export function useServerConfigs() {
   return useAtomValue(environmentPresentations.serverConfigsAtom);
 }
 
+// Side chats (/btw) live in their main chat's right panel, not in thread lists.
+function useWithoutSideChats(
+  shells: ReadonlyArray<EnvironmentThreadShell>,
+): ReadonlyArray<EnvironmentThreadShell> {
+  const sideChatThreadIds = useSideChatStore((state) => state.threadIds);
+  if (sideChatThreadIds.length === 0) return shells;
+  const hidden = new Set<string>(sideChatThreadIds);
+  return shells.some((shell) => hidden.has(shell.id))
+    ? shells.filter((shell) => !hidden.has(shell.id))
+    : shells;
+}
+
 export function useThreadShells(enabled = true): ReadonlyArray<EnvironmentThreadShell> {
-  return useAtomValue(
-    enabled ? environmentThreadShells.threadShellsAtom : EMPTY_THREAD_SHELLS_ATOM,
+  return useWithoutSideChats(
+    useAtomValue(enabled ? environmentThreadShells.threadShellsAtom : EMPTY_THREAD_SHELLS_ATOM),
   );
 }
 
@@ -119,7 +132,9 @@ export function useAllEnvironmentProjectSnapshotsReady(): boolean {
 export function useThreadShellsForProjectRefs(
   refs: ReadonlyArray<ScopedProjectRef>,
 ): ReadonlyArray<EnvironmentThreadShell> {
-  return useAtomValue(environmentThreadShells.threadShellsForProjectRefsAtom(refs));
+  return useWithoutSideChats(
+    useAtomValue(environmentThreadShells.threadShellsForProjectRefsAtom(refs)),
+  );
 }
 
 export function useProject(ref: ScopedProjectRef | null): EnvironmentProject | null {

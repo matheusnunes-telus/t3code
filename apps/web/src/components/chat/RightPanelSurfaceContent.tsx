@@ -8,8 +8,11 @@ import type {
   ThreadLinkedPullRequest,
   ThreadPullRequestLink,
 } from "@t3tools/contracts";
-import { scopedThreadKey } from "@t3tools/client-runtime/environment";
+import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { ThreadId } from "@t3tools/contracts";
+import { useNavigate } from "@tanstack/react-router";
 import { lazy, Suspense } from "react";
+import { useChatTabsStore } from "../../chatTabsStore";
 import type { ComposerImageAttachment, DraftId } from "../../composerDraftStore";
 import type { ShortcutMatchContext } from "../../keybindings";
 import { type RightPanelSurface, useRightPanelStore } from "../../rightPanelStore";
@@ -22,6 +25,9 @@ import { PullRequestDetailPanel } from "../pullRequest/PullRequestDetailPanel";
 import { PullRequestDetailGhost } from "../pullRequest/PullRequestGhosts";
 import { PullRequestsUnavailableState } from "../pullRequest/PullRequestsUnavailableState";
 import { ThreadPullRequestsPanel } from "../pullRequest/ThreadPullRequestsPanel";
+import { useSideChatStore } from "../../sideChatStore";
+import { buildThreadRouteParams } from "../../threadRoutes";
+import { SideChatPanel } from "./SideChatPanel";
 
 const PreviewPanel = lazy(() =>
   import("../preview/PreviewPanel").then((module) => ({ default: module.PreviewPanel })),
@@ -79,8 +85,28 @@ export function RightPanelSurfaceContent(props: {
   readonly files: RightPanelFileProps;
 }) {
   const { surface, threadRef, visible } = props;
+  const navigate = useNavigate();
   if (surface === null) return null;
   switch (surface.kind) {
+    case "side-chat": {
+      const sideChatRef = scopeThreadRef(threadRef.environmentId, ThreadId.make(surface.threadId));
+      return (
+        <SideChatPanel
+          key={surface.threadId}
+          threadRef={sideChatRef}
+          cwd={props.files.workspaceRoot}
+          onOpenAsChat={() => {
+            useSideChatStore.getState().remove(surface.threadId);
+            props.onCloseSurface(surface);
+            useChatTabsStore.getState().openTab(scopedThreadKey(sideChatRef), { permanent: true });
+            void navigate({
+              to: "/$environmentId/$threadId",
+              params: buildThreadRouteParams(sideChatRef),
+            });
+          }}
+        />
+      );
+    }
     case "preview":
       return (
         <Suspense fallback={null}>

@@ -36,6 +36,7 @@ import {
   MessageSquareDashed,
   Plus,
   TerminalSquare,
+  X,
 } from "lucide-react";
 import { Volume2, VolumeOff } from "lucide";
 import {
@@ -73,7 +74,6 @@ import {
 } from "~/components/ui/menu";
 import { useBrowserDefaults } from "~/browser/browserDefaults";
 import { ScrollArea } from "~/components/ui/scroll-area";
-import { PanelTabCloseButton } from "~/components/ui/panel-tab-close-button";
 import { faviconUrlForOrigin } from "~/lib/favicon";
 import { useTheme } from "~/hooks/useTheme";
 import { useDeviceState } from "~/state/device";
@@ -582,6 +582,8 @@ function surfaceTitle(
       return "Pull requests";
     case "device":
       return surface.title ?? surface.target?.name ?? "Device";
+    case "side-chat":
+      return surface.title;
     case "preview": {
       const snapshot = surface.resourceId ? sessions[surface.resourceId] : null;
       if (!snapshot || snapshot.navStatus._tag === "Idle") return "Browser";
@@ -678,6 +680,8 @@ function SurfaceIcon({
       ) : (
         <Smartphone className="size-3 shrink-0" />
       );
+    case "side-chat":
+      return <MessageSquareDashed className="size-3 shrink-0" />;
   }
 }
 
@@ -860,7 +864,7 @@ function RightPanelTab(
   });
   const content = (
     <>
-      <PanelTabCloseButton label={`Close ${title}`} onClick={() => onClose(surface)}>
+      <span className="relative flex size-4 shrink-0 items-center justify-center">
         <SurfaceIcon
           surface={surface}
           previewUrl={props.previewUrl}
@@ -871,11 +875,11 @@ function RightPanelTab(
         />
         {props.pending ? (
           <span
-            className="absolute -right-0.5 -bottom-0.5 size-1.5 rounded-full bg-current"
+            className="absolute right-0 bottom-0 size-1.5 rounded-full bg-current"
             aria-hidden
           />
         ) : null}
-      </PanelTabCloseButton>
+      </span>
       {audio === "none" || !audioRuntimeTabId ? null : (
         <Tooltip>
           <TooltipTrigger
@@ -946,6 +950,18 @@ function RightPanelTab(
           </TooltipPopup>
         </Tooltip>
       )}
+      {/* On the right like VS Code; it keeps its space so tabs don't shift on hover. */}
+      <button
+        type="button"
+        className={cn(
+          "cursor-pointer ms-0.5 flex size-4 shrink-0 items-center justify-center rounded-sm opacity-0 hover:bg-muted focus-visible:opacity-100 group-hover/tab:opacity-100",
+          props.active && "opacity-100",
+        )}
+        aria-label={`Close ${title}`}
+        onClick={() => onClose(surface)}
+      >
+        <X className="size-3" />
+      </button>
     </>
   );
   return (
@@ -958,7 +974,7 @@ function RightPanelTab(
       ref={setNodeRef}
       style={{ transform: CSS.Translate.toString(transform), transition }}
       className={cn(
-        "cursor-pointer group/tab flex h-6 max-w-36 shrink-0 items-center gap-0.5 rounded-md pr-2 pl-1.5 text-xs",
+        "cursor-pointer group/tab flex h-6 max-w-40 shrink-0 items-center gap-0.5 rounded-md pr-1 pl-1.5 text-xs",
         props.ownsDesktopTitleBar && "[-webkit-app-region:no-drag]",
         props.active
           ? "bg-accent text-foreground"

@@ -2751,6 +2751,9 @@ function AssistantMessageMeta({
         <Tooltip>
           <TooltipTrigger render={<p className="text-muted-foreground text-xs tabular-nums" />}>
             {formatDayAwareTimestamp(message.updatedAt, ctx.timestampFormat)}
+            {run?.modelSelection.model ? (
+              <span data-testid="assistant-message-model"> · {run.modelSelection.model}</span>
+            ) : null}
           </TooltipTrigger>
           <TooltipPopup>
             {formatChatTimestampTooltip(message.updatedAt, ctx.timestampFormat)}

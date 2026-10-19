@@ -714,6 +714,9 @@ describe("MessagesTimeline messages", () => {
       await vi.waitFor(() =>
         expect(document.body.textContent).toContain("claude-sonnet-5-5 · Claude"),
       );
+      expect(container.querySelector('[data-testid="assistant-message-model"]')?.textContent).toBe(
+        " · claude-sonnet-5-5",
+      );
     });
 
     it("says the model is unknown for an imported chat", async () => {
