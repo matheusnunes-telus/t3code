@@ -7,6 +7,8 @@ import {
 } from "./ContextWindowMeter.logic";
 import { Minimize2Icon } from "lucide-react";
 import { composerFloatingLayerProps } from "./composerEventScope";
+import { cn } from "~/lib/utils";
+import { formatPromptCacheRemaining, PROMPT_CACHE_WARNING_MS } from "./promptCache";
 
 function formatPercentage(value: number | null): string | null {
   if (value === null || !Number.isFinite(value)) {
@@ -24,8 +26,16 @@ export function ContextWindowMeter(props: {
   onCompact?: (() => void) | undefined;
   compactDisabled?: boolean | undefined;
   compactDisabledReason?: string | null | undefined;
+  promptCacheRemainingMs?: number | null | undefined;
 }) {
-  const { usage, modelDisplayName, onCompact, compactDisabled, compactDisabledReason } = props;
+  const {
+    usage,
+    modelDisplayName,
+    onCompact,
+    compactDisabled,
+    compactDisabledReason,
+    promptCacheRemainingMs,
+  } = props;
   const usedPercentage = formatPercentage(usage.usedPercentage);
   const normalizedPercentage = Math.max(0, Math.min(100, usage.usedPercentage ?? 0));
   const radius = 9.75;
@@ -133,6 +143,23 @@ export function ContextWindowMeter(props: {
               <span className="text-secondary-label">Total processed</span>
               <span className="font-medium tabular-nums text-secondary-label">
                 {formatContextWindowTokens(totalProcessedTokens)}
+              </span>
+            </div>
+          ) : null}
+          {promptCacheRemainingMs != null ? (
+            <div className="flex items-center justify-between gap-3 text-2xs leading-4">
+              <span className="text-secondary-label">Prompt cache</span>
+              <span
+                className={cn(
+                  "font-medium tabular-nums text-secondary-label",
+                  promptCacheRemainingMs > 0 &&
+                    promptCacheRemainingMs <= PROMPT_CACHE_WARNING_MS &&
+                    "text-warning-foreground",
+                )}
+              >
+                {promptCacheRemainingMs > 0
+                  ? `expires in ${formatPromptCacheRemaining(promptCacheRemainingMs)}`
+                  : "expired"}
               </span>
             </div>
           ) : null}

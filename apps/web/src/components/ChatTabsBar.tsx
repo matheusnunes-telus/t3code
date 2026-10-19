@@ -7,7 +7,7 @@ import { threadRuntimeCanArchive } from "@t3tools/client-runtime/state/models";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
 import { useRouter } from "@tanstack/react-router";
-import { XIcon } from "lucide-react";
+import { ClockIcon, XIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import {
@@ -28,6 +28,14 @@ import { isTerminalFocused } from "../lib/terminalFocus";
 import { cn } from "../lib/utils";
 import { useStableCallback } from "../hooks/useStableCallback";
 import { useProjects, useThreadShells } from "../state/entities";
+import { serverEnvironment } from "../state/server";
+import { useNowMinute } from "../hooks/useNowMinute";
+import {
+  formatPromptCacheRemaining,
+  PROMPT_CACHE_WARNING_MS,
+  resolvePromptCacheRemainingMs,
+} from "./chat/promptCache";
+import type { ThreadShell } from "../types";
 import { useUiStateStore } from "../uiStateStore";
 import { resolveThreadLastVisitedAt, resolveThreadStatusPill } from "./Sidebar.logic";
 import { ProjectFavicon } from "./ProjectFavicon";
@@ -314,6 +322,7 @@ export function ChatTabsBar() {
             ) : null}
             {project ? <ProjectFavicon project={project} className="size-3.5 shrink-0" /> : null}
             <span className={cn("min-w-0 flex-1 truncate", tab.preview && "italic")}>{title}</span>
+            {thread ? <ChatTabCacheBadge thread={thread} /> : null}
             <button
               type="button"
               aria-label={`Close ${title}`}
@@ -332,5 +341,31 @@ export function ChatTabsBar() {
         );
       })}
     </div>
+  );
+}
+
+/** Shows how long a Claude chat's prompt cache has left, once it is close to expiring. */
+function ChatTabCacheBadge({ thread }: { thread: ThreadShell }) {
+  const nowIso = useNowMinute();
+  const driver = useAtomValue(
+    serverEnvironment.providersValueAtom(thread.environmentId),
+    (providers) =>
+      providers?.find((provider) => provider.instanceId === thread.providerInstanceId)?.driver,
+  );
+  const remainingMs = resolvePromptCacheRemainingMs({ thread, driver, nowIso });
+  if (remainingMs === null || remainingMs <= 0 || remainingMs > PROMPT_CACHE_WARNING_MS) {
+    return null;
+  }
+  const label = formatPromptCacheRemaining(remainingMs);
+  return (
+    <span
+      role="img"
+      aria-label={`Prompt cache expires in ${label}`}
+      title={`Prompt cache expires in ${label}`}
+      className="inline-flex shrink-0 items-center gap-0.5 text-3xs tabular-nums text-warning-foreground"
+    >
+      <ClockIcon className="size-3" />
+      {label.replace(" min", "m")}
+    </span>
   );
 }

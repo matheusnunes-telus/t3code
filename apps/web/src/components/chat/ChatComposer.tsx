@@ -1041,9 +1041,16 @@ import { Button } from "../ui/button";
 import { Select, SelectItem, SelectPopup, SelectValue } from "../ui/select";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { toastManager } from "../ui/toast";
+import { useNowMinute } from "../../hooks/useNowMinute";
+import {
+  formatPromptCacheRemaining,
+  PROMPT_CACHE_WARNING_MS,
+  resolvePromptCacheRemainingMs,
+} from "./promptCache";
 import {
   BotIcon,
   CircleAlertIcon,
+  ClockIcon,
   PaperclipIcon,
   PencilRulerIcon,
   PlayIcon,
@@ -1336,6 +1343,7 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
   compact: boolean;
   canOperateThread: boolean;
   activeContextWindow: ContextWindowSnapshot | null;
+  promptCacheRemainingMs: number | null;
   reserveContextWindowMeter: boolean;
   activeThreadModelDisplayName: string | null;
   isPreparingWorktree: boolean;
@@ -1379,6 +1387,7 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
         <ContextWindowMeter
           usage={props.activeContextWindow}
           modelDisplayName={props.activeThreadModelDisplayName}
+          promptCacheRemainingMs={props.promptCacheRemainingMs}
           onCompact={props.onCompactContext}
           compactDisabled={props.compactDisabled}
           compactDisabledReason={props.compactDisabledReason}
@@ -2367,6 +2376,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       : (normalizeModelSlug(selectedModelForPicker, selectedProvider) ?? selectedModelForPicker);
   })();
 
+  const promptCacheNowIso = useNowMinute();
+  const promptCacheRemainingMs = resolvePromptCacheRemainingMs({
+    thread: props.activeThreadShell,
+    driver: selectedProviderStatus?.driver,
+    nowIso: promptCacheNowIso,
+  });
   const activeThreadModelDisplayName = resolveContextWindowModelDisplayName(
     activeThreadModelSelection,
     modelOptionsByInstance,
@@ -5287,9 +5302,26 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         content: activityStackContent,
       }
     : null;
-  const bannerStackItems = activityStackItem
-    ? [activityStackItem, ...props.bannerItems]
-    : props.bannerItems;
+  const promptCacheBannerItems: ComposerBannerStackItem[] =
+    promptCacheRemainingMs !== null &&
+    promptCacheRemainingMs > 0 &&
+    promptCacheRemainingMs <= PROMPT_CACHE_WARNING_MS
+      ? [
+          {
+            id: "prompt-cache-expiring",
+            variant: "warning",
+            icon: <ClockIcon className="size-4" />,
+            title: `Prompt cache expires in ${formatPromptCacheRemaining(promptCacheRemainingMs)}`,
+            description:
+              "Sending a message before then keeps the cache warm. After that, the whole chat is re-read at full price.",
+          },
+        ]
+      : [];
+  const bannerStackItems = [
+    ...(activityStackItem ? [activityStackItem] : []),
+    ...props.bannerItems,
+    ...promptCacheBannerItems,
+  ];
   const [tasksDrawerThreadId, setTasksDrawerThreadId] = useState(activeThreadId);
   if (
     isTasksDrawerOpen &&
@@ -7324,6 +7356,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     }
                     reserveContextWindowMeter={reserveContextWindowMeter}
                     activeThreadModelDisplayName={activeThreadModelDisplayName}
+                    promptCacheRemainingMs={promptCacheRemainingMs}
                     pendingAction={pendingPrimaryAction}
                     isRunning={phase === "running"}
                     canInterrupt={canInterrupt}
