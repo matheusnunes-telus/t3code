@@ -22,6 +22,8 @@ import { isTerminalFocused } from "../lib/terminalFocus";
 import { cn } from "../lib/utils";
 import { useStableCallback } from "../hooks/useStableCallback";
 import { useProjects, useThreadShells } from "../state/entities";
+import { useUiStateStore } from "../uiStateStore";
+import { resolveThreadLastVisitedAt, resolveThreadStatusPill } from "./Sidebar.logic";
 import { ProjectFavicon } from "./ProjectFavicon";
 import { primaryServerKeybindingsAtom } from "../state/server";
 import { buildThreadRouteParams } from "../threadRoutes";
@@ -52,6 +54,7 @@ export function ChatTabsBar() {
   const popClosedTab = useChatTabsStore((state) => state.popClosedTab);
   const removeTabs = useChatTabsStore((state) => state.removeTabs);
   const threads = useThreadShells();
+  const threadLastVisitedAtById = useUiStateStore((state) => state.threadLastVisitedAtById);
   const projects = useProjects();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const navigateToThreadKey = useNavigateToThreadKey();
@@ -158,6 +161,17 @@ export function ChatTabsBar() {
         const thread = threadByKey.get(tab.threadKey);
         const isActive = tab.threadKey === activeThreadKey;
         const isRunning = thread ? !threadRuntimeCanArchive(thread.runtime) : false;
+        const hasUnreadCompletion =
+          thread !== undefined &&
+          resolveThreadStatusPill({
+            thread: {
+              ...thread,
+              lastVisitedAt: resolveThreadLastVisitedAt(
+                thread.lastVisitedAt,
+                threadLastVisitedAtById[tab.threadKey],
+              ),
+            },
+          })?.label === "Completed";
         const title = thread?.title ?? "Unavailable thread";
         const project = thread
           ? projectByKey.get(`${thread.environmentId}:${thread.projectId}`)
@@ -193,6 +207,12 @@ export function ChatTabsBar() {
           >
             {isRunning ? (
               <span className="size-1.5 shrink-0 animate-status-pulse rounded-full bg-info" />
+            ) : hasUnreadCompletion ? (
+              <span
+                role="img"
+                aria-label="Completed"
+                className="size-1.5 shrink-0 rounded-full bg-emerald-500 dark:bg-emerald-300/90"
+              />
             ) : null}
             {project ? <ProjectFavicon project={project} className="size-3.5 shrink-0" /> : null}
             <span className={cn("min-w-0 flex-1 truncate", tab.preview && "italic")}>{title}</span>
