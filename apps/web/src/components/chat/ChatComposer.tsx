@@ -1054,6 +1054,7 @@ import {
   PaperclipIcon,
   PencilRulerIcon,
   PlayIcon,
+  RefreshCwIcon,
   ShieldIcon,
   XIcon,
 } from "lucide-react";
@@ -1091,7 +1092,7 @@ import {
   resolveComposerDispatchMode,
   type ComposerDispatchMode,
 } from "@t3tools/client-runtime/state/composer-dispatch";
-import type { ContextWindowSnapshot } from "../../lib/contextWindow";
+import { formatContextWindowTokens, type ContextWindowSnapshot } from "../../lib/contextWindow";
 import {
   getProviderSlashCommandsForSlashMenu,
   getProviderSkillsForSlashMenu,
@@ -5317,9 +5318,39 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           },
         ]
       : [];
+  // The cache belongs to one model, so a different model has to re-read the whole chat.
+  const switchingCachedModel =
+    promptCacheRemainingMs !== null &&
+    promptCacheRemainingMs > 0 &&
+    activeContextWindow !== null &&
+    activeContextWindow.usedTokens > 0 &&
+    activeThreadModelSelection != null &&
+    (selectedModelSelection.instanceId !== activeThreadModelSelection.instanceId ||
+      normalizeModelSlug(selectedModelSelection.model, selectedProvider) !==
+        normalizeModelSlug(activeThreadModelSelection.model, selectedProvider));
+  const modelSwitchBannerItems: ComposerBannerStackItem[] =
+    switchingCachedModel && activeContextWindow !== null
+      ? [
+          {
+            id: "prompt-cache-model-switch",
+            variant: "warning",
+            icon: <RefreshCwIcon className="size-4" />,
+            title: `Switching to ${
+              resolveContextWindowModelDisplayName(
+                selectedModelSelection,
+                modelOptionsByInstance,
+              ) ?? selectedModelSelection.model
+            } will re-cache ~${formatContextWindowTokens(activeContextWindow.usedTokens)} tokens`,
+            description: `The cached chat belongs to ${
+              activeThreadModelDisplayName ?? "the current model"
+            }, so your next message re-reads it at full price.`,
+          },
+        ]
+      : [];
   const bannerStackItems = [
     ...(activityStackItem ? [activityStackItem] : []),
     ...props.bannerItems,
+    ...modelSwitchBannerItems,
     ...promptCacheBannerItems,
   ];
   const [tasksDrawerThreadId, setTasksDrawerThreadId] = useState(activeThreadId);
