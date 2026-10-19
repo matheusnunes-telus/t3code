@@ -2705,8 +2705,8 @@ function AssistantMessageMeta({
   alwaysVisible?: boolean;
 }) {
   const ctx = use(TimelineRowCtx);
-  // Chats imported from other assistants may have no run, or a run with no model.
-  const runId = projectedItem?.item.runId ?? null;
+  // Chats imported from other assistants have no run, so the model isn't known.
+  const runId = projectedItem?.item.runId ?? message.runId ?? null;
   const run = runId === null ? undefined : ctx.runs.find((candidate) => candidate.id === runId);
   const providerDisplayName = useAtomValue(
     serverEnvironment.providersValueAtom(ctx.activeThreadEnvironmentId),
@@ -2716,10 +2716,13 @@ function AssistantMessageMeta({
         : providers?.find((provider) => provider.instanceId === run.providerInstanceId)
             ?.displayName,
   );
+  const isImported = projectedItem?.sourceThreadId.startsWith("import:") === true;
   const responderLabel =
-    run === undefined
-      ? null
-      : `${run.modelSelection.model || "Unknown model"} · ${providerDisplayName ?? run.providerInstanceId}`;
+    run !== undefined
+      ? `${run.modelSelection.model || "Unknown model"} · ${providerDisplayName ?? run.providerInstanceId}`
+      : isImported
+        ? "Imported chat · model not recorded"
+        : null;
 
   return (
     <div

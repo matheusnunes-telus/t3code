@@ -683,6 +683,59 @@ describe("MessagesTimeline messages", () => {
     expect(onForkFromRun).toHaveBeenCalledWith({ sourceThreadId: "thread-1", runId: "run-1" });
   });
 
+  describe("assistant timestamp tooltip", () => {
+    const providers = [{ instanceId: "claudeAgent", displayName: "Claude" }] as never;
+    const runs = [
+      {
+        id: "run-1",
+        ordinal: 1,
+        providerInstanceId: "claudeAgent",
+        modelSelection: { instanceId: "claudeAgent", model: "claude-sonnet-5-5" },
+      },
+    ] as never;
+
+    async function hoverTimestamp(entry: Entry) {
+      await renderElement(
+        <RegistryProvider
+          initialValues={[[serverEnvironment.providersValueAtom(ENVIRONMENT_ID), providers]]}
+        >
+          <MessagesTimeline {...baseProps()} timelineEntries={[entry]} runs={runs} />
+        </RegistryProvider>,
+      );
+      const timestamp = container.querySelector<HTMLElement>("p.tabular-nums");
+      if (!timestamp) throw new Error("Missing timestamp");
+      await userEvent.hover(timestamp);
+    }
+
+    it("names the model and provider from the message's run", async () => {
+      await hoverTimestamp(
+        message("Done", { role: "assistant", runId: RunId.make("run-1") }, "assistant-1"),
+      );
+      await vi.waitFor(() =>
+        expect(document.body.textContent).toContain("claude-sonnet-5-5 · Claude"),
+      );
+    });
+
+    it("says the model is unknown for an imported chat", async () => {
+      await hoverTimestamp({
+        ...message("Done", { role: "assistant" }, "assistant-1"),
+        projectedItem: {
+          ...(v2Item("assistant_message", {
+            id: "assistant-item-1",
+            messageId: "assistant-1",
+            text: "Done",
+            streaming: false,
+            runId: null,
+          }) as object),
+          sourceThreadId: "import:claudeAgent:abc",
+        },
+      } as Entry);
+      await vi.waitFor(() =>
+        expect(document.body.textContent).toContain("Imported chat · model not recorded"),
+      );
+    });
+  });
+
   it("opens the changed files of an assistant response", async () => {
     const assistantMessageId = MessageId.make("assistant-with-files");
     const runId = RunId.make("run-with-files");
