@@ -1096,7 +1096,15 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
       ) : null}
       {projectExpanded &&
         subProjectSections.map(({ subProject, threads, collapsed }, index) => (
-          <SidebarMenuSubItem key={subProject.id} className="w-full" data-thread-selection-safe>
+          // A plain <li>, not SidebarMenuSubItem: that one is a hover group, and its
+          // nested thread rows would all show their hover actions together.
+          <li
+            key={subProject.id}
+            className="relative w-full"
+            data-sidebar="menu-sub-item"
+            data-slot="sidebar-menu-sub-item"
+            data-thread-selection-safe
+          >
             <button
               type="button"
               draggable
@@ -1181,7 +1189,7 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
                 ) : null}
               </ul>
             ) : null}
-          </SidebarMenuSubItem>
+          </li>
         ))}
       {shouldShowThreadPanel && renderedThreads.map(renderThreadRow)}
 
