@@ -3,6 +3,7 @@ import { resolveThreadCurrentPullRequestLink } from "@t3tools/shared/threadPullR
 import { Spinner } from "~/components/ui/spinner";
 import {
   ArchiveIcon,
+  BotIcon,
   ArrowUpDownIcon,
   ChevronRightIcon,
   ChevronsDownUpIcon,
@@ -28,7 +29,7 @@ import { EnvironmentMachineIcon } from "./EnvironmentMachineIcon";
 import { ProjectFavicon } from "./ProjectFavicon";
 import { useAtomValue } from "@effect/atom-react";
 import { autoAnimate } from "@formkit/auto-animate";
-import React, { useEffect, useEffectEvent, memo, useRef, useState } from "react";
+import React, { Fragment, useEffect, useEffectEvent, memo, useRef, useState } from "react";
 import { cn } from "~/lib/utils";
 import { useShallow } from "zustand/react/shallow";
 import {
@@ -192,6 +193,7 @@ import {
   resolveAdjacentThreadId,
   isContextMenuPointerDown,
   isSidebarNestedLinkClick,
+  isSidebarSubagentThread,
   isTrailingDoubleClick,
   resolveProjectStatusIndicator,
   resolveThreadLastVisitedAt,
@@ -337,6 +339,9 @@ function buildThreadJumpLabelMap(input: {
 
 interface SidebarThreadRowProps {
   thread: SidebarThreadSummary;
+  subagentCount: number;
+  subagentsExpanded: boolean;
+  onToggleSubagents: (threadKey: string) => void;
   orderedProjectThreadKeys: readonly string[];
   isActive: boolean;
   openPullRequestsInRightPanel: boolean;
@@ -392,6 +397,9 @@ function checkTaskPermission(environmentId: EnvironmentId): boolean {
 
 const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowProps) {
   const {
+    subagentCount,
+    subagentsExpanded,
+    onToggleSubagents,
     orderedProjectThreadKeys,
     isActive,
     openPullRequestsInRightPanel,
@@ -511,7 +519,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     canOperateThread && confirmingArchiveThreadKey === threadKey && !isThreadRunning;
   const threadMetaClassName = isConfirmingArchive
     ? "pointer-events-none opacity-0"
-    : canOperateThread && !isThreadRunning
+    : (canOperateThread && !isThreadRunning) || subagentCount > 0
       ? "pointer-events-none transition-opacity duration-150 max-sm:pr-6 group-hover/menu-sub-item:opacity-0 group-focus-within/menu-sub-item:opacity-0"
       : "pointer-events-none";
   const clearConfirmingArchive = () => {
@@ -811,6 +819,42 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
               isRemoteThread ? "max-sm:min-w-24" : "max-sm:min-w-20"
             }`}
           >
+            {subagentCount > 0 && !isConfirmingArchive ? (
+              <div
+                className={cn(
+                  "pointer-events-none absolute top-1/2 -translate-y-1/2 opacity-0 transition-opacity duration-150 max-sm:pointer-events-auto max-sm:opacity-100 group-hover/menu-sub-item:pointer-events-auto group-hover/menu-sub-item:opacity-100 group-focus-within/menu-sub-item:pointer-events-auto group-focus-within/menu-sub-item:opacity-100",
+                  canOperateThread && !isThreadRunning ? "right-7" : "right-0.5",
+                )}
+              >
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <button
+                        type="button"
+                        data-thread-selection-safe
+                        data-testid={`thread-subagents-toggle-${thread.id}`}
+                        aria-label={`${subagentsExpanded ? "Hide" : "Show"} subagents of ${thread.title}`}
+                        aria-pressed={subagentsExpanded}
+                        className={cn(
+                          SIDEBAR_ICON_ACTION_BUTTON_CLASS,
+                          subagentsExpanded && "text-foreground",
+                        )}
+                        onPointerDown={stopPropagationOnPointerDown}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onToggleSubagents(threadKey);
+                        }}
+                      />
+                    }
+                  >
+                    <BotIcon className="size-3.5" />
+                  </TooltipTrigger>
+                  <TooltipPopup side="top">
+                    {subagentsExpanded ? "Hide subagents" : "Show subagents"}
+                  </TooltipPopup>
+                </Tooltip>
+              </div>
+            ) : null}
             {isConfirmingArchive ? (
               <button
                 ref={handleConfirmArchiveRef}
@@ -882,6 +926,11 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                     <TooltipPopup side="top">{threadEnvironmentLabel}</TooltipPopup>
                   </Tooltip>
                 )}
+                {subagentCount > 0 ? (
+                  <span className="text-3xs text-secondary-label">
+                    {subagentCount} {subagentCount === 1 ? "subagent" : "subagents"}
+                  </span>
+                ) : null}
                 {jumpLabel ? (
                   <Tooltip>
                     <TooltipTrigger
@@ -922,6 +971,7 @@ interface SidebarProjectThreadListProps {
   hasOverflowingThreads: boolean;
   hiddenThreadStatus: ThreadStatusPill | null;
   orderedProjectThreadKeys: readonly string[];
+  subagentsByRootKey: ReadonlyMap<string, readonly SidebarThreadSummary[]>;
   renderedThreads: readonly SidebarThreadSummary[];
   showEmptyThreadState: boolean;
   shouldShowThreadPanel: boolean;
@@ -984,6 +1034,7 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
     hasOverflowingThreads,
     hiddenThreadStatus,
     orderedProjectThreadKeys,
+    subagentsByRootKey,
     renderedThreads,
     showEmptyThreadState,
     shouldShowThreadPanel,
@@ -1041,13 +1092,27 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
       if (!next.delete(subProjectId)) next.add(subProjectId);
       return next;
     });
+  const [expandedSubagentRootKeys, setExpandedSubagentRootKeys] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const toggleSubagents = (threadKey: string) =>
+    setExpandedSubagentRootKeys((current) => {
+      const next = new Set(current);
+      if (!next.delete(threadKey)) next.add(threadKey);
+      return next;
+    });
   const showMoreButtonRender = <button type="button" />;
   const renderThreadRow = (thread: SidebarThreadSummary) => {
     const threadKey = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
-    return (
+    const subagents = subagentsByRootKey.get(threadKey) ?? [];
+    const subagentsExpanded = expandedSubagentRootKeys.has(threadKey);
+    const row = (
       <SidebarThreadRow
         key={threadKey}
         thread={thread}
+        subagentCount={subagents.length}
+        subagentsExpanded={subagentsExpanded}
+        onToggleSubagents={toggleSubagents}
         orderedProjectThreadKeys={orderedProjectThreadKeys}
         isActive={activeRouteThreadKey === threadKey}
         openPullRequestsInRightPanel={openPullRequestsInRightPanel}
@@ -1073,6 +1138,17 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
         attemptArchiveThread={attemptArchiveThread}
         openPrLink={openPrLink}
       />
+    );
+    if (subagents.length === 0 || !subagentsExpanded) return row;
+    return (
+      <Fragment key={threadKey}>
+        {row}
+        <li className="w-full" data-thread-selection-safe>
+          <ul className="ml-3 flex flex-col gap-1 border-l border-sidebar-border/70 pl-1">
+            {subagents.map(renderThreadRow)}
+          </ul>
+        </li>
+      </Fragment>
     );
   };
   const showLessButtonRender = <button type="button" />;
@@ -1319,11 +1395,36 @@ function useProjectThreads(project: SidebarProjectSnapshot) {
       resolveThreadLastVisitedAt(thread.lastVisitedAt, threadLastVisitedAts[index] ?? undefined),
     ]),
   );
-  const visibleProjectThreads = orderProjectThreads(sidebarThreads, threadSortOrder);
+  const orderedThreads = orderProjectThreads(sidebarThreads, threadSortOrder);
+  // Subagent chats stay out of the list; each hangs off its main chat instead.
+  const visibleProjectThreads = orderedThreads.filter((thread) => !isSidebarSubagentThread(thread));
+  const subagentChildrenByParentKey = new Map<string, SidebarThreadSummary[]>();
+  for (const thread of orderedThreads) {
+    const { parentThreadId } = thread.lineage;
+    if (!isSidebarSubagentThread(thread) || thread.archivedAt !== null || parentThreadId === null) {
+      continue;
+    }
+    const parentKey = scopedThreadKey(scopeThreadRef(thread.environmentId, parentThreadId));
+    subagentChildrenByParentKey.set(parentKey, [
+      ...(subagentChildrenByParentKey.get(parentKey) ?? []),
+      thread,
+    ]);
+  }
+  const collectSubagents = (threadKey: string, into: SidebarThreadSummary[]) => {
+    for (const child of subagentChildrenByParentKey.get(threadKey) ?? []) {
+      into.push(child);
+      collectSubagents(scopedThreadKey(scopeThreadRef(child.environmentId, child.id)), into);
+    }
+    return into;
+  };
+  const subagentsByRootKey = new Map<string, SidebarThreadSummary[]>();
+  for (const thread of visibleProjectThreads) {
+    const threadKey = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
+    const subagents = collectSubagents(threadKey, []);
+    if (subagents.length > 0) subagentsByRootKey.set(threadKey, subagents);
+  }
   const projectStatus = resolveProjectStatusIndicator(
-    visibleProjectThreads.map((thread) =>
-      resolveProjectThreadStatus(thread, lastVisitedAtByThreadKey),
-    ),
+    orderedThreads.map((thread) => resolveProjectThreadStatus(thread, lastVisitedAtByThreadKey)),
   );
   const orderedProjectThreadKeys = visibleProjectThreads.map((thread) =>
     scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
@@ -1335,6 +1436,7 @@ function useProjectThreads(project: SidebarProjectSnapshot) {
     memberThreadCountByPhysicalKey,
     lastVisitedAtByThreadKey,
     visibleProjectThreads,
+    subagentsByRootKey,
     projectStatus,
     orderedProjectThreadKeys,
   };
@@ -1528,6 +1630,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     memberThreadCountByPhysicalKey,
     projectStatus,
     visibleProjectThreads,
+    subagentsByRootKey,
     orderedProjectThreadKeys,
     lastVisitedAtByThreadKey,
   } = useProjectThreads(project);
@@ -2693,6 +2796,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
           hasOverflowingThreads={hasOverflowingThreads}
           hiddenThreadStatus={hiddenThreadStatus}
           orderedProjectThreadKeys={orderedProjectThreadKeys}
+          subagentsByRootKey={subagentsByRootKey}
           renderedThreads={renderedThreads}
           showEmptyThreadState={showEmptyThreadState}
           shouldShowThreadPanel={shouldShowThreadPanel}
