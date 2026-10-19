@@ -5809,27 +5809,42 @@ export default function ChatView(props: ChatViewProps) {
   ) => {
     if (!activeThread || activeThreadId === null) return;
     setThreadError(activeThread.id, null);
-    try {
-      const commandId = CommandId.make(randomUUID());
-      await waitForRevertedMessage(routeThreadRef, messageId, turnCount, commandId, async () => {
+    const commandId = CommandId.make(randomUUID());
+    const revertError = await waitForRevertedMessage(
+      routeThreadRef,
+      messageId,
+      turnCount,
+      commandId,
+      async () => {
         const result = await revertThreadCheckpoint({
           environmentId,
           input: { commandId, threadId: activeThread.id, turnCount, restoreFiles },
         });
         if (result._tag === "Failure") throw squashAtomCommandFailure(result);
-      });
-      const result = await startThreadTurn({
-        environmentId,
-        input: {
-          threadId: activeThreadId,
-          message: { messageId: newMessageId(), role: "user", text, attachments: [] },
-          runtimeMode,
-          interactionMode,
-          dispatchMode: "start",
-        },
-      });
-      if (result._tag === "Failure") throw squashAtomCommandFailure(result);
-    } catch (error) {
+      },
+    ).then(
+      () => null,
+      (error: unknown) => error ?? new Error("Could not edit the message."),
+    );
+    if (revertError !== null) {
+      setThreadError(
+        activeThread.id,
+        revertError instanceof Error ? revertError.message : "Could not edit the message.",
+      );
+      return;
+    }
+    const result = await startThreadTurn({
+      environmentId,
+      input: {
+        threadId: activeThreadId,
+        message: { messageId: newMessageId(), role: "user", text, attachments: [] },
+        runtimeMode,
+        interactionMode,
+        dispatchMode: "start",
+      },
+    });
+    if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+      const error = squashAtomCommandFailure(result);
       setThreadError(
         activeThread.id,
         error instanceof Error ? error.message : "Could not edit the message.",
