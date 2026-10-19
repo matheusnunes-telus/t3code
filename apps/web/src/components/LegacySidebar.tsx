@@ -2742,7 +2742,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
                 </span>
               ) : null}
             </span>
-            <span aria-hidden className="w-4 shrink-0 max-sm:w-10" />
+            <span aria-hidden className="w-10 shrink-0 max-sm:w-16" />
           </SidebarMenuButton>
 
           {project.environmentPresence === "remote-only" && (
@@ -2768,6 +2768,28 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
               </TooltipPopup>
             </Tooltip>
           )}
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <div className="pointer-events-none absolute top-[calc(50%+1px)] right-7 -translate-y-1/2 opacity-0 transition-opacity duration-150 max-sm:pointer-events-auto max-sm:opacity-100 group-hover/project-header:pointer-events-auto group-hover/project-header:opacity-100 group-focus-within/project-header:pointer-events-auto group-focus-within/project-header:opacity-100">
+                  <button
+                    type="button"
+                    aria-label={`Create new sub-project in ${project.displayName}`}
+                    data-testid="new-sub-project-button"
+                    className={SIDEBAR_ICON_ACTION_BUTTON_CLASS}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      openCreateSubProjectDialog(null);
+                    }}
+                  >
+                    <FolderPlusIcon className="size-3.5" />
+                  </button>
+                </div>
+              }
+            />
+            <TooltipPopup side="top">New sub-project</TooltipPopup>
+          </Tooltip>
           <Tooltip>
             <TooltipTrigger
               render={
