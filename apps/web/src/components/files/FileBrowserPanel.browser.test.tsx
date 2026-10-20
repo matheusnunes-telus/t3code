@@ -38,8 +38,13 @@ vi.mock("~/state/queries", () => ({
     truncated: false,
     refresh: files.refresh,
   }),
+  // Only rendered in "search in files" mode, which these tests don't open.
+  useProjectContentSearch: vi.fn(),
 }));
-vi.mock("~/hooks/useTheme", () => ({ useTheme: () => ({ resolvedTheme: "dark" }) }));
+vi.mock("~/hooks/useTheme", () => ({
+  useTheme: () => ({ resolvedTheme: "dark" }),
+  useRenderedAppearance: () => "dark",
+}));
 vi.mock("~/hooks/useWorkspaceMutationRefresh", () => ({ useWorkspaceMutationRefresh: vi.fn() }));
 vi.mock("~/composerHandleContext", () => ({ useComposerHandleContext: () => null }));
 vi.mock("~/fileContextMenu", () => ({ useFileContextMenu: () => ({}) }));

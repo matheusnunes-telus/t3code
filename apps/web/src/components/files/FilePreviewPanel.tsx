@@ -1,4 +1,5 @@
 import { Spinner } from "~/components/ui/spinner";
+import { useRightPanelStore } from "~/rightPanelStore";
 import {
   AuthPreviewOperateScope,
   type EditorId,
@@ -1466,6 +1467,9 @@ export default function FilePreviewPanel({
               }
               selectedPathRevealId={revealRequestId}
               onOpenFile={onOpenFile}
+              onOpenFileAtLine={(path, lineNumber) =>
+                useRightPanelStore.getState().openFile(threadRef, path, lineNumber)
+              }
               workspaceMutationId={workspaceMutationId}
               {...(previewPath && !isMedia && !isPdf
                 ? { onRefreshSelectedFile: file.refresh }

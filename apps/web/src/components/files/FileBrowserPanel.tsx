@@ -10,6 +10,7 @@ import { serializeComposerFileLink } from "@t3tools/shared/composerTrigger";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import * as Cause from "effect/Cause";
 import { ChevronsDownUp, ChevronsUpDown } from "lucide";
+import { TextSearchIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { Button } from "~/components/ui/button";
@@ -28,6 +29,7 @@ import { T3_PIERRE_ICONS } from "~/pierre-icons";
 import { PIERRE_TREE_UNSAFE_CSS, pierreTreeStyle } from "~/pierre-tree-theme";
 
 import { joinHostPath } from "./filePath";
+import { FileContentSearchView } from "./FileContentSearchView";
 import { createFileTreeDragMentionController } from "./fileTreeDragMention";
 import { areAllDirectoriesExpanded, setAllDirectoriesExpanded } from "./fileTreeExpansion";
 import { buildFileTreePathUpdates } from "./fileTreePathReconciliation";
@@ -42,6 +44,8 @@ interface FileBrowserPanelProps {
   selectedPath: string | null;
   selectedPathRevealId: number;
   onOpenFile: (relativePath: string) => void;
+  /** Enables "search in files"; opens a content match at its line. */
+  onOpenFileAtLine?: (relativePath: string, lineNumber: number) => void;
   /**
    * Set when `cwd` is a host folder outside the workspace rather than the
    * workspace root. Entries then open and mention as host paths. A host folder can
@@ -74,6 +78,29 @@ function RefreshFilesButton(props: { isPending: boolean; onRefresh: () => void }
         <RefreshIcon refreshing={props.isPending} />
       </TooltipTrigger>
       <TooltipPopup>{props.isPending ? "Refreshing…" : "Refresh files"}</TooltipPopup>
+    </Tooltip>
+  );
+}
+
+function ContentSearchToggle(props: { active: boolean; onToggle: () => void }) {
+  const label = props.active ? "Search file names" : "Search in files";
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            type="button"
+            variant={props.active ? "secondary" : "ghost"}
+            size="icon-xs"
+            aria-label={label}
+            aria-pressed={props.active}
+            onClick={props.onToggle}
+          />
+        }
+      >
+        <TextSearchIcon className="size-3.5" />
+      </TooltipTrigger>
+      <TooltipPopup>{label}</TooltipPopup>
     </Tooltip>
   );
 }
@@ -145,6 +172,7 @@ export default function FileBrowserPanel({
   selectedPath,
   selectedPathRevealId,
   onOpenFile,
+  onOpenFileAtLine,
   onRefreshSelectedFile,
   workspaceMutationId,
   hostFolder = false,
@@ -164,6 +192,8 @@ export default function FileBrowserPanel({
     loadingDirectories,
   } = useDirectoryEntries(environmentId, cwd);
   const [query, setQuery] = useState("");
+  const [searchingContents, setSearchingContents] = useState(false);
+  const contentSearchEnabled = onOpenFileAtLine !== undefined && !hostFolder;
   const [expandAll, setExpandAll] = useState(false);
   const pathSearch = useProjectPathSearch(
     { environmentId, cwd: hostFolder ? null : cwd, query: query.slice(0, 256) },
@@ -511,86 +541,105 @@ export default function FileBrowserPanel({
       className="flex min-h-0 flex-1 flex-col bg-background"
       data-file-browser-panel={`${environmentId}:${cwd}`}
     >
-      <div
-        className="flex h-10 min-h-10 shrink-0 items-center gap-1 border-b border-border/60 bg-background px-2 in-data-[preview-panel-mode=inline]:mb-1 in-data-[preview-panel-mode=inline]:h-9 in-data-[preview-panel-mode=inline]:min-h-9 in-data-[preview-panel-mode=inline]:border-b-transparent"
-        data-surface-subheader
-      >
-        <RefreshFilesButton isPending={isPending} onRefresh={handleRefresh} />
-        <FileSearchField
-          name="project-files-search"
-          ariaLabel={`Search ${projectName} files`}
-          value={search.value}
-          onValueChange={handleSearchValueChange}
-          onClose={closeSearch}
+      {searchingContents && contentSearchEnabled ? (
+        <FileContentSearchView
+          environmentId={environmentId}
+          cwd={cwd}
+          projectName={projectName}
+          leading={<RefreshFilesButton isPending={isPending} onRefresh={handleRefresh} />}
+          trailing={<ContentSearchToggle active onToggle={() => setSearchingContents(false)} />}
+          onClose={() => setSearchingContents(false)}
+          onOpenMatch={onOpenFileAtLine}
         />
-        {directoryPaths.length > 0 && !hostFolder ? (
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  type="button"
-                  size="icon-xs"
-                  variant="ghost"
-                  aria-label={
-                    expandAll || allDirectoriesExpanded
-                      ? "Collapse all folders"
-                      : "Expand all folders"
-                  }
-                  onClick={toggleAllDirectories}
-                />
-              }
-            >
-              <MorphIcon
-                className="size-3.5"
-                icon={allDirectoriesExpanded ? ChevronsDownUp : ChevronsUpDown}
-              />
-            </TooltipTrigger>
-            <TooltipPopup>
-              {expandAll || allDirectoriesExpanded ? "Collapse all folders" : "Expand all folders"}
-            </TooltipPopup>
-          </Tooltip>
-        ) : null}
-      </div>
-      {error || pathSearch.error ? (
-        <button
-          type="button"
-          onClick={handleRefresh}
-          className="p-4 text-left text-xs leading-relaxed text-destructive"
-        >
-          {error ?? pathSearch.error} Click to retry.
-        </button>
       ) : null}
-      {query.trim() && pathSearch.truncated && !pathSearch.isPending ? (
-        <div className="px-3 py-1 text-xs text-muted-foreground">
-          More matches available. Refine your search.
-        </div>
-      ) : null}
-      {(!ready || pathSearch.isPending) && (
+      {/* Hidden rather than unmounted, so the tree keeps its scroll and expanded folders. */}
+      <div className={searchingContents && contentSearchEnabled ? "hidden" : "contents"}>
         <div
-          role="status"
-          className={
-            entries.length > 0 && !hasNoSearchMatches
-              ? "sr-only"
-              : "px-3 py-1 text-xs text-muted-foreground"
-          }
+          className="flex h-10 min-h-10 shrink-0 items-center gap-1 border-b border-border/60 bg-background px-2 in-data-[preview-panel-mode=inline]:mb-1 in-data-[preview-panel-mode=inline]:h-9 in-data-[preview-panel-mode=inline]:min-h-9 in-data-[preview-panel-mode=inline]:border-b-transparent"
+          data-surface-subheader
         >
-          Loading files…
+          <RefreshFilesButton isPending={isPending} onRefresh={handleRefresh} />
+          <FileSearchField
+            name="project-files-search"
+            ariaLabel={`Search ${projectName} files`}
+            value={search.value}
+            onValueChange={handleSearchValueChange}
+            onClose={closeSearch}
+          />
+          {contentSearchEnabled ? (
+            <ContentSearchToggle active={false} onToggle={() => setSearchingContents(true)} />
+          ) : null}
+          {directoryPaths.length > 0 && !hostFolder ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    type="button"
+                    size="icon-xs"
+                    variant="ghost"
+                    aria-label={
+                      expandAll || allDirectoriesExpanded
+                        ? "Collapse all folders"
+                        : "Expand all folders"
+                    }
+                    onClick={toggleAllDirectories}
+                  />
+                }
+              >
+                <MorphIcon
+                  className="size-3.5"
+                  icon={allDirectoriesExpanded ? ChevronsDownUp : ChevronsUpDown}
+                />
+              </TooltipTrigger>
+              <TooltipPopup>
+                {expandAll || allDirectoriesExpanded
+                  ? "Collapse all folders"
+                  : "Expand all folders"}
+              </TooltipPopup>
+            </Tooltip>
+          ) : null}
         </div>
-      )}
-      {hasNoSearchMatches ? (
-        ready && !isPending && !pathSearch.isPending && !error && !pathSearch.error ? (
-          <div role="status" className="px-3 py-4 text-xs text-muted-foreground">
-            No matching files.
+        {error || pathSearch.error ? (
+          <button
+            type="button"
+            onClick={handleRefresh}
+            className="p-4 text-left text-xs leading-relaxed text-destructive"
+          >
+            {error ?? pathSearch.error} Click to retry.
+          </button>
+        ) : null}
+        {query.trim() && pathSearch.truncated && !pathSearch.isPending ? (
+          <div className="px-3 py-1 text-xs text-muted-foreground">
+            More matches available. Refine your search.
           </div>
-        ) : null
-      ) : (
-        <FileTree
-          model={model}
-          aria-label={`${projectName} files`}
-          className="min-h-0 flex-1 overflow-hidden"
-          style={pierreTreeStyle(resolvedTheme)}
-        />
-      )}
+        ) : null}
+        {(!ready || pathSearch.isPending) && (
+          <div
+            role="status"
+            className={
+              entries.length > 0 && !hasNoSearchMatches
+                ? "sr-only"
+                : "px-3 py-1 text-xs text-muted-foreground"
+            }
+          >
+            Loading files…
+          </div>
+        )}
+        {hasNoSearchMatches ? (
+          ready && !isPending && !pathSearch.isPending && !error && !pathSearch.error ? (
+            <div role="status" className="px-3 py-4 text-xs text-muted-foreground">
+              No matching files.
+            </div>
+          ) : null
+        ) : (
+          <FileTree
+            model={model}
+            aria-label={`${projectName} files`}
+            className="min-h-0 flex-1 overflow-hidden"
+            style={pierreTreeStyle(resolvedTheme)}
+          />
+        )}
+      </div>
     </div>
   );
 }
