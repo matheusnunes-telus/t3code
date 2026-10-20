@@ -443,7 +443,8 @@ function Sidebar({
             side === "left"
               ? "left-0 group-data-[collapsible=offcanvas]:left-[calc(var(--sidebar-width)*-1)] group-data-[collapsible=peek]:left-[calc(var(--sidebar-width)*-1)]"
               : "right-0 group-data-[collapsible=offcanvas]:right-[calc(var(--sidebar-width)*-1)] group-data-[collapsible=peek]:right-[calc(var(--sidebar-width)*-1)]",
-            "group-data-[collapsible=peek-open]:z-40 group-data-[collapsible=peek-open]:shadow-xl",
+            // Above the chat's message minimap (z-40), which sits at the content's left edge.
+            "group-data-[collapsible=peek-open]:z-50 group-data-[collapsible=peek-open]:shadow-xl",
             variant === "floating" || variant === "inset"
               ? "p-2 group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)+(--spacing(4))+2px)]"
               : "group-data-[collapsible=icon]:w-(--sidebar-width-icon) group-data-[side=left]:border-r group-data-[side=right]:border-l",
