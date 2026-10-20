@@ -202,7 +202,7 @@ export function ThreadRouteView({ target }: { target: ThreadRouteTarget }) {
       <div
         className={cn(
           "relative flex min-h-0 min-w-0 flex-1 flex-col",
-          hasChatTabs && "[--workspace-controls-top:calc(env(titlebar-area-y,0px)+2.25rem)]",
+          hasChatTabs && "[--workspace-controls-top:calc(env(titlebar-area-y,0px)+2.75rem)]",
         )}
       >
         {view}

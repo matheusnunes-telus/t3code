@@ -242,7 +242,7 @@ export function ChatTabsBar() {
   return (
     <div
       className={cn(
-        "flex h-9 min-h-9 shrink-0 items-end gap-0.5 overflow-x-auto border-b border-border bg-sidebar/40 px-2 [scrollbar-width:none]",
+        "flex h-11 min-h-11 shrink-0 items-end gap-0.5 overflow-x-auto border-b border-border bg-sidebar/40 px-2 [scrollbar-width:none]",
         isElectron && "drag-region",
         COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS,
       )}
