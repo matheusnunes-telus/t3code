@@ -47,22 +47,4 @@ describe("matchComposerThreadItems", () => {
     expect(items.map((item) => item.thread.threadId)).toEqual(["new", "old"]);
     expect(items[0]).toMatchObject({ type: "thread", label: "Login redesign" });
   });
-
-  it("offers the most recent threads for a bare @ when asked, described by project", () => {
-    const items = matchComposerThreadItems({
-      shells: [
-        shell("a", "First", { updatedAt: "2026-01-01T00:00:00.000Z", projectId: "p1" }),
-        shell("b", "Second", { updatedAt: "2026-01-02T00:00:00.000Z", projectId: "p1" }),
-        shell("c", "Third", { updatedAt: "2026-01-03T00:00:00.000Z" }),
-        shell("d", "Fourth", { updatedAt: "2026-01-04T00:00:00.000Z", projectId: "p2" }),
-      ],
-      environmentId: env,
-      excludeThreadId: null,
-      query: "",
-      recentWhenEmpty: true,
-      projectTitleById: new Map([["p2", "web"]]),
-    });
-    expect(items.map((item) => item.thread.threadId)).toEqual(["d", "c", "b"]);
-    expect(items.map((item) => item.description)).toEqual(["web", "Thread", "Thread"]);
-  });
 });

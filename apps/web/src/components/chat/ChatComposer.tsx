@@ -252,7 +252,7 @@ import {
 } from "~/lib/composerContextRecords";
 import { matchComposerThreadItems } from "@t3tools/client-runtime/composerThreadItems";
 import { useThreadContextDrop, threadContextDropTargetProps } from "./threadContextDrag";
-import { readThreadShell, useProjects, useThreadShells } from "~/state/entities";
+import { readThreadShell, useThreadShells } from "~/state/entities";
 import { requestConfirmDialog } from "~/confirmDialog";
 import { encodeComposerContextFragment } from "@t3tools/shared/composerContextClipboard";
 import type {
@@ -2543,12 +2543,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     pullRequestTextQuery === debouncedPullRequestTextQuery ? pullRequestTextQuery : null;
   const isPathTrigger = composerTriggerKind === "path";
   const environmentThreadShells = useThreadShells(isPathTrigger);
-  const composerProjects = useProjects();
-  const composerProjectTitleById = new Map(
-    composerProjects
-      .filter((project) => project.environmentId === environmentId)
-      .map((project) => [project.id as string, project.title] as const),
-  );
   const workspaceEntries = useComposerPathSearch({
     environmentId,
     cwd: isPathTrigger ? gitCwd : null,
@@ -2632,8 +2626,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           environmentId,
           excludeThreadId: activeThreadId,
           query: composerTrigger.query,
-          recentWhenEmpty: true,
-          projectTitleById: composerProjectTitleById,
         }),
         ...workspaceEntries.entries.map((entry) => ({
           id: `path:${entry.kind}:${entry.path}`,
