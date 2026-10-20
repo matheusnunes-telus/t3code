@@ -1,6 +1,7 @@
 import type { EnvironmentId, ScopedThreadRef, ThreadId } from "@t3tools/contracts";
 
 const COMPOSER_THREAD_RESULT_LIMIT = 5;
+const COMPOSER_RECENT_THREAD_LIMIT = 3;
 
 export interface ComposerThreadCandidate {
   readonly environmentId: EnvironmentId;
@@ -8,6 +9,7 @@ export interface ComposerThreadCandidate {
   readonly title: string;
   readonly updatedAt: string;
   readonly archivedAt: string | null;
+  readonly projectId?: string;
 }
 
 export interface ComposerThreadItem {
@@ -27,9 +29,13 @@ export function matchComposerThreadItems(input: {
   environmentId: EnvironmentId;
   excludeThreadId: ThreadId | null;
   query: string;
+  /** A bare @ offers the most recent threads above the files instead of nothing. */
+  recentWhenEmpty?: boolean;
+  /** Describes each thread by its project; falls back to "Thread". */
+  projectTitleById?: ReadonlyMap<string, string>;
 }): ComposerThreadItem[] {
   const query = input.query.trim().toLowerCase();
-  if (query.length === 0) return [];
+  if (query.length === 0 && input.recentWhenEmpty !== true) return [];
   return input.shells
     .filter(
       (shell) =>
@@ -39,12 +45,15 @@ export function matchComposerThreadItems(input: {
         shell.title.toLowerCase().includes(query),
     )
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
-    .slice(0, COMPOSER_THREAD_RESULT_LIMIT)
+    .slice(0, query.length === 0 ? COMPOSER_RECENT_THREAD_LIMIT : COMPOSER_THREAD_RESULT_LIMIT)
     .map((shell) => ({
       id: `thread:${shell.environmentId}:${shell.id}`,
       type: "thread",
       thread: { environmentId: shell.environmentId, threadId: shell.id },
       label: shell.title,
-      description: "Thread",
+      description:
+        (shell.projectId === undefined
+          ? undefined
+          : input.projectTitleById?.get(shell.projectId)) ?? "Thread",
     }));
 }
