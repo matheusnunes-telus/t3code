@@ -72,13 +72,119 @@ type SidebarResolvedResizableOptions = {
   storageKey: string | null;
 };
 
+// "peek" collapses to an icon rail; hovering the rail floats the full sidebar
+// over the content without pushing it.
+type SidebarCollapsible = "offcanvas" | "icon" | "peek" | "none";
+
 type SidebarInstanceContextProps = {
   resizable: SidebarResolvedResizableOptions | null;
   side: "left" | "right";
+  openPeek: (() => void) | null;
 };
 
 const SidebarContext = React.createContext<SidebarContextProps | null>(null);
 const SidebarInstanceContext = React.createContext<SidebarInstanceContextProps | null>(null);
+
+const SIDEBAR_PEEK_OPEN_DELAY_MS = 120;
+const SIDEBAR_PEEK_CLOSE_DELAY_MS = 250;
+// Menus and dialogs opened from the peeking sidebar are portaled outside it,
+// so moving the pointer into them must not close the sidebar underneath.
+const SIDEBAR_PEEK_HOLD_SELECTOR = [
+  "menu-popup",
+  "combobox-popup",
+  "popover-popup",
+  "select-popup",
+  "autocomplete-popup",
+  "dialog-popup",
+  "alert-dialog-popup",
+  "command-dialog-popup",
+]
+  .map((slot) => `[data-slot="${slot}"]`)
+  .join(",");
+
+function shouldHoldSidebarPeek(container: HTMLElement | null): boolean {
+  if (document.querySelector(SIDEBAR_PEEK_HOLD_SELECTOR) !== null) return true;
+  const active = document.activeElement;
+  // Typing in the sidebar search keeps it open while the pointer wanders off.
+  return (
+    (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) &&
+    container !== null &&
+    container.contains(active)
+  );
+}
+
+function useSidebarPeekState(enabled: boolean) {
+  const [peeking, setPeeking] = React.useState(false);
+  const [enabledSnapshot, setEnabledSnapshot] = React.useState(enabled);
+  if (enabledSnapshot !== enabled) {
+    setEnabledSnapshot(enabled);
+    setPeeking(false);
+  }
+  const containerRef = React.useRef<HTMLDivElement | null>(null);
+  const pointerInsideRef = React.useRef(false);
+  const timerRef = React.useRef<number | null>(null);
+
+  const clearTimer = () => {
+    if (timerRef.current === null) return;
+    window.clearTimeout(timerRef.current);
+    timerRef.current = null;
+  };
+  const scheduleClose = () => {
+    clearTimer();
+    timerRef.current = window.setTimeout(() => {
+      timerRef.current = null;
+      if (pointerInsideRef.current) return;
+      if (shouldHoldSidebarPeek(containerRef.current)) {
+        scheduleClose();
+        return;
+      }
+      setPeeking(false);
+    }, SIDEBAR_PEEK_CLOSE_DELAY_MS);
+  };
+  const openPeek = () => {
+    clearTimer();
+    setPeeking(true);
+  };
+  React.useEffect(() => clearTimer, []);
+
+  return {
+    peeking: enabled && peeking,
+    containerRef,
+    openPeek,
+    railHandlers: {
+      // Hovering the rail's own buttons leaves them clickable; the empty part
+      // of the rail opens the peek.
+      onPointerMove: (event: React.PointerEvent<HTMLDivElement>) => {
+        pointerInsideRef.current = true;
+        const overButton =
+          event.target instanceof Element && event.target.closest("button") !== null;
+        if (overButton) {
+          clearTimer();
+          return;
+        }
+        if (timerRef.current !== null) return;
+        timerRef.current = window.setTimeout(() => {
+          timerRef.current = null;
+          setPeeking(true);
+        }, SIDEBAR_PEEK_OPEN_DELAY_MS);
+      },
+      onPointerLeave: () => {
+        pointerInsideRef.current = false;
+        scheduleClose();
+      },
+    },
+    containerHandlers: {
+      onPointerEnter: () => {
+        pointerInsideRef.current = true;
+        clearTimer();
+      },
+      onPointerLeave: () => {
+        pointerInsideRef.current = false;
+        scheduleClose();
+      },
+    },
+  };
+}
 
 function useSidebar() {
   const context = React.use(SidebarContext);
@@ -87,6 +193,10 @@ function useSidebar() {
   }
 
   return context;
+}
+
+function useSidebarPeek() {
+  return React.use(SidebarInstanceContext)?.openPeek ?? null;
 }
 
 function useSidebarVisibility() {
@@ -182,7 +292,7 @@ function resolveSidebarResizable({
   isMobile,
   resizable,
 }: {
-  collapsible: "offcanvas" | "icon" | "none";
+  collapsible: SidebarCollapsible;
   isMobile: boolean;
   resizable: boolean | SidebarResizableOptions;
 }): SidebarResolvedResizableOptions | null {
@@ -205,19 +315,27 @@ function Sidebar({
   variant = "sidebar",
   collapsible = "offcanvas",
   resizable = false,
+  collapsedRail,
   className,
   children,
   ...props
 }: React.ComponentProps<"div"> & {
   side?: "left" | "right";
   variant?: "sidebar" | "floating" | "inset";
-  collapsible?: "offcanvas" | "icon" | "none";
+  collapsible?: SidebarCollapsible;
   resizable?: boolean | SidebarResizableOptions;
+  collapsedRail?: React.ReactNode;
 }) {
   const { isMobile, state, openMobile, setOpenMobile, setMobileSheetElement } = useSidebar();
   // The rail's width restore and drag refresh key on this value.
   const resolvedResizable = resolveSidebarResizable({ collapsible, isMobile, resizable });
-  const instanceContextValue: SidebarInstanceContextProps = { side, resizable: resolvedResizable };
+  const peekEnabled = collapsible === "peek" && !isMobile && state === "collapsed";
+  const peek = useSidebarPeekState(peekEnabled);
+  const instanceContextValue: SidebarInstanceContextProps = {
+    side,
+    resizable: resolvedResizable,
+    openPeek: peekEnabled ? peek.openPeek : null,
+  };
 
   if (collapsible === "none") {
     return (
@@ -281,7 +399,7 @@ function Sidebar({
     <SidebarInstanceContext value={instanceContextValue}>
       <div
         className="group peer hidden text-sidebar-foreground md:block"
-        data-collapsible={state === "collapsed" ? collapsible : ""}
+        data-collapsible={state === "collapsed" ? (peek.peeking ? "peek-open" : collapsible) : ""}
         data-side={side}
         data-slot="sidebar"
         data-state={state}
@@ -292,6 +410,7 @@ function Sidebar({
             "relative w-(--sidebar-width) bg-transparent",
             "[[data-panel-animations=true]_&]:transition-[width] [[data-panel-animations=true]_&]:[transition-duration:var(--panel-animation-duration)] [[data-panel-animations=true]_&]:ease-out",
             "group-data-[collapsible=offcanvas]:w-0",
+            "group-data-[collapsible=peek]:w-(--sidebar-width-icon) group-data-[collapsible=peek-open]:w-(--sidebar-width-icon)",
             "group-data-[side=right]:rotate-180",
             variant === "floating" || variant === "inset"
               ? "group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)+(--spacing(4)))]"
@@ -304,8 +423,9 @@ function Sidebar({
             "fixed inset-y-0 z-10 hidden h-svh w-(--sidebar-width) md:flex",
             "[[data-panel-animations=true]_&]:transition-[left,right,width] [[data-panel-animations=true]_&]:[transition-duration:var(--panel-animation-duration)] [[data-panel-animations=true]_&]:ease-out",
             side === "left"
-              ? "left-0 group-data-[collapsible=offcanvas]:left-[calc(var(--sidebar-width)*-1)]"
-              : "right-0 group-data-[collapsible=offcanvas]:right-[calc(var(--sidebar-width)*-1)]",
+              ? "left-0 group-data-[collapsible=offcanvas]:left-[calc(var(--sidebar-width)*-1)] group-data-[collapsible=peek]:left-[calc(var(--sidebar-width)*-1)]"
+              : "right-0 group-data-[collapsible=offcanvas]:right-[calc(var(--sidebar-width)*-1)] group-data-[collapsible=peek]:right-[calc(var(--sidebar-width)*-1)]",
+            "group-data-[collapsible=peek-open]:z-40 group-data-[collapsible=peek-open]:shadow-xl",
             variant === "floating" || variant === "inset"
               ? "p-2 group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)+(--spacing(4))+2px)]"
               : "group-data-[collapsible=icon]:w-(--sidebar-width-icon) group-data-[side=left]:border-r group-data-[side=right]:border-l",
@@ -313,6 +433,19 @@ function Sidebar({
           )}
           data-slot="sidebar-container"
           {...props}
+          {...(peekEnabled
+            ? {
+                ref: peek.containerRef,
+                onPointerEnter: (event: React.PointerEvent<HTMLDivElement>) => {
+                  props.onPointerEnter?.(event);
+                  peek.containerHandlers.onPointerEnter();
+                },
+                onPointerLeave: (event: React.PointerEvent<HTMLDivElement>) => {
+                  props.onPointerLeave?.(event);
+                  peek.containerHandlers.onPointerLeave();
+                },
+              }
+            : {})}
         >
           <div
             className="flex h-full w-full flex-col bg-sidebar surface-grain group-data-[variant=floating]:rounded-lg group-data-[variant=floating]:border group-data-[variant=floating]:border-sidebar-border group-data-[variant=floating]:shadow-sm/5"
@@ -322,6 +455,18 @@ function Sidebar({
             {children}
           </div>
         </div>
+        {peekEnabled ? (
+          <div
+            className={cn(
+              "fixed inset-y-0 z-10 hidden h-svh w-(--sidebar-width-icon) flex-col bg-sidebar surface-grain md:flex",
+              side === "left" ? "left-0 border-r" : "right-0 border-l",
+            )}
+            data-slot="sidebar-collapsed-rail"
+            {...peek.railHandlers}
+          >
+            {collapsedRail}
+          </div>
+        ) : null}
       </div>
     </SidebarInstanceContext>
   );
@@ -506,6 +651,7 @@ function SidebarRail({
               "in-data-[side=left]:cursor-w-resize in-data-[side=right]:cursor-e-resize",
               "[[data-side=left][data-state=collapsed]_&]:cursor-e-resize [[data-side=right][data-state=collapsed]_&]:cursor-w-resize",
               "group-data-[collapsible=offcanvas]:translate-x-0 hover:group-data-[collapsible=offcanvas]:bg-sidebar group-data-[collapsible=offcanvas]:after:left-full",
+              "[[data-collapsible=peek]_&]:pointer-events-none",
               "[[data-side=left][data-collapsible=offcanvas]_&]:-right-2",
               "[[data-side=right][data-collapsible=offcanvas]_&]:-left-2",
               className,
@@ -817,5 +963,6 @@ export {
   SidebarRail,
   SidebarTrigger,
   useSidebar,
+  useSidebarPeek,
   useSidebarVisibility,
 };

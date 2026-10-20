@@ -10,7 +10,11 @@ import {
 import { useLocation, useNavigate } from "@tanstack/react-router";
 
 import { isElectron } from "../env";
-import { getLocalStorageItem, removeLocalStorageItem } from "../hooks/useLocalStorage";
+import {
+  getLocalStorageItem,
+  removeLocalStorageItem,
+  setLocalStorageItem,
+} from "../hooks/useLocalStorage";
 import {
   isRichTextBoldShortcut,
   resolveShortcutCommand,
@@ -35,6 +39,7 @@ import { useThreadVisitedMigration } from "../hooks/useThreadVisitedMigration";
 import ThreadSidebar from "./Sidebar";
 import { SettingsSidebarNav } from "./settings/SettingsSidebarNav";
 import { SidebarBrandWidthProbe, SidebarChromeHeader } from "./sidebar/SidebarChrome";
+import { SidebarCollapsedRail } from "./sidebar/SidebarCollapsedRail";
 import { MainAppLocationTracker } from "./sidebar/mainAppLocation";
 import { useSidebarStageBackdropVariant } from "./SidebarStageBackdrop";
 import { useProjects } from "../state/entities";
@@ -58,6 +63,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { useThreadRouteRef } from "../hooks/useThreadRouteTarget";
 
 const MACOS_TRAFFIC_LIGHTS_LEFT_INSET = "var(--desktop-window-controls-inset, 90px)";
+const THREAD_SIDEBAR_OPEN_STORAGE_KEY = "t3code:sidebar:open";
 
 function subscribeToViewportWidth(onChange: () => void): () => void {
   window.addEventListener("resize", onChange);
@@ -115,6 +121,23 @@ function readInitialThreadSidebarWidth(): number {
   } catch (error) {
     console.error("Could not read persisted thread sidebar width.", error);
     return resolveInitialThreadSidebarWidth(null, window.innerWidth);
+  }
+}
+
+function readInitialThreadSidebarOpen(): boolean {
+  try {
+    return getLocalStorageItem(THREAD_SIDEBAR_OPEN_STORAGE_KEY, Schema.Boolean) ?? true;
+  } catch (error) {
+    console.error("Could not read persisted thread sidebar mode.", error);
+    return true;
+  }
+}
+
+function persistThreadSidebarOpen(open: boolean) {
+  try {
+    setLocalStorageItem(THREAD_SIDEBAR_OPEN_STORAGE_KEY, open, Schema.Boolean);
+  } catch (error) {
+    console.error("Could not persist thread sidebar mode.", error);
   }
 }
 
@@ -265,6 +288,11 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
   const isOnSettings = pathname === "/settings" || pathname.startsWith("/settings/");
   const isMacosDesktop = isElectron && isMacPlatform(navigator.platform);
   const [sidebarWidth, setSidebarWidth] = useState(readInitialThreadSidebarWidth);
+  const [sidebarOpen, setSidebarOpen] = useState(readInitialThreadSidebarOpen);
+  const handleSidebarOpenChange = (open: boolean) => {
+    setSidebarOpen(open);
+    persistThreadSidebarOpen(open);
+  };
   // Subscribed rather than read once: the clamp must track live window size,
   // and a clamped drag ends with an unchanged width, which skips the re-render
   // that would otherwise refresh a render-time snapshot.
@@ -291,6 +319,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
   ) as CSSProperties;
   const sidebarProviderStyle = {
     "--sidebar-width": `${clampThreadSidebarWidth(sidebarWidth, sidebarMinimumWidth, sidebarMaximumWidth)}px`,
+    "--sidebar-collapsed-width": "var(--sidebar-width-icon)",
     "--panel-animation-duration": `${panelAnimationDurationMs}ms`,
     ...windowControlsInsetStyle,
   } as CSSProperties;
@@ -320,14 +349,21 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
       <SidebarProvider
         className="h-dvh! min-h-0!"
         data-panel-animations={routePanelAnimationsActive ? "true" : "false"}
-        defaultOpen
+        open={sidebarOpen}
+        onOpenChange={handleSidebarOpenChange}
         style={sidebarProviderStyle}
       >
         <SidebarBrandWidthProbe onWidthChange={setBrandWidth} />
         <ProjectProjectionRetention />
         <Sidebar
           side="left"
-          collapsible="offcanvas"
+          collapsible="peek"
+          collapsedRail={
+            <SidebarCollapsedRail
+              isElectron={isElectron}
+              showThreadActions={!isOnSettings && !legacySidebarEnabled}
+            />
+          }
           data-app-sidebar=""
           role="navigation"
           aria-label={isOnSettings ? "Settings" : "Threads"}
