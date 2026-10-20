@@ -332,7 +332,7 @@ export function ChatTabsBar() {
             }}
           >
             {isRunning ? (
-              <span className="size-1.5 shrink-0 animate-status-pulse rounded-full bg-info" />
+              <span className="size-1.5 shrink-0 motion-safe:animate-status-pulse rounded-full bg-info" />
             ) : hasUnreadCompletion ? (
               <span
                 role="img"

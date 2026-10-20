@@ -224,7 +224,8 @@ export function RevertConfirmHost(props: {
           <AlertDialogTitle>Keep or revert code changes?</AlertDialogTitle>
           <AlertDialogDescription>
             {files.length === 1 ? "1 file was" : `${files.length} files were`} changed after this
-            message. The chat will go back to before it.
+            message. The chat will go back to before it. Reverting also undoes your own edits to
+            these files.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <ul className="mx-6 mb-2 max-h-56 overflow-y-auto rounded-lg border border-border/70 text-xs">

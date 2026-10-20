@@ -42,65 +42,67 @@ export const layer: Layer.Layer<TurnItemPositionStoreV2, never, SqlClient.SqlCli
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
 
-    const allocate: TurnItemPositionStoreV2Shape["allocate"] = ({
-      threadId,
-      turnItemId,
-      runId,
-      runOrdinal: suppliedRunOrdinal,
-      runBucket: suppliedRunBucket,
-    }) =>
-      Effect.gen(function* () {
-        const existing = yield* sql<{ readonly ordinal: number }>`
+    const allocate: TurnItemPositionStoreV2Shape["allocate"] =
+      /* This helper runs for individual orchestration events; the enclosing operation owns the span. */
+      Effect.fnUntraced(
+        function* ({
+          threadId,
+          turnItemId,
+          runId,
+          runOrdinal: suppliedRunOrdinal,
+          runBucket: suppliedRunBucket,
+        }) {
+          const existing = yield* sql<{ readonly ordinal: number }>`
           SELECT ordinal
           FROM orchestration_v2_turn_item_positions
           WHERE thread_id = ${threadId} AND turn_item_id = ${turnItemId}
           LIMIT 1
         `;
-        if (existing[0] !== undefined) return existing[0].ordinal;
+          if (existing[0] !== undefined) return existing[0].ordinal;
 
-        const runRows =
-          runId === null
-            ? []
-            : yield* sql<{ readonly ordinal: number }>`
+          const runRows =
+            runId === null
+              ? []
+              : yield* sql<{ readonly ordinal: number }>`
                 SELECT ordinal
                 FROM orchestration_v2_projection_runs
                 WHERE thread_id = ${threadId} AND run_id = ${runId}
                 LIMIT 1
               `;
-        const runOrdinal = suppliedRunOrdinal ?? runRows[0]?.ordinal ?? null;
-        let bucket = runOrdinal ?? 0;
-        if (runOrdinal !== null) {
-          // A run keeps the bucket its first item got. A queued run is numbered when it is
-          // queued but starts later, so its first item goes after what the thread already has.
-          const ownBucket =
-            suppliedRunBucket ??
-            (runId === null
-              ? null
-              : yield* sql<{ readonly ordinal: number | null }>`
-                  SELECT MAX(ordinal) AS ordinal
-                  FROM orchestration_v2_projection_turn_items
-                  WHERE thread_id = ${threadId} AND run_id = ${runId}
-                `.pipe(
-                  Effect.map((rows) =>
-                    rows[0]?.ordinal == null ? null : Math.floor(rows[0].ordinal / 1_000_000),
-                  ),
-                ));
-          if (ownBucket !== null) {
-            bucket = ownBucket;
-          } else {
-            const latest = yield* sql<{ readonly ordinal: number | null }>`
-              SELECT MAX(ordinal) AS ordinal
-              FROM orchestration_v2_turn_item_positions
-              WHERE thread_id = ${threadId} AND ordinal >= 1000000
-            `;
-            const latestBucket =
-              latest[0]?.ordinal == null ? 0 : Math.floor(latest[0].ordinal / 1_000_000);
-            bucket = Math.max(runOrdinal, latestBucket);
+          const runOrdinal = suppliedRunOrdinal ?? runRows[0]?.ordinal ?? null;
+          let bucket = runOrdinal ?? 0;
+          if (runOrdinal !== null) {
+            // A run keeps the bucket its first item got. A queued run is numbered when it is
+            // queued but starts later, so its first item goes after what the thread already has.
+            const ownBucket =
+              suppliedRunBucket ??
+              (runId === null
+                ? null
+                : yield* sql<{ readonly ordinal: number | null }>`
+                    SELECT MAX(ordinal) AS ordinal
+                    FROM orchestration_v2_projection_turn_items
+                    WHERE thread_id = ${threadId} AND run_id = ${runId}
+                  `.pipe(
+                    Effect.map((rows) =>
+                      rows[0]?.ordinal == null ? null : Math.floor(rows[0].ordinal / 1_000_000),
+                    ),
+                  ));
+            if (ownBucket !== null) {
+              bucket = ownBucket;
+            } else {
+              const latest = yield* sql<{ readonly ordinal: number | null }>`
+                SELECT MAX(ordinal) AS ordinal
+                FROM orchestration_v2_turn_item_positions
+                WHERE thread_id = ${threadId} AND ordinal >= 1000000
+              `;
+              const latestBucket =
+                latest[0]?.ordinal == null ? 0 : Math.floor(latest[0].ordinal / 1_000_000);
+              bucket = Math.max(runOrdinal, latestBucket);
+            }
           }
-        }
-        const lowerBound = bucket * 1_000_000;
-        const upperBound = runOrdinal === null ? 999_999 : lowerBound + 999_999;
-        yield* sql`
+          const lowerBound = bucket * 1_000_000;
+          const upperBound = runOrdinal === null ? 999_999 : lowerBound + 999_999;
+          yield* sql`
           INSERT INTO orchestration_v2_turn_item_positions (thread_id, turn_item_id, ordinal)
           SELECT
             ${threadId},
@@ -112,27 +114,30 @@ export const layer: Layer.Layer<TurnItemPositionStoreV2, never, SqlClient.SqlCli
             AND ordinal <= ${upperBound}
           ON CONFLICT(thread_id, turn_item_id) DO NOTHING
         `;
-        const rows = yield* sql<{ readonly ordinal: number }>`
+          const rows = yield* sql<{ readonly ordinal: number }>`
           SELECT ordinal
           FROM orchestration_v2_turn_item_positions
           WHERE thread_id = ${threadId} AND turn_item_id = ${turnItemId}
           LIMIT 1
         `;
-        const ordinal = rows[0]?.ordinal;
-        if (ordinal === undefined) {
-          return yield* new TurnItemPositionStoreError({
-            threadId,
-            turnItemId,
-            cause: "Position allocation returned no row.",
-          });
-        }
-        return ordinal;
-      }).pipe(
-        Effect.mapError((cause) =>
-          isTurnItemPositionStoreError(cause)
-            ? cause
-            : new TurnItemPositionStoreError({ threadId, turnItemId, cause }),
-        ),
+          const ordinal = rows[0]?.ordinal;
+          if (ordinal === undefined) {
+            return yield* new TurnItemPositionStoreError({
+              threadId,
+              turnItemId,
+              cause: "Position allocation returned no row.",
+            });
+          }
+          return ordinal;
+        },
+        (effect, { threadId, turnItemId }) =>
+          effect.pipe(
+            Effect.mapError((cause) =>
+              isTurnItemPositionStoreError(cause)
+                ? cause
+                : new TurnItemPositionStoreError({ threadId, turnItemId, cause }),
+            ),
+          ),
       );
 
     return TurnItemPositionStoreV2.of({
