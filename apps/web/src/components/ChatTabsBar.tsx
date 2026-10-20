@@ -105,6 +105,15 @@ export function ChatTabsBar() {
     const draft = store.getDraftSession(routeTarget.draftId);
     return draft ? scopedThreadKey(scopeThreadRef(draft.environmentId, draft.threadId)) : null;
   });
+  // A new chat that hasn't been sent yet shows as a temporary "New chat" tab at the
+  // end of the strip. Sending it turns it into the real chat's tab in the same spot.
+  const routeDraftProjectKey = useComposerDraftStore((store) => {
+    if (routeTarget?.kind !== "draft") return null;
+    const draft = store.getDraftSession(routeTarget.draftId);
+    return draft ? (`${draft.environmentId}:${draft.projectId}` as const) : null;
+  });
+  const showDraftTab = routeDraftProjectKey !== null;
+  const draftProject = routeDraftProjectKey ? projectByKey.get(routeDraftProjectKey) : undefined;
   const lastDraftThreadKeyRef = useRef<string | null>(null);
   useEffect(() => {
     if (routeDraftThreadKey) lastDraftThreadKeyRef.current = routeDraftThreadKey;
@@ -169,6 +178,11 @@ export function ChatTabsBar() {
     const next = closeTab(threadKey);
     if (threadKey === activeThreadKey) void navigateToThreadKey(next);
   };
+  // Leaves the unsent chat in place (it stays in the sidebar as a draft).
+  const handleCloseDraftTab = () => {
+    const lastTab = useChatTabsStore.getState().tabs.at(-1);
+    if (lastTab) void navigateToThreadKey(lastTab.threadKey);
+  };
   const onKeyDown = useStableCallback((event: KeyboardEvent) => {
     if (event.defaultPrevented || isCommandPaletteOpen()) return;
     if (event.target instanceof HTMLElement && event.target.closest("[data-keybinding-capture]")) {
@@ -182,6 +196,12 @@ export function ChatTabsBar() {
       },
     });
     if (command === "chatTab.close") {
+      if (showDraftTab && useChatTabsStore.getState().tabs.length > 0) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!event.repeat) handleCloseDraftTab();
+        return;
+      }
       const current = activeThreadKey;
       // Nothing to close: let the key through (the window menu closes the window).
       if (!current || !useChatTabsStore.getState().tabs.some((tab) => tab.threadKey === current)) {
@@ -217,7 +237,7 @@ export function ChatTabsBar() {
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [onKeyDown]);
 
-  if (tabs.length === 0) return null;
+  if (tabs.length === 0 && !showDraftTab) return null;
 
   return (
     <div
@@ -340,6 +360,29 @@ export function ChatTabsBar() {
           </div>
         );
       })}
+      {showDraftTab ? (
+        <div
+          role="tab"
+          aria-selected
+          aria-label="New chat"
+          className="relative flex h-8 max-w-56 min-w-24 shrink-0 items-center gap-1.5 rounded-t-md border border-b-0 border-border bg-background px-2.5 text-xs text-foreground select-none [-webkit-app-region:no-drag]"
+        >
+          {draftProject ? (
+            <ProjectFavicon project={draftProject} className="size-3.5 shrink-0" />
+          ) : null}
+          <span className="min-w-0 flex-1 truncate italic">New chat</span>
+          {tabs.length > 0 ? (
+            <button
+              type="button"
+              aria-label="Close New chat"
+              className="inline-flex size-4 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground"
+              onClick={handleCloseDraftTab}
+            >
+              <XIcon className="size-3" />
+            </button>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }

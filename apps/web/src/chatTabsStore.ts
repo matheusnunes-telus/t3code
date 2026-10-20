@@ -46,7 +46,9 @@ export const useChatTabsStore = create<ChatTabsStoreState>()(
           }
           const nextTab: ChatTab = { threadKey, preview: !permanent };
           const previewIndex = state.tabs.findIndex((tab) => tab.preview);
-          if (previewIndex === -1) return { tabs: [...state.tabs, nextTab] };
+          // New permanent tabs (a sent new chat, a side chat) land at the end, where the
+          // temporary "New chat" tab sat, and leave the preview tab alone.
+          if (permanent || previewIndex === -1) return { tabs: [...state.tabs, nextTab] };
           // The preview tab is replaced in place, like VS Code.
           const tabs = [...state.tabs];
           tabs[previewIndex] = nextTab;

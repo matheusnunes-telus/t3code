@@ -152,7 +152,10 @@ export function ThreadRouteView({ target }: { target: ThreadRouteTarget }) {
     finalizePromotedDraftThreadByRef(target.threadRef);
   }, [draftThread, serverThreadStarted, target]);
 
-  const hasChatTabs = useChatTabsStore((state) => state.tabs.length > 0);
+  // An unsent new chat shows its own temporary tab, so the strip is up too.
+  const hasChatTabs =
+    useChatTabsStore((state) => state.tabs.length > 0) ||
+    (target.kind === "draft" && draftSession !== null);
   let view: React.ReactNode = null;
   if (target.kind === "draft") {
     if (draftSession) {
