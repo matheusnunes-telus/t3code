@@ -84,6 +84,9 @@ if [[ -d "$BACKUP_ROOT" ]]; then
   done
 fi
 
+# Lets `git log "$(cat ~/.t3/custom-app-built-commit)"..HEAD` list what the next rebuild adds.
+git -C "$REPO_ROOT" rev-parse HEAD >"$HOME/.t3/custom-app-built-commit"
+
 step "Done"
 echo "Installed: $INSTALL_DIR/$APP_NAME"
 echo "Quit and reopen the app to use the new version."
