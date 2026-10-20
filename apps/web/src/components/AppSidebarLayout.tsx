@@ -347,7 +347,9 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
   return (
     <PanelAnimationSuppressionProvider value={panelAnimationsSuppressed}>
       <SidebarProvider
-        className="h-dvh! min-h-0!"
+        // The collapsed rail starts below the top bar, which is the chat tabs
+        // bar when tabs are showing.
+        className="h-dvh! min-h-0! [--sidebar-rail-top:var(--workspace-topbar-height)] [&:has([data-chat-tabs-bar])]:[--sidebar-rail-top:2.75rem]"
         data-panel-animations={routePanelAnimationsActive ? "true" : "false"}
         open={sidebarOpen}
         onOpenChange={handleSidebarOpenChange}
@@ -359,10 +361,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
           side="left"
           collapsible="peek"
           collapsedRail={
-            <SidebarCollapsedRail
-              isElectron={isElectron}
-              showThreadActions={!isOnSettings && !legacySidebarEnabled}
-            />
+            <SidebarCollapsedRail showThreadActions={!isOnSettings && !legacySidebarEnabled} />
           }
           data-app-sidebar=""
           role="navigation"

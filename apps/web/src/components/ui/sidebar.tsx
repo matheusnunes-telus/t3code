@@ -474,16 +474,29 @@ function Sidebar({
           </div>
         </div>
         {peekEnabled ? (
-          <div
-            className={cn(
-              "fixed inset-y-0 z-10 hidden h-svh w-(--sidebar-width-icon) flex-col bg-sidebar surface-grain md:flex",
-              side === "left" ? "left-0 border-r" : "right-0 border-l",
-            )}
-            data-slot="sidebar-collapsed-rail"
-            {...peek.railHandlers}
-          >
-            {collapsedRail}
-          </div>
+          <>
+            {/* The rail starts below the top bar, so the top bar runs across the
+                whole window and its corner stays a drag area. */}
+            <div
+              className={cn(
+                "fixed top-0 z-10 hidden h-(--sidebar-rail-top) w-(--sidebar-width-icon) bg-background md:block",
+                side === "left" ? "left-0" : "right-0",
+              )}
+              data-slot="sidebar-collapsed-rail-corner"
+            >
+              <div className="drag-region size-full [[data-slot=sidebar-wrapper]:has([data-chat-tabs-bar])_&]:border-b [[data-slot=sidebar-wrapper]:has([data-chat-tabs-bar])_&]:bg-sidebar/40" />
+            </div>
+            <div
+              className={cn(
+                "fixed top-(--sidebar-rail-top) bottom-0 z-10 hidden w-(--sidebar-width-icon) flex-col bg-sidebar surface-grain md:flex",
+                side === "left" ? "left-0 border-r" : "right-0 border-l",
+              )}
+              data-slot="sidebar-collapsed-rail"
+              {...peek.railHandlers}
+            >
+              {collapsedRail}
+            </div>
+          </>
         ) : null}
       </div>
     </SidebarInstanceContext>

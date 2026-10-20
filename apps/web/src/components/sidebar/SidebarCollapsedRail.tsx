@@ -8,7 +8,6 @@ import {
 import type { MouseEvent as ReactMouseEvent, ReactNode } from "react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 
-import { cn } from "../../lib/utils";
 import { usePullRequestsSupported } from "../../state/environments";
 import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
 import { readPullRequestListPreferences } from "../pullRequest/pullRequestListPreferences";
@@ -45,13 +44,7 @@ function RailButton({
   );
 }
 
-export function SidebarCollapsedRail({
-  isElectron,
-  showThreadActions,
-}: {
-  isElectron: boolean;
-  showThreadActions: boolean;
-}) {
+export function SidebarCollapsedRail({ showThreadActions }: { showThreadActions: boolean }) {
   const navigate = useNavigate();
   const navigateToMainApp = useNavigateToMainApp();
   const openPeek = useSidebarPeek();
@@ -76,12 +69,6 @@ export function SidebarCollapsedRail({
 
   return (
     <div className="flex h-full flex-col items-center pb-1">
-      <div
-        className={cn(
-          "h-[var(--workspace-topbar-height)] w-full shrink-0",
-          isElectron && "drag-region",
-        )}
-      />
       {showThreadActions ? (
         <div className="flex flex-col items-center gap-1 pt-2">
           <RailButton icon={<SquarePenIcon />} label="New thread" onClick={handleNewThread} />
