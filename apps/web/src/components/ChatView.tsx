@@ -271,6 +271,9 @@ import { RightPanelTabs } from "./RightPanelTabs";
 import { LinkPullRequestDialogHost } from "./pullRequest/LinkPullRequestDialog";
 import { useDeviceState } from "~/state/device";
 import { BranchToolbar, type BranchToolbarHandle } from "./BranchToolbar";
+import { FilesTabView } from "./files/FilesTabView";
+import { convertDraftToFilesTab } from "../filesTabs";
+import { useFilesTabsStore } from "../filesTabsStore";
 import { makeWorkspaceFileDropHandlers } from "./chat/workspaceFileDrop";
 import { isEditableFocused } from "../lib/editableFocus";
 import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
@@ -283,6 +286,7 @@ import {
   PaperclipIcon,
   ChevronDownIcon,
   DownloadIcon,
+  FolderOpenIcon,
   GitBranchIcon,
   ShieldQuestionIcon,
   TargetIcon,
@@ -1074,6 +1078,10 @@ export default function ChatView(props: ChatViewProps) {
     readEnvironmentScope(environmentId, AuthTerminalOperateScope);
   const canReadTerminal = useEnvironmentScope(environmentId, AuthTerminalReadScope);
   const draftId = routeKind === "draft" ? props.draftId : null;
+  // A new chat turned into a files tab shows a file instead of the chat.
+  const filesTabActive = useFilesTabsStore((state) =>
+    draftId ? state.tabsByDraftId[draftId] !== undefined : false,
+  );
   const handleNewThread = useNewThreadHandler();
   const { settleThread, pinThread, confirmAndUnpinThread } = useThreadActions();
   const routeThreadRef = scopeThreadRef(environmentId, threadId);
@@ -8418,7 +8426,7 @@ export default function ChatView(props: ChatViewProps) {
             activeThreadEnvironmentId={activeThread.environmentId}
             activeThreadId={activeThread.id}
             isServerThread={isServerThread}
-            activeThreadTitle={activeThread.title}
+            activeThreadTitle={filesTabActive ? "Files" : activeThread.title}
             activeProject={activeProject ?? null}
             parentThreadLink={parentThreadLink}
             onOpenThread={onOpenRelatedThreadStable}
@@ -8485,7 +8493,25 @@ export default function ChatView(props: ChatViewProps) {
                 }}
               />
             </div>
-            <div className="relative flex min-h-0 flex-1 flex-col bg-background">
+            {filesTabActive && draftId && activeThreadRef && activeWorkspaceRoot ? (
+              <FilesTabView
+                environmentId={activeThread.environmentId}
+                threadRef={activeThreadRef}
+                draftId={draftId}
+                cwd={activeWorkspaceRoot}
+                projectName={activeProject?.title ?? ""}
+                isGitRepo={isGitRepo}
+                keybindings={keybindings}
+                availableEditors={availableEditors}
+                workspaceMutationId={workspaceMutationId}
+              />
+            ) : null}
+            <div
+              className={cn(
+                "relative flex min-h-0 flex-1 flex-col bg-background",
+                filesTabActive && "hidden",
+              )}
+            >
               <MessagesTimeline
                 citationRequest={paintOnlyDisplayedTimeline ? null : citationRequest}
                 citationHistoryLoading={threadDetailLoading}
@@ -8643,11 +8669,12 @@ export default function ChatView(props: ChatViewProps) {
               ref={setComposerOverlayElement}
               inert={isRevertingCheckpoint}
               data-chat-composer-overlay="true"
-              className={
+              className={cn(
                 isDraftHeroState
                   ? "pointer-events-none absolute inset-0 z-20 flex items-center"
-                  : "pointer-events-none absolute inset-x-0 bottom-0 z-20 pt-1.5 sm:pt-2"
-              }
+                  : "pointer-events-none absolute inset-x-0 bottom-0 z-20 pt-1.5 sm:pt-2",
+                filesTabActive && "hidden",
+              )}
             >
               <div ref={draftHeroTransitionGroupRef} className="chat-composer-lane w-full">
                 <div
@@ -8958,6 +8985,18 @@ export default function ChatView(props: ChatViewProps) {
                       className="h-[calc(env(safe-area-inset-bottom)+1rem)] sm:h-[calc(env(safe-area-inset-bottom)+1.25rem)]"
                     />
                   </div>
+                  {isDraftHeroState && draftId && activeProject ? (
+                    <div className="absolute inset-x-0 top-full flex justify-center">
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+                        onClick={() => convertDraftToFilesTab(draftId)}
+                      >
+                        <FolderOpenIcon className="size-3.5" />
+                        or open the project files
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             </div>

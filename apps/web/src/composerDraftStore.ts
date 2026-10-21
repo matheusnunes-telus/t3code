@@ -1990,6 +1990,16 @@ function migratePersistedComposerDraftStoreState(
   };
 }
 
+let keepDraftSession: ((draftKey: string) => boolean) | null = null;
+
+/**
+ * Keeps draft sessions that another feature still shows (a files tab) across restarts,
+ * though they have no project mapping or content.
+ */
+export function setComposerDraftSessionKeeper(keeper: ((draftKey: string) => boolean) | null) {
+  keepDraftSession = keeper;
+}
+
 export function partializeComposerDraftStoreState(
   state: ComposerDraftStoreState,
 ): PersistedComposerDraftStoreState {
@@ -2003,7 +2013,8 @@ export function partializeComposerDraftStoreState(
           mappedDraftKeys.has(threadKey) ||
           isDraftThreadPromoting(draftThread) ||
           composerDraftHasUserContent(state.draftsByThreadKey[threadKey]) ||
-          draftThreadHasOpenPreview(draftThread),
+          draftThreadHasOpenPreview(draftThread) ||
+          keepDraftSession?.(threadKey) === true,
       )
       .map(([threadKey]) => threadKey),
   );

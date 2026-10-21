@@ -85,6 +85,17 @@ export type RightPanelSurface =
   /** A /btw side chat: a read-only fork of this thread, shown here instead of in its own tab. */
   | { id: `side-chat:${string}`; kind: "side-chat"; threadId: string; title: string };
 
+type FileOpenInterceptor = (ref: ScopedThreadRef, relativePath: string, line?: number) => boolean;
+let fileOpenInterceptor: FileOpenInterceptor | null = null;
+
+/**
+ * Lets a view take over file opens for its own threads (a files tab shows the
+ * file in the main area instead of the panel). Return true to take the open.
+ */
+export function setRightPanelFileOpenInterceptor(interceptor: FileOpenInterceptor | null) {
+  fileOpenInterceptor = interceptor;
+}
+
 const RIGHT_PANEL_STORAGE_KEY = "t3code:right-panel-state:v2";
 const RIGHT_PANEL_STORAGE_VERSION = 14;
 
@@ -758,7 +769,8 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
             ),
           }));
         }),
-      openFile: (ref, requestedPath, line) =>
+      openFile: (ref, requestedPath, line) => {
+        if (fileOpenInterceptor?.(ref, requestedPath, line)) return;
         set((state) =>
           userAction(state, scopedThreadKey(ref), (current) => {
             if (requestedPath === ".") {
@@ -792,7 +804,8 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
                 : [...withoutStandaloneExplorer, surface],
             };
           }),
-        ),
+        );
+      },
       navigateFolder: (ref, surfaceId, relativePath, folderTrail, keepSource = false) =>
         set((state) =>
           userAction(state, scopedThreadKey(ref), (current) => {

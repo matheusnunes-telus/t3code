@@ -141,6 +141,8 @@ interface FilePreviewPanelProps {
   onPendingChange: (relativePath: string, pending: boolean) => void;
   selectedFilePending: boolean;
   workspaceMutationId: string | null;
+  /** Shows the file alone, for a files tab that browses in the right panel instead. */
+  hideExplorer?: boolean;
 }
 
 const FILE_EXPLORER_STORAGE_KEY = "t3code.fileExplorerOpen";
@@ -991,6 +993,7 @@ export default function FilePreviewPanel({
   onPendingChange,
   selectedFilePending,
   workspaceMutationId,
+  hideExplorer = false,
 }: FilePreviewPanelProps) {
   const relativePath =
     attachment === undefined ? resolveFilePreviewPath(requestedPath, cwd) : requestedPath;
@@ -1055,11 +1058,13 @@ export default function FilePreviewPanel({
   // Everything preview-related keys off previewPath; a folder has no preview.
   const previewPath = isFolder ? null : relativePath;
   const [explorerOpen, setExplorerOpen] = useState(initialExplorerOpen);
-  const showExplorer = shouldShowFileExplorer({
-    relativePath: previewPath,
-    explorerOpen,
-    attachmentOpen: attachment !== undefined,
-  });
+  const showExplorer =
+    !hideExplorer &&
+    shouldShowFileExplorer({
+      relativePath: previewPath,
+      explorerOpen,
+      attachmentOpen: attachment !== undefined,
+    });
   const [renderMarkdownPreferred, setRenderMarkdownPreferred] = useLocalStorage(
     RENDER_MARKDOWN_STORAGE_KEY,
     false,
@@ -1284,7 +1289,7 @@ export default function FilePreviewPanel({
               <Globe2 className="size-3.5" />
             </FileSurfaceAction>
           ) : null}
-          {!isHostFile && previewPath !== null ? (
+          {!isHostFile && previewPath !== null && !hideExplorer ? (
             <FileSurfaceAction
               label={explorerOpen ? "Hide file explorer" : "Show file explorer"}
               pressed={explorerOpen}

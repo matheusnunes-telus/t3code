@@ -7,7 +7,7 @@ import { threadRuntimeCanArchive } from "@t3tools/client-runtime/state/models";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
 import { useRouter } from "@tanstack/react-router";
-import { ClockIcon, XIcon } from "lucide-react";
+import { ClockIcon, FolderIcon, XIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import {
@@ -17,7 +17,12 @@ import {
   stepRecentTabCycle,
 } from "../chatTabCycle";
 import { useChatTabsStore } from "../chatTabsStore";
-import { useComposerDraftStore } from "../composerDraftStore";
+import { type DraftId, useComposerDraftStore } from "../composerDraftStore";
+import { useFileAutoSaveStore } from "../fileAutoSaveStore";
+import { closeFilesTab, filesDraftIdForThreadKey } from "../filesTabs";
+import { useFilesTabsStore } from "../filesTabsStore";
+import { useTheme } from "../hooks/useTheme";
+import { PierreEntryIcon } from "./chat/PierreEntryIcon";
 import { isCommandPaletteOpen } from "../commandPaletteBus";
 import { isElectron } from "../env";
 import { useThreadRouteTarget } from "../hooks/useThreadRouteTarget";
@@ -50,6 +55,10 @@ function useNavigateToThreadKey() {
   return (threadKey: string | null) => {
     const ref = threadKey ? parseScopedThreadKey(threadKey) : null;
     if (!ref) return router.navigate({ to: "/" });
+    // A files tab lives on its draft's route.
+    const filesDraftId = filesDraftIdForThreadKey(threadKey!);
+    if (filesDraftId)
+      return router.navigate({ to: "/draft/$draftId", params: { draftId: filesDraftId } });
     return router.navigate({
       to: "/$environmentId/$threadId",
       params: buildThreadRouteParams(ref),
@@ -85,8 +94,13 @@ export function ChatTabsBar() {
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const navigateToThreadKey = useNavigateToThreadKey();
   const routeTarget = useThreadRouteTarget();
-  const activeThreadKey =
-    routeTarget?.kind === "server" ? scopedThreadKey(routeTarget.threadRef) : null;
+  const filesTabsByDraftId = useFilesTabsStore((state) => state.tabsByDraftId);
+  const filesDirtyByDraftId = useFilesTabsStore((state) => state.dirtyByDraftId);
+  const autoSave = useFileAutoSaveStore((state) => state.autoSave);
+  const draftThreadsByThreadKey = useComposerDraftStore((store) => store.draftThreadsByThreadKey);
+  const { resolvedTheme } = useTheme();
+  const routeIsFilesTab =
+    routeTarget?.kind === "draft" && filesTabsByDraftId[routeTarget.draftId] !== undefined;
   const threadByKey = new Map(
     threads.map((thread) => [
       scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
@@ -112,7 +126,22 @@ export function ChatTabsBar() {
     const draft = store.getDraftSession(routeTarget.draftId);
     return draft ? (`${draft.environmentId}:${draft.projectId}` as const) : null;
   });
-  const showDraftTab = routeDraftProjectKey !== null;
+  const showDraftTab = routeDraftProjectKey !== null && !routeIsFilesTab;
+  // A files tab is a draft, so its route is the draft's.
+  const activeThreadKey =
+    routeTarget?.kind === "server"
+      ? scopedThreadKey(routeTarget.threadRef)
+      : routeIsFilesTab
+        ? routeDraftThreadKey
+        : null;
+  const filesTabByThreadKey = new Map(
+    Object.entries(filesTabsByDraftId).flatMap(([draftId, filesTab]) => {
+      const session = draftThreadsByThreadKey[draftId];
+      if (!session) return [];
+      const key = scopedThreadKey(scopeThreadRef(session.environmentId, session.threadId));
+      return [[key, { draftId: draftId as DraftId, session, filesTab }] as const];
+    }),
+  );
   const draftProject = routeDraftProjectKey ? projectByKey.get(routeDraftProjectKey) : undefined;
   const lastDraftThreadKeyRef = useRef<string | null>(null);
   useEffect(() => {
@@ -175,6 +204,21 @@ export function ChatTabsBar() {
   }, [finishRecentCycle]);
 
   const handleCloseTab = (threadKey: string) => {
+    const files = filesTabByThreadKey.get(threadKey);
+    if (files) {
+      const index = tabs.findIndex((tab) => tab.threadKey === threadKey);
+      const remaining = tabs.filter((tab) => tab.threadKey !== threadKey);
+      const next = (remaining[index] ?? remaining[index - 1])?.threadKey ?? null;
+      const cwd =
+        files.session.worktreePath ??
+        projectByKey.get(`${files.session.environmentId}:${files.session.projectId}`)
+          ?.workspaceRoot ??
+        null;
+      void closeFilesTab(files.draftId, cwd).then((closed) => {
+        if (closed && threadKey === activeThreadKey) void navigateToThreadKey(next);
+      });
+      return;
+    }
     const next = closeTab(threadKey);
     if (threadKey === activeThreadKey) void navigateToThreadKey(next);
   };
@@ -263,10 +307,23 @@ export function ChatTabsBar() {
               ),
             },
           })?.label === "Completed";
-        const title = thread?.title ?? "Unavailable thread";
-        const project = thread
-          ? projectByKey.get(`${thread.environmentId}:${thread.projectId}`)
-          : undefined;
+        const files = thread ? undefined : filesTabByThreadKey.get(tab.threadKey);
+        const projectKey = thread
+          ? (`${thread.environmentId}:${thread.projectId}` as const)
+          : files
+            ? (`${files.session.environmentId}:${files.session.projectId}` as const)
+            : null;
+        const project = projectKey ? projectByKey.get(projectKey) : undefined;
+        const filePath = files?.filesTab.relativePath ?? null;
+        const title =
+          thread?.title ??
+          (files
+            ? filePath
+              ? (filePath.split("/").at(-1) ?? filePath)
+              : `${project?.title ?? "Project"} files`
+            : "Unavailable thread");
+        const unsaved =
+          files !== undefined && !autoSave && filesDirtyByDraftId[files.draftId] === true;
         return (
           <div
             key={tab.threadKey}
@@ -341,8 +398,29 @@ export function ChatTabsBar() {
               />
             ) : null}
             {project ? <ProjectFavicon project={project} className="size-3.5 shrink-0" /> : null}
+            {files ? (
+              // A folder marks a files tab apart from chats, then the open file's type.
+              <>
+                <FolderIcon className="size-3 shrink-0 text-muted-foreground" />
+                {filePath ? (
+                  <PierreEntryIcon
+                    pathValue={filePath}
+                    kind="file"
+                    theme={resolvedTheme}
+                    className="size-3.5 shrink-0"
+                  />
+                ) : null}
+              </>
+            ) : null}
             <span className={cn("min-w-0 flex-1 truncate", tab.preview && "italic")}>{title}</span>
             {thread ? <ChatTabCacheBadge thread={thread} /> : null}
+            {unsaved ? (
+              <span
+                role="img"
+                aria-label="Unsaved changes"
+                className="size-1.5 shrink-0 rounded-full bg-foreground/80"
+              />
+            ) : null}
             <button
               type="button"
               aria-label={`Close ${title}`}

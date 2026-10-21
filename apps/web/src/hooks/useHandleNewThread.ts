@@ -13,6 +13,7 @@ import {
   type DraftThreadState,
   useComposerDraftStore,
 } from "../composerDraftStore";
+import { isFilesDraft } from "../filesTabsStore";
 import { newDraftId, newThreadId } from "../lib/utils";
 import { orderItemsByPreferredIds } from "../components/Sidebar.logic";
 import {
@@ -298,7 +299,9 @@ export function useNewThreadHandler() {
       currentRouteTarget?.kind === "draft" &&
       latestActiveDraftThread.logicalProjectKey === logicalProjectKey &&
       latestActiveDraftThread.promotedTo == null &&
-      !composerDraftHasUserContent(getComposerDraft(currentRouteTarget.draftId))
+      !composerDraftHasUserContent(getComposerDraft(currentRouteTarget.draftId)) &&
+      // A files tab is a draft too, but it isn't a new chat to reuse.
+      !isFilesDraft(currentRouteTarget.draftId)
     ) {
       if (
         hasBranchOption ||
