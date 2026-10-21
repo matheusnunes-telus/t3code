@@ -7,7 +7,7 @@ import { threadRuntimeCanArchive } from "@t3tools/client-runtime/state/models";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
 import { useRouter } from "@tanstack/react-router";
-import { ClockIcon, FolderIcon, XIcon } from "lucide-react";
+import { ClockIcon, FolderIcon, PlusIcon, XIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import {
@@ -23,6 +23,7 @@ import { closeFilesTab, filesDraftIdForThreadKey } from "../filesTabs";
 import { useFilesTabsStore } from "../filesTabsStore";
 import { useTheme } from "../hooks/useTheme";
 import { PierreEntryIcon } from "./chat/PierreEntryIcon";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { isCommandPaletteOpen } from "../commandPaletteBus";
 import { isElectron } from "../env";
 import { useThreadRouteTarget } from "../hooks/useThreadRouteTarget";
@@ -461,6 +462,21 @@ export function ChatTabsBar() {
           ) : null}
         </div>
       ) : null}
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <button
+              type="button"
+              aria-label="New tab"
+              className="mb-1 ms-1 inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground [-webkit-app-region:no-drag]"
+              onClick={() => void navigateToThreadKey(null)}
+            />
+          }
+        >
+          <PlusIcon className="size-3.5" />
+        </TooltipTrigger>
+        <TooltipPopup>New tab</TooltipPopup>
+      </Tooltip>
     </div>
   );
 }
