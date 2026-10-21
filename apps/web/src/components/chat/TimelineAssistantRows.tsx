@@ -6,7 +6,7 @@ import { useAtomValue } from "@effect/atom-react";
 import { serverEnvironment } from "../../state/server";
 import { type ChatMessage, type TurnDiffSummary } from "../../types";
 import ChatMarkdown from "../ChatMarkdown";
-import { GitForkIcon } from "lucide-react";
+import { GitForkIcon, MailOpenIcon } from "lucide-react";
 import { Button } from "../ui/button";
 import { ProposedPlanCard } from "./ProposedPlanCard";
 import { HtmlRenderFrame } from "./HtmlRenderFrame";
@@ -72,6 +72,39 @@ export function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind
         ) : null}
       </div>
     </>
+  );
+}
+
+function MarkUnreadButton({ messageId }: { readonly messageId: ChatMessage["id"] }) {
+  const ctx = use(TimelineRowCtx);
+  const activity = use(TimelineRowActivityCtx);
+  // Unread belongs to the whole chat, so only the latest reply offers it, once the turn ends.
+  if (
+    ctx.onMarkUnread === undefined ||
+    activity.isWorking ||
+    activity.latestAssistantMessageId !== messageId
+  ) {
+    return null;
+  }
+  const onMarkUnread = ctx.onMarkUnread;
+
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            type="button"
+            size="xs"
+            variant="ghost"
+            onClick={() => onMarkUnread()}
+            aria-label="Mark as unread"
+          />
+        }
+      >
+        <MailOpenIcon className="size-3" />
+      </TooltipTrigger>
+      <TooltipPopup side="top">Mark as unread</TooltipPopup>
+    </Tooltip>
   );
 }
 
@@ -198,6 +231,7 @@ function AssistantMessageMeta({
       {projectedItem?.item.type === "assistant_message" ? (
         <AssistantForkButton projectedItem={projectedItem} />
       ) : null}
+      {message.streaming ? null : <MarkUnreadButton messageId={message.id} />}
       {!message.streaming && (
         <Tooltip>
           <TooltipTrigger render={<p className="text-muted-foreground text-xs tabular-nums" />}>

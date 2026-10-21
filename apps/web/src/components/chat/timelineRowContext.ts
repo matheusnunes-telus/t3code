@@ -37,6 +37,7 @@ export interface TimelineRowSharedState {
   onSendAppMessage: ((text: string) => Promise<void>) | undefined;
   onResendMessage: ((messageId: MessageId) => Promise<void>) | undefined;
   onEditMessage: ((turnCount: number, messageId: MessageId, text: string) => void) | undefined;
+  onMarkUnread: (() => void) | undefined;
   onAppFullscreenChange: (rowId: string, fullscreen: boolean) => void;
   onRunShellCommand: ((command: string) => void) | undefined;
   findActive: boolean;
@@ -76,6 +77,8 @@ export interface TimelineRowActivityState {
   awaitingUser: boolean;
   isPreparingWorktree: boolean;
   latestRunId: RunId | null;
+  /** The newest assistant message; "Mark as unread" shows under it once the turn is done. */
+  latestAssistantMessageId: MessageId | null;
   backgroundWorktreeSetup: WorktreeSetupSnapshot | null;
 }
 

@@ -584,7 +584,7 @@ export default function ChatView(props: ChatViewProps) {
     draftId ? state.tabsByDraftId[draftId] !== undefined : false,
   );
   const handleNewThread = useNewThreadHandler();
-  const { settleThread, pinThread, confirmAndUnpinThread } = useThreadActions();
+  const { settleThread, pinThread, confirmAndUnpinThread, markThreadUnread } = useThreadActions();
   const routeThreadRef = scopeThreadRef(environmentId, threadId);
   const routeThreadKey = scopedThreadKey(routeThreadRef);
   const currentRouteThreadKeyRef = useRef<string | null>(routeThreadKey);
@@ -4596,6 +4596,9 @@ export default function ChatView(props: ChatViewProps) {
     openRevertConfirm(routeThreadKey, { turnCount, messageId, files, editedText: text });
   };
   const onEditMessageStable = useStableCallback(onEditMessage);
+  const onMarkThreadUnreadStable = useStableCallback(() => {
+    if (activeThreadRef) markThreadUnread(activeThreadRef);
+  });
   const onConfirmRevert = (pending: PendingRevert, restoreFiles: boolean) => {
     if (pending.editedText !== undefined) {
       void performEditMessage(
@@ -6994,6 +6997,7 @@ export default function ChatView(props: ChatViewProps) {
                       onSendAppMessage: sendAppMessageStable,
                       onResendMessage: onResendMessageStable,
                       onEditMessage: onEditMessageStable,
+                      ...(isServerThread ? { onMarkUnread: onMarkThreadUnreadStable } : {}),
                     }
                   : {})}
                 isRevertingCheckpoint={isRevertingCheckpoint}

@@ -40,6 +40,7 @@ Last synced with the official `main`: 2026-10-21.
 
 - Edit a user message in place. If the chat changed files since then, you're asked whether to keep or revert them.
 - Re-send button on user messages.
+- "Mark as unread" button under the latest reply, once the turn is done.
 - The model shows next to an assistant message's time. Hovering the time shows the model and provider ("model not recorded" for imported chats).
 - A queued message's reply now stays below the messages sent while it waited.
 

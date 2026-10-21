@@ -240,6 +240,31 @@ describe("assistant timestamp tooltip", () => {
   });
 });
 
+describe("mark as unread", () => {
+  it("shows only under the latest reply and marks the chat unread", async () => {
+    const onMarkUnread = vi.fn();
+    await using screen = await renderTimeline(
+      [
+        message("First", { role: "assistant" }, "assistant-1"),
+        message("Next question", {}, "user-2"),
+        message("Second", { role: "assistant" }, "assistant-2"),
+      ],
+      { onMarkUnread },
+    );
+    expect(screen.buttons("Mark as unread")).toHaveLength(1);
+    await click(screen.button("Mark as unread"));
+    expect(onMarkUnread).toHaveBeenCalledOnce();
+  });
+
+  it("is hidden while the chat is working", async () => {
+    await using screen = await renderTimeline(
+      [message("Done", { role: "assistant" }, "assistant-1")],
+      { onMarkUnread: () => {}, isWorking: true },
+    );
+    expect(screen.buttons("Mark as unread")).toHaveLength(0);
+  });
+});
+
 describe("compact reasoning math", () => {
   it("keeps formulas while flattening compact reasoning previews", () => {
     const tree = parseMarkdownWithMath("## Reasoning\n\nUse **norm** $|x|$ and \\[x^2\\]");

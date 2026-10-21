@@ -227,6 +227,7 @@ interface MessagesTimelineProps {
   onSendAppMessage?: (text: string) => Promise<void>;
   onResendMessage?: (messageId: MessageId) => Promise<void>;
   onEditMessage?: (turnCount: number, messageId: MessageId, text: string) => void;
+  onMarkUnread?: () => void;
   onRunShellCommand?: (command: string) => void;
   isRevertingCheckpoint: boolean;
   onImageExpand: (preview: ExpandedImagePreview) => void;
@@ -329,6 +330,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   onSendAppMessage,
   onResendMessage,
   onEditMessage,
+  onMarkUnread,
   onRunShellCommand,
   isRevertingCheckpoint,
   onImageExpand,
@@ -919,6 +921,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
     onSendAppMessage,
     onResendMessage,
     onEditMessage,
+    onMarkUnread,
     onAppFullscreenChange,
     onFileDownload,
     openPullRequest,
@@ -938,6 +941,12 @@ const ConversationTimeline = memo(function ConversationTimeline({
     onOpenWorktreeSetupTerminal: onOpenWorktreeSetupTerminal ?? null,
     workGroupViewState,
   };
+  let latestAssistantMessageId: MessageId | null = null;
+  for (const row of rows) {
+    if (row.kind === "message" && row.message.role === "assistant") {
+      latestAssistantMessageId = row.message.id;
+    }
+  }
   const compactionAwaitingRow =
     isCompacting && !rows.some((row) => row.kind === "context-compaction" && row.active);
   const backgroundWorktreeSetup =
@@ -956,6 +965,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
     awaitingUser,
     isPreparingWorktree,
     latestRunId: latestRun?.runId ?? null,
+    latestAssistantMessageId,
   };
   const listHeaderLeadingContent =
     parentThreadLink === null ? (
