@@ -32,4 +32,14 @@ describe("chatTabsStore", () => {
     expect(store.popClosedTab()).toBeNull();
     expect(keys()).toEqual(["a:false", "c:false", "b:false"]);
   });
+
+  it("removes an archived thread's tab without offering it to reopen", () => {
+    const store = useChatTabsStore.getState();
+    store.openTab("a", { permanent: true });
+    store.openTab("b", { permanent: true });
+    expect(store.removeTab("b")).toBe("a");
+    expect(store.removeTab("missing")).toBeNull();
+    expect(keys()).toEqual(["a:false"]);
+    expect(store.popClosedTab()).toBeNull();
+  });
 });

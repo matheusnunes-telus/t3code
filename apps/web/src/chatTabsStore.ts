@@ -24,6 +24,11 @@ interface ChatTabsStoreState {
   closeTab: (threadKey: string) => string | null;
   popClosedTab: () => string | null;
   moveTab: (threadKey: string, toIndex: number) => void;
+  /**
+   * Drops the tab of a thread that went away (archived or deleted), without offering it
+   * to reopen. Returns the neighbouring tab, like closeTab.
+   */
+  removeTab: (threadKey: string) => string | null;
   removeTabs: (threadKeys: ReadonlySet<string>) => void;
 }
 
@@ -85,6 +90,14 @@ export const useChatTabsStore = create<ChatTabsStoreState>()(
           tabs.splice(Math.max(0, Math.min(toIndex, tabs.length)), 0, tab);
           return { tabs };
         }),
+      removeTab: (threadKey) => {
+        const { tabs } = get();
+        const index = tabs.findIndex((tab) => tab.threadKey === threadKey);
+        if (index === -1) return null;
+        const remaining = tabs.filter((tab) => tab.threadKey !== threadKey);
+        set({ tabs: remaining });
+        return (remaining[index] ?? remaining[index - 1])?.threadKey ?? null;
+      },
       removeTabs: (threadKeys) =>
         set((state) => {
           if (!state.tabs.some((tab) => threadKeys.has(tab.threadKey))) return state;

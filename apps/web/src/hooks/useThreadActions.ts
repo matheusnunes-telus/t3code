@@ -23,6 +23,7 @@ import { AsyncResult } from "effect/reactivity";
 import { useRouter } from "@tanstack/react-router";
 
 import { getFallbackThreadIdAfterDelete, pinOrderKeyBetween } from "../components/Sidebar.logic";
+import { useChatTabsStore } from "../chatTabsStore";
 import { useComposerDraftStore } from "../composerDraftStore";
 import { environmentSession, readEnvironmentScope } from "../state/session";
 import { appAtomRegistry } from "../rpc/atomRegistry";
@@ -374,6 +375,10 @@ export function useThreadActions() {
       markThreadVisited(scopedThreadKey(threadRef), wokeAt);
     }
     refreshArchivedThreadsForEnvironment(threadRef.environmentId);
+    // An archived thread leaves the thread list, so its tab would turn into "Unavailable thread".
+    const nextTabKey = useChatTabsStore.getState().removeTab(scopedThreadKey(threadRef));
+    const nextTabRef = nextTabKey ? parseScopedThreadKey(nextTabKey) : null;
+    const nextTabThread = nextTabRef ? readThreadShell(nextTabRef) : null;
     opts.onArchived?.();
     showThreadUndoNotice({
       action: "Archived",
@@ -383,9 +388,18 @@ export function useThreadActions() {
     });
 
     if (shouldNavigateToDraft) {
-      const navigationResult = await settlePromise(() =>
-        handleNewThread(scopeProjectRef(thread.environmentId, thread.projectId)),
-      );
+      // Like closing the tab: show the tab next to it, or a new chat when there is none.
+      const navigationResult = await settlePromise(async () => {
+        if (nextTabRef && nextTabThread) {
+          await router.navigate({
+            to: "/$environmentId/$threadId",
+            params: buildThreadRouteParams(nextTabRef),
+            replace: true,
+          });
+          return;
+        }
+        await handleNewThread(scopeProjectRef(thread.environmentId, thread.projectId));
+      });
       if (navigationResult._tag === "Failure") {
         return navigationResult;
       }
@@ -509,6 +523,7 @@ export function useThreadActions() {
       return deleteResult;
     }
     refreshArchivedThreadsForEnvironment(threadRef.environmentId);
+    useChatTabsStore.getState().removeTab(scopedThreadKey(threadRef));
     releaseComposerDraftUploads(threadRef);
     clearComposerDraftForThread(threadRef);
     clearProjectDraftThreadById(
