@@ -267,6 +267,9 @@ const PROJECT_GROUPING_MODE_LABELS: Record<SidebarProjectGroupingMode, string> =
 const SIDEBAR_ICON_ACTION_BUTTON_CLASS =
   "inline-flex h-6 min-w-6 cursor-pointer items-center justify-center rounded-md px-0.75 text-icon-muted hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring";
 
+// Each hover button is min-w-6 wide, so the slots step by 6.5 from the row's right edge.
+const HOVER_ACTION_SLOT_CLASSES = ["right-0.5", "right-7", "right-13.5"] as const;
+
 function SidebarThreadDetailPrewarmer({ threadRef }: { readonly threadRef: ScopedThreadRef }) {
   useEnvironmentThread(threadRef.environmentId, threadRef.threadId);
   return null;
@@ -530,6 +533,11 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     : (canOperateThread && !isThreadRunning) || canSettleThread || subagentCount > 0
       ? "pointer-events-none transition-opacity duration-150 max-sm:pr-6 group-hover/menu-sub-item:opacity-0 group-focus-within/menu-sub-item:opacity-0"
       : "pointer-events-none";
+  // The hover buttons line up from the right: archive, settle, then subagents.
+  const showsArchiveButton = canOperateThread && !isThreadRunning;
+  const settleButtonSlot = HOVER_ACTION_SLOT_CLASSES[showsArchiveButton ? 1 : 0];
+  const subagentsButtonSlot =
+    HOVER_ACTION_SLOT_CLASSES[(showsArchiveButton ? 1 : 0) + (canSettleThread ? 1 : 0)];
   const clearConfirmingArchive = () => {
     setConfirmingArchiveThreadKey((current) => (current === threadKey ? null : current));
   };
@@ -846,7 +854,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
               <div
                 className={cn(
                   "pointer-events-none absolute top-1/2 -translate-y-1/2 opacity-0 transition-opacity duration-150 max-sm:pointer-events-auto max-sm:opacity-100 group-hover/menu-sub-item:pointer-events-auto group-hover/menu-sub-item:opacity-100 group-focus-within/menu-sub-item:pointer-events-auto group-focus-within/menu-sub-item:opacity-100",
-                  canOperateThread && !isThreadRunning ? "right-7" : "right-0.5",
+                  subagentsButtonSlot,
                 )}
               >
                 <Tooltip>
@@ -885,7 +893,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                     <div
                       className={cn(
                         "pointer-events-none absolute top-1/2 -translate-y-1/2 opacity-0 transition-opacity duration-150 max-sm:pointer-events-auto max-sm:opacity-100 group-hover/menu-sub-item:pointer-events-auto group-hover/menu-sub-item:opacity-100 group-focus-within/menu-sub-item:pointer-events-auto group-focus-within/menu-sub-item:opacity-100",
-                        isThreadRunning ? "right-0.5" : "right-7",
+                        settleButtonSlot,
                       )}
                     >
                       <button
