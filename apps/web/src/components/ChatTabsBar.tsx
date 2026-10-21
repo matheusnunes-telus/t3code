@@ -51,6 +51,23 @@ import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "../workspaceTitlebar";
 
 const CHAT_TAB_DRAG_TYPE = "application/x-t3-chat-tab";
 
+/**
+ * Lets a plain (vertical) wheel or trackpad swipe scroll overflowing tabs sideways,
+ * without holding Shift. Used as a ref callback; React 19 runs the returned cleanup.
+ */
+function scrollTabsWithWheel(element: HTMLDivElement | null) {
+  if (!element) return;
+  const onWheel = (event: WheelEvent) => {
+    if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
+    if (element.scrollWidth <= element.clientWidth) return;
+    event.preventDefault();
+    element.scrollLeft += event.deltaY;
+  };
+  // Not passive, so the wheel doesn't also scroll anything behind the strip.
+  element.addEventListener("wheel", onWheel, { passive: false });
+  return () => element.removeEventListener("wheel", onWheel);
+}
+
 function useNavigateToThreadKey() {
   const router = useRouter();
   return (threadKey: string | null) => {
@@ -295,7 +312,10 @@ export function ChatTabsBar() {
       )}
       data-chat-tabs-bar
     >
-      <div className="flex min-w-0 flex-1 items-end gap-0.5 overflow-x-auto [scrollbar-width:none]">
+      <div
+        ref={scrollTabsWithWheel}
+        className="flex min-w-0 flex-1 items-end gap-0.5 overflow-x-auto [scrollbar-width:none]"
+      >
         {tabs.map((tab, index) => {
           const thread = threadByKey.get(tab.threadKey);
           const isActive = tab.threadKey === activeThreadKey;
