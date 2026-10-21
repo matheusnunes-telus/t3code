@@ -285,198 +285,204 @@ export function ChatTabsBar() {
   if (tabs.length === 0 && !showDraftTab) return null;
 
   return (
+    // The inset that clears the window buttons and sidebar toggle stays on this outer bar,
+    // so tabs scrolled to the left end at its edge instead of sliding under them.
     <div
       className={cn(
-        "flex h-11 min-h-11 shrink-0 items-end gap-0.5 overflow-x-auto border-b border-border bg-sidebar/40 px-2 [scrollbar-width:none]",
+        "flex h-11 min-h-11 shrink-0 border-b border-border bg-sidebar/40 px-2",
         isElectron && "drag-region",
         COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS,
       )}
       data-chat-tabs-bar
     >
-      {tabs.map((tab, index) => {
-        const thread = threadByKey.get(tab.threadKey);
-        const isActive = tab.threadKey === activeThreadKey;
-        const isRunning = thread ? !threadRuntimeCanArchive(thread.runtime) : false;
-        const hasUnreadCompletion =
-          thread !== undefined &&
-          resolveThreadStatusPill({
-            thread: {
-              ...thread,
-              lastVisitedAt: resolveThreadLastVisitedAt(
-                thread.lastVisitedAt,
-                threadLastVisitedAtById[tab.threadKey],
-              ),
-            },
-          })?.label === "Completed";
-        const files = thread ? undefined : filesTabByThreadKey.get(tab.threadKey);
-        const projectKey = thread
-          ? (`${thread.environmentId}:${thread.projectId}` as const)
-          : files
-            ? (`${files.session.environmentId}:${files.session.projectId}` as const)
-            : null;
-        const project = projectKey ? projectByKey.get(projectKey) : undefined;
-        const filePath = files?.filesTab.relativePath ?? null;
-        const title =
-          thread?.title ??
-          (files
-            ? filePath
-              ? (filePath.split("/").at(-1) ?? filePath)
-              : `${project?.title ?? "Project"} files`
-            : "Unavailable thread");
-        const unsaved =
-          files !== undefined && !autoSave && filesDirtyByDraftId[files.draftId] === true;
-        return (
-          <div
-            key={tab.threadKey}
-            role="tab"
-            tabIndex={0}
-            draggable
-            aria-selected={isActive}
-            aria-label={tab.preview ? `${title} (preview)` : title}
-            className={cn(
-              "group/chat-tab relative flex h-8 max-w-56 min-w-24 shrink-0 cursor-pointer items-center gap-1.5 rounded-t-md border border-b-0 px-2.5 text-xs select-none [-webkit-app-region:no-drag]",
-              isActive
-                ? "border-border bg-background text-foreground"
-                : "border-transparent text-muted-foreground hover:bg-accent/60 hover:text-foreground",
-              draggingTabKey === tab.threadKey && "opacity-50",
-              tabDropTarget?.index === index &&
-                (tabDropTarget.after
-                  ? "shadow-[inset_-2px_0_0_0_var(--color-primary)]"
-                  : "shadow-[inset_2px_0_0_0_var(--color-primary)]"),
-            )}
-            onDragStart={(event) => {
-              event.dataTransfer.effectAllowed = "move";
-              event.dataTransfer.setData(CHAT_TAB_DRAG_TYPE, tab.threadKey);
-              setDraggingTabKey(tab.threadKey);
-            }}
-            onDragOver={(event) => {
-              if (!draggingTabKey) return;
-              event.preventDefault();
-              event.dataTransfer.dropEffect = "move";
-              const rect = event.currentTarget.getBoundingClientRect();
-              const after = event.clientX > rect.left + rect.width / 2;
-              if (tabDropTarget?.index !== index || tabDropTarget.after !== after) {
-                setTabDropTarget({ index, after });
-              }
-            }}
-            onDragLeave={() => setTabDropTarget(null)}
-            onDrop={(event) => {
-              if (!draggingTabKey) return;
-              event.preventDefault();
-              const fromIndex = tabs.findIndex(
-                (candidate) => candidate.threadKey === draggingTabKey,
-              );
-              const after = tabDropTarget?.after ?? false;
-              let toIndex = index + (after ? 1 : 0);
-              if (fromIndex !== -1 && fromIndex < toIndex) toIndex -= 1;
-              moveTab(draggingTabKey, toIndex);
-              endTabDrag();
-            }}
-            onDragEnd={endTabDrag}
-            onClick={() => {
-              if (!isActive) void navigateToThreadKey(tab.threadKey);
-            }}
-            onDoubleClick={() => makePermanent(tab.threadKey)}
-            onAuxClick={(event) => {
-              if (event.button !== 1) return;
-              event.preventDefault();
-              handleCloseTab(tab.threadKey);
-            }}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" || event.key === " ") {
-                event.preventDefault();
-                void navigateToThreadKey(tab.threadKey);
-              }
-            }}
-          >
-            {isRunning ? (
-              <span className="size-1.5 shrink-0 motion-safe:animate-status-pulse rounded-full bg-info" />
-            ) : hasUnreadCompletion ? (
-              <span
-                role="img"
-                aria-label="Completed"
-                className="size-1.5 shrink-0 rounded-full bg-emerald-500 dark:bg-emerald-300/90"
-              />
-            ) : null}
-            {project ? <ProjectFavicon project={project} className="size-3.5 shrink-0" /> : null}
-            {files ? (
-              // A folder marks a files tab apart from chats, then the open file's type.
-              <>
-                <FolderIcon className="size-3 shrink-0 text-muted-foreground" />
-                {filePath ? (
-                  <PierreEntryIcon
-                    pathValue={filePath}
-                    kind="file"
-                    theme={resolvedTheme}
-                    className="size-3.5 shrink-0"
-                  />
-                ) : null}
-              </>
-            ) : null}
-            <span className={cn("min-w-0 flex-1 truncate", tab.preview && "italic")}>{title}</span>
-            {thread ? <ChatTabCacheBadge thread={thread} /> : null}
-            {unsaved ? (
-              <span
-                role="img"
-                aria-label="Unsaved changes"
-                className="size-1.5 shrink-0 rounded-full bg-foreground/80"
-              />
-            ) : null}
-            <button
-              type="button"
-              aria-label={`Close ${title}`}
+      <div className="flex min-w-0 flex-1 items-end gap-0.5 overflow-x-auto [scrollbar-width:none]">
+        {tabs.map((tab, index) => {
+          const thread = threadByKey.get(tab.threadKey);
+          const isActive = tab.threadKey === activeThreadKey;
+          const isRunning = thread ? !threadRuntimeCanArchive(thread.runtime) : false;
+          const hasUnreadCompletion =
+            thread !== undefined &&
+            resolveThreadStatusPill({
+              thread: {
+                ...thread,
+                lastVisitedAt: resolveThreadLastVisitedAt(
+                  thread.lastVisitedAt,
+                  threadLastVisitedAtById[tab.threadKey],
+                ),
+              },
+            })?.label === "Completed";
+          const files = thread ? undefined : filesTabByThreadKey.get(tab.threadKey);
+          const projectKey = thread
+            ? (`${thread.environmentId}:${thread.projectId}` as const)
+            : files
+              ? (`${files.session.environmentId}:${files.session.projectId}` as const)
+              : null;
+          const project = projectKey ? projectByKey.get(projectKey) : undefined;
+          const filePath = files?.filesTab.relativePath ?? null;
+          const title =
+            thread?.title ??
+            (files
+              ? filePath
+                ? (filePath.split("/").at(-1) ?? filePath)
+                : `${project?.title ?? "Project"} files`
+              : "Unavailable thread");
+          const unsaved =
+            files !== undefined && !autoSave && filesDirtyByDraftId[files.draftId] === true;
+          return (
+            <div
+              key={tab.threadKey}
+              role="tab"
+              tabIndex={0}
+              draggable
+              aria-selected={isActive}
+              aria-label={tab.preview ? `${title} (preview)` : title}
               className={cn(
-                "inline-flex size-4 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground",
-                isActive ? "opacity-100" : "opacity-0 group-hover/chat-tab:opacity-100",
+                "group/chat-tab relative flex h-8 max-w-56 min-w-24 shrink-0 cursor-pointer items-center gap-1.5 rounded-t-md border border-b-0 px-2.5 text-xs select-none [-webkit-app-region:no-drag]",
+                isActive
+                  ? "border-border bg-background text-foreground"
+                  : "border-transparent text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+                draggingTabKey === tab.threadKey && "opacity-50",
+                tabDropTarget?.index === index &&
+                  (tabDropTarget.after
+                    ? "shadow-[inset_-2px_0_0_0_var(--color-primary)]"
+                    : "shadow-[inset_2px_0_0_0_var(--color-primary)]"),
               )}
-              onClick={(event) => {
-                event.stopPropagation();
+              onDragStart={(event) => {
+                event.dataTransfer.effectAllowed = "move";
+                event.dataTransfer.setData(CHAT_TAB_DRAG_TYPE, tab.threadKey);
+                setDraggingTabKey(tab.threadKey);
+              }}
+              onDragOver={(event) => {
+                if (!draggingTabKey) return;
+                event.preventDefault();
+                event.dataTransfer.dropEffect = "move";
+                const rect = event.currentTarget.getBoundingClientRect();
+                const after = event.clientX > rect.left + rect.width / 2;
+                if (tabDropTarget?.index !== index || tabDropTarget.after !== after) {
+                  setTabDropTarget({ index, after });
+                }
+              }}
+              onDragLeave={() => setTabDropTarget(null)}
+              onDrop={(event) => {
+                if (!draggingTabKey) return;
+                event.preventDefault();
+                const fromIndex = tabs.findIndex(
+                  (candidate) => candidate.threadKey === draggingTabKey,
+                );
+                const after = tabDropTarget?.after ?? false;
+                let toIndex = index + (after ? 1 : 0);
+                if (fromIndex !== -1 && fromIndex < toIndex) toIndex -= 1;
+                moveTab(draggingTabKey, toIndex);
+                endTabDrag();
+              }}
+              onDragEnd={endTabDrag}
+              onClick={() => {
+                if (!isActive) void navigateToThreadKey(tab.threadKey);
+              }}
+              onDoubleClick={() => makePermanent(tab.threadKey)}
+              onAuxClick={(event) => {
+                if (event.button !== 1) return;
+                event.preventDefault();
                 handleCloseTab(tab.threadKey);
               }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  void navigateToThreadKey(tab.threadKey);
+                }
+              }}
             >
-              <XIcon className="size-3" />
-            </button>
+              {isRunning ? (
+                <span className="size-1.5 shrink-0 motion-safe:animate-status-pulse rounded-full bg-info" />
+              ) : hasUnreadCompletion ? (
+                <span
+                  role="img"
+                  aria-label="Completed"
+                  className="size-1.5 shrink-0 rounded-full bg-emerald-500 dark:bg-emerald-300/90"
+                />
+              ) : null}
+              {project ? <ProjectFavicon project={project} className="size-3.5 shrink-0" /> : null}
+              {files ? (
+                // A folder marks a files tab apart from chats, then the open file's type.
+                <>
+                  <FolderIcon className="size-3 shrink-0 text-muted-foreground" />
+                  {filePath ? (
+                    <PierreEntryIcon
+                      pathValue={filePath}
+                      kind="file"
+                      theme={resolvedTheme}
+                      className="size-3.5 shrink-0"
+                    />
+                  ) : null}
+                </>
+              ) : null}
+              <span className={cn("min-w-0 flex-1 truncate", tab.preview && "italic")}>
+                {title}
+              </span>
+              {thread ? <ChatTabCacheBadge thread={thread} /> : null}
+              {unsaved ? (
+                <span
+                  role="img"
+                  aria-label="Unsaved changes"
+                  className="size-1.5 shrink-0 rounded-full bg-foreground/80"
+                />
+              ) : null}
+              <button
+                type="button"
+                aria-label={`Close ${title}`}
+                className={cn(
+                  "inline-flex size-4 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground",
+                  isActive ? "opacity-100" : "opacity-0 group-hover/chat-tab:opacity-100",
+                )}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  handleCloseTab(tab.threadKey);
+                }}
+              >
+                <XIcon className="size-3" />
+              </button>
+            </div>
+          );
+        })}
+        {showDraftTab ? (
+          <div
+            role="tab"
+            aria-selected
+            aria-label="New chat"
+            className="relative flex h-8 max-w-56 min-w-24 shrink-0 items-center gap-1.5 rounded-t-md border border-b-0 border-border bg-background px-2.5 text-xs text-foreground select-none [-webkit-app-region:no-drag]"
+          >
+            {draftProject ? (
+              <ProjectFavicon project={draftProject} className="size-3.5 shrink-0" />
+            ) : null}
+            <span className="min-w-0 flex-1 truncate italic">New chat</span>
+            {tabs.length > 0 ? (
+              <button
+                type="button"
+                aria-label="Close New chat"
+                className="inline-flex size-4 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground"
+                onClick={handleCloseDraftTab}
+              >
+                <XIcon className="size-3" />
+              </button>
+            ) : null}
           </div>
-        );
-      })}
-      {showDraftTab ? (
-        <div
-          role="tab"
-          aria-selected
-          aria-label="New chat"
-          className="relative flex h-8 max-w-56 min-w-24 shrink-0 items-center gap-1.5 rounded-t-md border border-b-0 border-border bg-background px-2.5 text-xs text-foreground select-none [-webkit-app-region:no-drag]"
-        >
-          {draftProject ? (
-            <ProjectFavicon project={draftProject} className="size-3.5 shrink-0" />
-          ) : null}
-          <span className="min-w-0 flex-1 truncate italic">New chat</span>
-          {tabs.length > 0 ? (
-            <button
-              type="button"
-              aria-label="Close New chat"
-              className="inline-flex size-4 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground"
-              onClick={handleCloseDraftTab}
-            >
-              <XIcon className="size-3" />
-            </button>
-          ) : null}
-        </div>
-      ) : null}
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <button
-              type="button"
-              aria-label="New tab"
-              className="mb-1 ms-1 inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground [-webkit-app-region:no-drag]"
-              onClick={() => void navigateToThreadKey(null)}
-            />
-          }
-        >
-          <PlusIcon className="size-3.5" />
-        </TooltipTrigger>
-        <TooltipPopup>New tab</TooltipPopup>
-      </Tooltip>
+        ) : null}
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                aria-label="New tab"
+                className="mb-1 ms-1 inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground [-webkit-app-region:no-drag]"
+                onClick={() => void navigateToThreadKey(null)}
+              />
+            }
+          >
+            <PlusIcon className="size-3.5" />
+          </TooltipTrigger>
+          <TooltipPopup>New tab</TooltipPopup>
+        </Tooltip>
+      </div>
     </div>
   );
 }
