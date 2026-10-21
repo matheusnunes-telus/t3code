@@ -25,6 +25,8 @@ Last synced with the official `main`: 2026-10-21.
 - A green dot on a tab means it has a finished reply you haven't seen yet.
 - An unsent new chat gets a temporary italic "New chat" tab.
 - A "+" button after the last tab opens a new tab.
+- Archiving or deleting a chat closes its tab.
+- When tabs overflow, a normal wheel or swipe scrolls them sideways. Scrolled tabs stop before the sidebar toggle.
 - The tab strip sits a bit lower, leaving a strip above it to drag the window.
 
 ## Files tabs
