@@ -29,6 +29,19 @@ if [[ "$(node -v 2>/dev/null)" != v24.* ]]; then
 fi
 node -v
 
+# Corepack can't start pnpm 12 (it looks for a pnpm.cjs that pnpm 12 no longer ships),
+# so when `pnpm` isn't the pinned version, a shim on PATH runs it through npx.
+# A shim rather than a function, because the build starts pnpm from child processes too.
+step "pnpm"
+pnpm_version=$(node -p 'require("./package.json").packageManager.split("@")[1]')
+if [[ "$(pnpm --version 2>/dev/null)" != "$pnpm_version" ]]; then
+  shim_dir=$(mktemp -d)
+  printf '#!/usr/bin/env bash\nexec npx --yes "pnpm@%s" "$@"\n' "$pnpm_version" > "$shim_dir/pnpm"
+  chmod +x "$shim_dir/pnpm"
+  export PATH="$shim_dir:$PATH"
+fi
+pnpm --version
+
 # Rust is only needed for the native resource monitor.
 step "Resource monitor"
 if ! command -v cargo >/dev/null; then
