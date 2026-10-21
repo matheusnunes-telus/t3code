@@ -45,6 +45,37 @@ describe("FileSaveCoordinator", () => {
     expect(onPendingChange.mock.calls).toEqual([[true], [true], [false]]);
   });
 
+  it("without auto-save, holds edits until save() and drops them on dispose", async () => {
+    vi.useFakeTimers();
+    const persist = vi
+      .fn<(contents: string) => Promise<AtomCommandResult<void, never>>>()
+      .mockResolvedValue(AsyncResult.success(undefined));
+    const onPendingChange = vi.fn();
+    const coordinator = new FileSaveCoordinator({
+      debounceMs: 500,
+      autoSave: () => false,
+      persist,
+      onPendingChange,
+      onConfirmed: vi.fn(),
+    });
+
+    coordinator.change("draft");
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(persist).not.toHaveBeenCalled();
+    expect(coordinator.hasUnsavedChanges()).toBe(true);
+
+    coordinator.save();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(persist).toHaveBeenCalledWith("draft");
+    expect(coordinator.hasUnsavedChanges()).toBe(false);
+    expect(onPendingChange.mock.calls).toEqual([[true], [false]]);
+
+    coordinator.change("unsaved");
+    coordinator.dispose();
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(persist).toHaveBeenCalledOnce();
+  });
+
   it("keeps pending state until an edit made during a write is also saved", async () => {
     vi.useFakeTimers();
     const firstWrite = deferred();

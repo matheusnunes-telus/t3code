@@ -1,6 +1,7 @@
 import { AuthFilesystemWriteScope, type EnvironmentId } from "@t3tools/contracts";
 import { createRef, useEffect, useState } from "react";
 
+import { useFileAutoSaveStore } from "~/fileAutoSaveStore";
 import { projectEnvironment } from "~/state/projects";
 import { readEnvironmentScope, useEnvironmentScope } from "~/state/session";
 import { useAtomCommand } from "~/state/use-atom-command";
@@ -12,6 +13,38 @@ import {
 } from "./projectFilesQueryState";
 
 const FILE_SAVE_DEBOUNCE_MS = 500;
+
+// Every mounted editor's coordinator, so mod+S and turning auto-save back on
+// can save whatever is pending.
+const liveCoordinators = new Set<FileSaveCoordinator>();
+
+export function saveAllPendingFiles(): boolean {
+  let saved = false;
+  for (const coordinator of liveCoordinators) {
+    if (!coordinator.hasUnsavedChanges()) continue;
+    coordinator.save();
+    saved = true;
+  }
+  return saved;
+}
+
+let saveShortcutInstalled = false;
+function installSaveShortcut() {
+  if (saveShortcutInstalled || typeof window === "undefined") return;
+  saveShortcutInstalled = true;
+  window.addEventListener(
+    "keydown",
+    (event) => {
+      if (event.key.toLowerCase() !== "s" || event.shiftKey || event.altKey) return;
+      if (!(event.metaKey || event.ctrlKey)) return;
+      if (saveAllPendingFiles()) event.preventDefault();
+    },
+    true,
+  );
+  useFileAutoSaveStore.subscribe((state, previous) => {
+    if (state.autoSave && !previous.autoSave) saveAllPendingFiles();
+  });
+}
 
 interface FileSaveOptions {
   environmentId: EnvironmentId;
@@ -82,8 +115,10 @@ function createFileSaveSession({
   return {
     change: (contents: string) => coordinatorRef.current?.change(contents),
     setup: () => {
+      installSaveShortcut();
       const coordinator = new FileSaveCoordinator({
         debounceMs: FILE_SAVE_DEBOUNCE_MS,
+        autoSave: () => useFileAutoSaveStore.getState().autoSave,
         canPersist: () => readEnvironmentScope(environmentId, AuthFilesystemWriteScope),
         onPendingChange: (pending) => onPendingChange(relativePath, pending),
         persist: (nextContents) =>
@@ -95,8 +130,10 @@ function createFileSaveSession({
           confirmProjectFileQueryData(environmentId, cwd, relativePath, confirmedContents),
       });
       coordinatorRef.current = coordinator;
+      liveCoordinators.add(coordinator);
       return () => {
         coordinatorRef.current = null;
+        liveCoordinators.delete(coordinator);
         coordinator.dispose();
       };
     },

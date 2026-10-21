@@ -2,6 +2,8 @@ import type { AtomCommandResult } from "@t3tools/client-runtime/state/runtime";
 
 export interface FileSaveCoordinatorOptions<A, E> {
   readonly debounceMs: number;
+  /** False holds edits until `save()` (mod+S) instead of saving after the debounce. */
+  readonly autoSave?: () => boolean;
   readonly canPersist?: () => boolean;
   readonly persist: (contents: string) => Promise<AtomCommandResult<A, E>>;
   readonly onPendingChange: (pending: boolean) => void;
@@ -26,13 +28,30 @@ export class FileSaveCoordinator<A = unknown, E = unknown> {
     this.latestRevision += 1;
     this.lastChangeAt = Date.now();
     this.options.onPendingChange(true);
-    this.schedule(this.options.debounceMs);
+    if (this.autoSaves()) this.schedule(this.options.debounceMs);
+  }
+
+  /** Saves the latest edit now. */
+  save(): void {
+    if (this.disposed) return;
+    this.clearTimer();
+    void this.persistLatest();
+  }
+
+  hasUnsavedChanges(): boolean {
+    return this.latestRevision !== this.confirmedRevision;
   }
 
   dispose(): void {
     this.disposed = true;
     this.clearTimer();
-    if (this.latestRevision > 0) void this.persistLatest();
+    // Without auto-save, closing keeps the edit unsaved (it stays in the file's
+    // cached contents) rather than writing it behind the user's back.
+    if (this.latestRevision > 0 && this.autoSaves()) void this.persistLatest();
+  }
+
+  private autoSaves(): boolean {
+    return this.options.autoSave?.() !== false;
   }
 
   private schedule(delay: number): void {
@@ -77,8 +96,8 @@ export class FileSaveCoordinator<A = unknown, E = unknown> {
       this.options.debounceMs - (Date.now() - this.lastChangeAt),
     );
     if (this.disposed) {
-      void this.persistLatest();
-    } else {
+      if (this.autoSaves()) void this.persistLatest();
+    } else if (this.autoSaves()) {
       this.schedule(remainingDebounce);
     }
   }
