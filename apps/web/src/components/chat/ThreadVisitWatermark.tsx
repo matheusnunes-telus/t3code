@@ -11,6 +11,8 @@ import { useAtomCommand } from "../../state/use-atom-command";
 // second, and every server-side visit is a full command dispatch plus a
 // broadcast to all shell subscribers.
 const VISIT_DISPATCH_THROTTLE_MS = 10_000;
+const VISIT_RETRY_LIMIT = 5;
+const VISIT_RETRY_DELAY_MS = 2_000;
 
 // The visit watermark is the one part of the chat view that follows the
 // shell's updatedAt, which ticks while a run streams. Keeping it in a leaf lets
@@ -44,13 +46,26 @@ export function ThreadVisitWatermark(props: { readonly threadRef: ScopedThreadRe
       // skips a fresh visit until new activity lands or the thread is reopened.
       const dispatchKey = `${threadKey}:${serverThread.updatedAt}`;
       if (lastDispatchedVisitRef.current === dispatchKey) return;
+      const { environmentId, id: threadId, updatedAt: visitedAt } = serverThread;
+      // Opening the app straight onto a chat fires this before the connection is up. The
+      // dedupe key is already taken then, so retry rather than leaving the chat unread.
+      const send = (attempt: number) => {
+        void visitThreadMutation({ environmentId, input: { threadId, visitedAt } }).then(
+          (result) => {
+            if (result._tag !== "Failure" || attempt >= VISIT_RETRY_LIMIT) return;
+            setTimeout(
+              () => {
+                if (lastDispatchedVisitRef.current === dispatchKey) send(attempt + 1);
+              },
+              VISIT_RETRY_DELAY_MS * (attempt + 1),
+            );
+          },
+        );
+      };
       const dispatch = () => {
         lastDispatchedVisitRef.current = dispatchKey;
         lastVisitDispatchAtRef.current = Date.now();
-        void visitThreadMutation({
-          environmentId: serverThread.environmentId,
-          input: { threadId: serverThread.id, visitedAt: serverThread.updatedAt },
-        });
+        send(0);
       };
       const latestRunCompletedAtMs = serverThread.latestRun?.completedAt
         ? Date.parse(serverThread.latestRun.completedAt)
