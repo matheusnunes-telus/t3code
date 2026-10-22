@@ -38,7 +38,7 @@ Last synced with the official `main`: 2026-10-21.
 
 ## Messages
 
-- Edit a user message in place. If the chat changed files since then, you're asked whether to keep or revert them.
+- Edit a user message in place. If the AI edited files in a later turn, you're asked whether to keep or revert them. Files only changed by background processes (dev servers, build output) don't trigger the question.
 - Re-send button on user messages.
 - "Mark as unread" button under the latest reply, once the turn is done.
 - The model shows next to an assistant message's time. Hovering the time shows the model and provider ("model not recorded" for imported chats).

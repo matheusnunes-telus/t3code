@@ -1058,6 +1058,25 @@ export async function waitForStartedServerThread(
   });
 }
 
+/**
+ * Checkpoint diffs also pick up files that background processes rewrite (dev-server state,
+ * build output), so editing a message only asks about files when one of the turns it drops
+ * had the agent edit a file itself.
+ */
+export function hasAgentFileEditInRuns(
+  turnItems: ReadonlyArray<OrchestrationV2ProjectedTurnItem>,
+  runIds: ReadonlySet<RunId>,
+): boolean {
+  return turnItems.some(
+    ({ item }) =>
+      item.type === "file_change" &&
+      item.runId !== null &&
+      runIds.has(item.runId) &&
+      item.status !== "failed" &&
+      item.status !== "cancelled",
+  );
+}
+
 export async function waitForRevertedMessage(
   threadRef: ScopedThreadRef,
   turnCount: number,

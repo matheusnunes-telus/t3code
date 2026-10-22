@@ -505,6 +505,7 @@ import {
   boundAttachmentIds,
   chatActionErrorMessage,
   formatOutgoingPrompt,
+  hasAgentFileEditInRuns,
   optimisticMessageAttachments,
   planComposerTurn,
   sendTitleFallbackLabels,
@@ -4589,7 +4590,12 @@ export default function ChatView(props: ChatViewProps) {
       return;
     }
     const files = changedFilesAfterTurn(turnCount);
-    if (files.length === 0) {
+    const droppedRunIds = new Set(
+      turnDiffSummaries
+        .filter((summary) => summary.checkpointTurnCount > turnCount)
+        .map((summary) => summary.runId),
+    );
+    if (files.length === 0 || !hasAgentFileEditInRuns(serverVisibleTurnItems, droppedRunIds)) {
       void performEditMessage(turnCount, messageId, text, false);
       return;
     }

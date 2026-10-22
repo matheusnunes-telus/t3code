@@ -1,6 +1,7 @@
 import {
   boundAttachmentIds,
   findRecordedWorktreeSetup,
+  hasAgentFileEditInRuns,
   mergeDirectPreviewAnnotation,
   planComposerTurn,
   snapshotComposerSend,
@@ -1156,5 +1157,28 @@ describe("boundAttachmentIds", () => {
     expect(
       boundAttachmentIds([{ id: "upload-1" }, {}], [{ id: "local-1" }, { id: "local-2" }]),
     ).toEqual(["upload-1", "local-2"]);
+  });
+});
+
+describe("hasAgentFileEditInRuns", () => {
+  const item = (type: string, runId: string, status = "completed") =>
+    ({ item: { type, runId, status } }) as unknown as OrchestrationV2ProjectedTurnItem;
+  const later = new Set([RunId.make("run-3")]);
+
+  it("ignores file edits from earlier turns", () => {
+    expect(
+      hasAgentFileEditInRuns(
+        [item("file_change", "run-1"), item("command_execution", "run-3")],
+        later,
+      ),
+    ).toBe(false);
+  });
+
+  it("counts a file edit in a dropped turn", () => {
+    expect(hasAgentFileEditInRuns([item("file_change", "run-3")], later)).toBe(true);
+  });
+
+  it("ignores a failed edit", () => {
+    expect(hasAgentFileEditInRuns([item("file_change", "run-3", "failed")], later)).toBe(false);
   });
 });
