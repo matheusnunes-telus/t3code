@@ -2844,8 +2844,18 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
         DateTime.add(DateTime.makeUnsafe(started?.watch?.startedAt ?? 0), { minutes: 1 }),
       );
       yield* TestClock.adjust("20 minutes");
+      const before = (yield* orchestrator.getThreadShell(threadId))?.updatedAt;
       yield* reactor.sweep;
-      assert.equal((yield* linkOf)?.notice?.summary, "#21: approved");
+      const noticed = yield* orchestrator.getThreadShell(threadId);
+      const notice = noticed?.pullRequests?.[0]?.notice;
+      assert.equal(notice?.summary, "#21: approved");
+      // Opening the thread records its updatedAt, which has to cover the notice.
+      assert.notEqual(noticed?.updatedAt, before);
+      assert.isTrue(
+        noticed !== null &&
+          notice !== undefined &&
+          DateTime.toEpochMillis(noticed.updatedAt) >= Date.parse(notice.at),
+      );
 
       state = "merged";
       yield* TestClock.adjust("20 minutes");

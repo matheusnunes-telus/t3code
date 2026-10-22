@@ -3470,7 +3470,11 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                 ? withLevel(withPullRequestWatch(final ? { ...link, watch: final } : link, watch))
                 : link,
             ),
-            updatedAt: command.type === "thread.pull-request.watch" ? now : thread.updatedAt,
+            // A notice is news for the thread: opening it afterwards is what marks it seen.
+            updatedAt:
+              command.type === "thread.pull-request.watch" || notice !== existing.notice
+                ? now
+                : thread.updatedAt,
           };
         }
         case "thread.pull-request.sync":
@@ -3534,6 +3538,20 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       command.type === "thread.pull-request-watch.sync"
     ) {
       if (updatedThread === thread) return;
+      // A new notice also moves the thread's updatedAt, which only the whole thread carries.
+      if (updatedThread.updatedAt !== thread.updatedAt) {
+        yield* emit(
+          events,
+          command,
+        )({
+          type: "thread.pull-request-synced",
+          threadId: command.threadId,
+          providerInstanceId: updatedThread.providerInstanceId,
+          occurredAt: now,
+          payload: updatedThread,
+        });
+        return;
+      }
       const link = threadPullRequestsOf(updatedThread).find((candidate) =>
         threadPullRequestKeysEqual(candidate, normalizeThreadPullRequestKey(command)),
       );
