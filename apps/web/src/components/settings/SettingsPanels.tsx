@@ -95,6 +95,7 @@ import {
 } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
 import { BackgroundActivitySettingsRow } from "./BackgroundActivitySettings";
+import { PullRequestUpdatesToggle } from "../pullRequest/PullRequestUpdatesToggle";
 
 const RESPONSE_STREAMING_MODE_LABELS: Record<ResponseStreamingMode, string> = {
   turn: "Wait for the full response",
@@ -1018,6 +1019,31 @@ export function GeneralSettingsPanel() {
                 updateSettings({ compactIdleThreads: Boolean(checked) })
               }
               aria-label="Compact idle Claude threads (beta)"
+            />
+          }
+        />
+
+        <SettingsRow
+          serverScoped
+          settingKeys={["pullRequestUpdates"]}
+          {...searchableSetting("pull-request-updates")}
+          description="What a linked pull request's comments, approvals, checks and merges do by default. Each pull request can change it from its header."
+          resetAction={
+            settings.pullRequestUpdates !== DEFAULT_UNIFIED_SETTINGS.pullRequestUpdates ? (
+              <SettingResetButton
+                label="pull request updates"
+                onClick={() =>
+                  updateSettings({
+                    pullRequestUpdates: DEFAULT_UNIFIED_SETTINGS.pullRequestUpdates,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <PullRequestUpdatesToggle
+              value={settings.pullRequestUpdates}
+              onChange={(pullRequestUpdates) => updateSettings({ pullRequestUpdates })}
             />
           }
         />

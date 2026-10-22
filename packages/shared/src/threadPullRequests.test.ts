@@ -6,6 +6,7 @@ import {
 import { beforeEach, describe, expect, it } from "vite-plus/test";
 
 import {
+  latestPullRequestNotice,
   legacyLinkedPullRequestOf,
   legacyThreadPullRequestKey,
   threadPullRequestSearchTerms,
@@ -60,6 +61,25 @@ function link(
     ...input,
   };
 }
+
+describe("latestPullRequestNotice", () => {
+  const notice = (at: string, summary: string) => ({ at, summary, outcome: "updated" as const });
+
+  it("returns the newest notice of the visible links", () => {
+    expect(
+      latestPullRequestNotice([
+        link(1, { notice: notice("2026-01-02T00:00:00.000Z", "#1: approved") }),
+        link(2, { notice: notice("2026-01-03T00:00:00.000Z", "#2: new comments") }),
+        link(3, {
+          source: "stack-dismissed",
+          notice: notice("2026-01-04T00:00:00.000Z", "#3: merged"),
+        }),
+        link(4),
+      ])?.summary,
+    ).toBe("#2: new comments");
+    expect(latestPullRequestNotice([link(1)])).toBeNull();
+  });
+});
 
 describe("threadPullRequestKeysEqual", () => {
   it("recovers Forgejo ports from old stored URLs and keeps separate servers distinct", () => {

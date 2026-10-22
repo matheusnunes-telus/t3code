@@ -84,6 +84,7 @@ import {
 } from "./PullRequestDetailLayout";
 import { PullRequestDetailGhost, PullRequestTimelineGhost } from "./PullRequestGhosts";
 import { PullRequestCopyableCode } from "./PullRequestCopyableCode";
+import { ThreadPullRequestUpdatesControl } from "./PullRequestUpdatesToggle";
 import { pullRequestRefKey, usePullRequestDetail } from "./usePullRequestDetail";
 import { PullRequestActionsMenu } from "./PullRequestActionsMenu";
 import {
@@ -115,11 +116,9 @@ import {
   handoffPrompt,
   handoffReviewComments,
   latestPullRequestReviewOutcomes,
-  loadingPullRequestCheckoutCommand,
   isPullRequestNotFound,
   isStackedPullRequestBase,
   pullRequestActionNeedsHostRefresh,
-  pullRequestCheckoutCommand,
   pullRequestFindingKey,
   pullRequestHandoffLabels,
   PULL_REQUEST_MERGE_METHOD_LABELS,
@@ -211,14 +210,6 @@ const lastHandoffPromptByDraft = new Map<string, string>();
 const composerTargetKey = (target: ScopedThreadRef | DraftId): string =>
   typeof target === "string" ? target : scopedThreadKey(target);
 
-function reportCheckoutCommandError(error: Error) {
-  toastManager.add({
-    type: "error",
-    title: "Could not copy checkout command",
-    description: error.message,
-  });
-}
-
 function resolvePullRequestReference(
   requestedReference: PullRequestRef,
   repositoryIdentity: Parameters<typeof resolvePullRequestReferenceHost>[1],
@@ -304,7 +295,6 @@ export function PullRequestDetailPanel({
     repositoryIdentity,
     supportsThreadPullRequests,
   );
-  const loadingCheckoutCommand = loadingPullRequestCheckoutCommand(reference, repositoryIdentity);
   const unavailableGitHubUrl = gitHubPullRequestBrowserUrl(
     repositoryIdentity,
     reference.repository,
@@ -477,15 +467,6 @@ export function PullRequestDetailPanel({
     detail?.author && repositoryUrl !== null
       ? hostClient.authorProfileUrl(detail.author.login, repositoryUrl)
       : null;
-  const checkoutCommand = handoffSummary
-    ? pullRequestCheckoutCommand(
-        handoffSummary.provider,
-        handoffSummary.number,
-        handoffSummary.headBranch,
-        detail?.headRepositoryNameWithOwner,
-        changeRequestRepositoryUrl(handoffSummary.url),
-      )
-    : loadingCheckoutCommand;
   const branchRefsQuery = useEnvironmentQuery(
     detail === null
       ? null
@@ -1219,8 +1200,6 @@ export function PullRequestDetailPanel({
       <PullRequestDetailGhost
         seed={matchingListEntry}
         summary={sharedSummary}
-        checkoutCommand={checkoutCommand}
-        onCheckoutError={reportCheckoutCommandError}
         number={reference.number}
         tabs={visibleTabs}
         activeTab={tab}
@@ -1504,16 +1483,11 @@ export function PullRequestDetailPanel({
                   </span>
                 }
                 checkout={
-                  checkoutCommand ? (
-                    <PullRequestCopyableCode
-                      key={checkoutCommand}
-                      value={checkoutCommand}
-                      target="pull request checkout command"
-                      copyLabel="Copy checkout command"
-                      copiedLabel="Checkout command copied"
-                      className="ml-auto font-mono"
-                      tooltipSide="bottom"
-                      onError={reportCheckoutCommandError}
+                  threadRef ? (
+                    <ThreadPullRequestUpdatesControl
+                      threadRef={threadRef}
+                      reference={reference}
+                      className="ml-auto"
                     />
                   ) : null
                 }

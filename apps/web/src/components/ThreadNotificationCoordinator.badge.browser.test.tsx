@@ -84,6 +84,7 @@ const thread = {
   hasPendingUserInput: false,
   session: null as { status: string } | null,
   latestTurn: { turnId: "turn", state: "running", completedAt: null as string | null },
+  pullRequests: [] as unknown[],
 };
 let focused = false;
 let visibility = "visible";
@@ -141,6 +142,7 @@ function toV2ThreadShell(input: typeof thread) {
     settledAt: null,
     lastVisitedAt: null,
     deletedAt: null,
+    pullRequests: input.pullRequests,
   };
 }
 
@@ -215,3 +217,29 @@ it.each(["hasPendingApprovals", "hasPendingUserInput"] as const)(
     expect(notification.close).toHaveBeenCalled();
   },
 );
+
+it("notifies once when a linked pull request leaves a new notice", async () => {
+  await using app = setup();
+  const link = {
+    host: "github.com",
+    repository: "acme/app",
+    number: 97,
+    url: "https://github.com/acme/app/pull/97",
+    source: "manual",
+    linkedAt: "2026-09-13T07:00:00.000Z",
+    snapshot: null,
+    stack: null,
+  };
+  state.shells.set("one", shell({ pullRequests: [link] }));
+  await app.render();
+  const notice = { at: "2026-09-13T08:00:00.000Z", summary: "#97: approved", outcome: "updated" };
+  state.shells.set("one", shell({ pullRequests: [{ ...link, notice }] }));
+  await app.render();
+  expect(TestNotification.sent.map((sent) => sent.title)).toEqual(["Pull request #97 approved"]);
+  expect(TestNotification.sent[0]?.options.body).toBe("Test thread");
+
+  // The same notice again is not news.
+  state.shells.set("one", shell({ title: "Renamed", pullRequests: [{ ...link, notice }] }));
+  await app.render();
+  expect(TestNotification.sent).toHaveLength(1);
+});

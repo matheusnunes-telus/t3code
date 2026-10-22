@@ -27,6 +27,10 @@ import {
   ThreadWorktreeIndicator,
   useLinkedThreadPullRequest,
 } from "./ThreadStatusIndicators";
+import {
+  PullRequestNoticePill,
+  unseenPullRequestNotice,
+} from "./pullRequest/PullRequestNoticePill";
 import { EnvironmentMachineIcon } from "./EnvironmentMachineIcon";
 import { ProjectFavicon } from "./ProjectFavicon";
 import { useAtomValue } from "@effect/atom-react";
@@ -479,6 +483,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
       lastVisitedAt,
     },
   });
+  const pullRequestNotice = unseenPullRequestNotice(thread.pullRequests ?? [], lastVisitedAt);
   const linkedPullRequestStatus = useLinkedThreadPullRequest(
     thread.environmentId,
     thread.linkedPullRequest,
@@ -785,6 +790,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
             </a>
           ) : null}
           {threadStatus && <ThreadStatusLabel status={threadStatus} />}
+          {pullRequestNotice ? <PullRequestNoticePill notice={pullRequestNotice} /> : null}
           {isThreadPinned(thread) ? (
             <PinIcon
               aria-label="Pinned"

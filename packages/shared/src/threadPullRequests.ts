@@ -5,6 +5,7 @@ import type {
   ThreadLinkedPullRequest,
   ThreadPullRequestKey,
   ThreadPullRequestLink,
+  ThreadPullRequestNotice,
 } from "@t3tools/contracts";
 
 import { pullRequestHostOf } from "@t3tools/contracts";
@@ -93,6 +94,19 @@ export function visibleThreadPullRequests(
   links: ReadonlyArray<ThreadPullRequestLink>,
 ): ReadonlyArray<ThreadPullRequestLink> {
   return links.filter((link) => link.source !== "stack-dismissed");
+}
+
+/** The newest news a thread's pull request watches left for the user, if any. */
+export function latestPullRequestNotice(
+  links: ReadonlyArray<ThreadPullRequestLink>,
+): ThreadPullRequestNotice | null {
+  let latest: ThreadPullRequestNotice | null = null;
+  for (const link of visibleThreadPullRequests(links)) {
+    if (link.notice !== undefined && (latest === null || link.notice.at > latest.at)) {
+      latest = link.notice;
+    }
+  }
+  return latest;
 }
 
 function isOpen(link: ThreadPullRequestLink): boolean {

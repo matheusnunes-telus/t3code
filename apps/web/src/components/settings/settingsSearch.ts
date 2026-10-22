@@ -344,6 +344,15 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["context compaction idle cache tokens usage summary beta experimental"],
   },
   {
+    id: "pull-request-updates",
+    title: "Pull request updates",
+    to: "/settings/general",
+    scope: "environment-defaults",
+    searchTerms: [
+      "linked pr comment approval merge checks notify notification auto action watch agent",
+    ],
+  },
+  {
     id: "auto-settle-merged-threads",
     title: "Auto-settle merged threads",
     to: "/settings/general",

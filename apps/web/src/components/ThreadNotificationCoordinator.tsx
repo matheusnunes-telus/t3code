@@ -6,6 +6,7 @@ import { pendingSubagentRequestsByThread } from "@t3tools/client-runtime/state/t
 import { useAtomValue } from "@effect/atom-react";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import type { EnvironmentId, OrchestrationV2ThreadShell, ThreadId } from "@t3tools/contracts";
+import { latestPullRequestNotice } from "@t3tools/shared/threadPullRequests";
 import * as Option from "effect/Option";
 import {
   CircleAlertIcon,
@@ -13,7 +14,7 @@ import {
   MessageCircleQuestionIcon,
   ShieldQuestionIcon,
 } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { type ReactNode, useEffect, useRef } from "react";
 
 import { getClientSettings, useClientSettings } from "../hooks/useSettings";
 import { useEnvironmentIds } from "../state/environments";
@@ -26,6 +27,7 @@ import {
   threadNotificationTag,
   unlockNotificationAudio,
 } from "../threadNotifications";
+import { PullRequestGlyph } from "./pullRequest/pullRequestIcons";
 import { resolveSidebarThreadStatus } from "./Sidebar.logic";
 import { toastManager } from "./ui/toast";
 
@@ -98,6 +100,8 @@ interface NotificationState {
   readonly subagentRequest: PendingSubagentRequest | null;
   readonly attention: string | null;
   readonly completion: number | null;
+  /** When the newest pull request notice on the thread was left. */
+  readonly notice: string | null;
 }
 
 function EnvironmentNotifications({
@@ -127,6 +131,70 @@ function EnvironmentNotifications({
     }
     const next = new Map<ThreadId, NotificationState>();
     const subagentRequests = pendingSubagentRequestsByThread(threads);
+    const announce = (alert: {
+      threadId: ThreadId;
+      threadTitle: string;
+      title: string;
+      sound: "completion" | "input";
+      type: "success" | "error" | "warning" | "info";
+      icon: ReactNode;
+    }) => {
+      if (hasNotificationSound(mode)) {
+        void playNotificationSound(alert.sound, () =>
+          hasNotificationSound(getClientSettings().notificationMode),
+        );
+      }
+      if (
+        inAppNotificationsEnabled &&
+        document.visibilityState === "visible" &&
+        document.hasFocus() &&
+        (activeEnvironmentId !== environmentId || activeThreadId !== alert.threadId)
+      ) {
+        const toastId = toastManager.add({
+          type: alert.type,
+          title: alert.title,
+          description: alert.threadTitle,
+          data: { hideCopyButton: true, leadingIcon: alert.icon },
+          actionProps: {
+            children: "Open thread",
+            onClick: () => {
+              toastManager.close(toastId);
+              void navigate({
+                to: "/$environmentId/$threadId",
+                params: { environmentId, threadId: alert.threadId },
+              });
+            },
+          },
+        });
+        return;
+      }
+      if (
+        !hasDesktopNotifications(mode) ||
+        (document.visibilityState === "visible" && document.hasFocus()) ||
+        typeof Notification === "undefined" ||
+        Notification.permission !== "granted"
+      )
+        return;
+      try {
+        const notification = new Notification(alert.title, {
+          body: alert.threadTitle,
+          tag: threadNotificationTag(environmentId, alert.threadId),
+          silent: true,
+        });
+        onNotification(environmentId, notification);
+        notification.addEventListener("click", () => {
+          notification.close();
+          window.focus();
+          void window.desktopBridge?.revealWindow?.().catch(() => undefined);
+          void navigate({
+            to: "/$environmentId/$threadId",
+            params: { environmentId, threadId: alert.threadId },
+          });
+        });
+      } catch {
+        // Some browsers expose Notification but reject desktop presentation.
+      }
+    };
     for (const rawThread of threads) {
       if (rawThread.lineage.relationshipToParent === "subagent") continue;
       const prior = previous.current.get(rawThread.id);
@@ -149,8 +217,37 @@ function EnvironmentNotifications({
         Number.isFinite(completedAt)
           ? completedAt
           : (prior?.completion ?? null);
-      next.set(thread.id, { raw: rawThread, subagentRequest, attention, completion });
+      const notice = latestPullRequestNotice(rawThread.pullRequests ?? []);
+      next.set(thread.id, {
+        raw: rawThread,
+        subagentRequest,
+        attention,
+        completion,
+        notice: notice?.at ?? null,
+      });
       if (!prior || thread.archivedAt !== null) continue;
+      if (notice !== null && notice.at !== prior.notice) {
+        const NoticeGlyph = notice.summary.endsWith(": merged")
+          ? PullRequestGlyph.merged
+          : PullRequestGlyph.pullRequest;
+        announce({
+          threadId: thread.id,
+          threadTitle: thread.title,
+          title: `Pull request ${notice.summary.replace(/^(#\d+):/, "$1")}`,
+          sound: "completion",
+          type: notice.outcome === "failed" ? "error" : "info",
+          icon: (
+            <NoticeGlyph
+              aria-hidden
+              className={
+                notice.outcome === "failed"
+                  ? "size-4 text-destructive-foreground"
+                  : "size-4 text-info-foreground"
+              }
+            />
+          ),
+        });
+      }
       const kind =
         attention && attention !== prior.attention
           ? "input"
@@ -170,73 +267,23 @@ function EnvironmentNotifications({
               : status === "failed"
                 ? "Thread failed"
                 : "Input needed";
-      if (hasNotificationSound(mode)) {
-        void playNotificationSound(kind, () =>
-          hasNotificationSound(getClientSettings().notificationMode),
-        );
-      }
-      if (
-        inAppNotificationsEnabled &&
-        document.visibilityState === "visible" &&
-        document.hasFocus() &&
-        (activeEnvironmentId !== environmentId || activeThreadId !== thread.id)
-      ) {
-        const toastId = toastManager.add({
-          type: kind === "completion" ? "success" : status === "failed" ? "error" : "warning",
-          title,
-          description: thread.title,
-          data: {
-            hideCopyButton: true,
-            leadingIcon:
-              kind === "completion" ? (
-                <CircleCheckIcon aria-hidden className="size-4 text-success-foreground" />
-              ) : status === "approval" ? (
-                <ShieldQuestionIcon aria-hidden className="size-4 text-warning-foreground" />
-              ) : status === "failed" ? (
-                <CircleAlertIcon aria-hidden className="size-4 text-destructive-foreground" />
-              ) : (
-                <MessageCircleQuestionIcon aria-hidden className="size-4 text-info-foreground" />
-              ),
-          },
-          actionProps: {
-            children: "Open thread",
-            onClick: () => {
-              toastManager.close(toastId);
-              void navigate({
-                to: "/$environmentId/$threadId",
-                params: { environmentId, threadId: thread.id },
-              });
-            },
-          },
-        });
-        continue;
-      }
-      if (
-        !hasDesktopNotifications(mode) ||
-        (document.visibilityState === "visible" && document.hasFocus()) ||
-        typeof Notification === "undefined" ||
-        Notification.permission !== "granted"
-      )
-        continue;
-      try {
-        const notification = new Notification(title, {
-          body: thread.title,
-          tag: threadNotificationTag(environmentId, thread.id),
-          silent: true,
-        });
-        onNotification(environmentId, notification);
-        notification.addEventListener("click", () => {
-          notification.close();
-          window.focus();
-          void window.desktopBridge?.revealWindow?.().catch(() => undefined);
-          void navigate({
-            to: "/$environmentId/$threadId",
-            params: { environmentId, threadId: thread.id },
-          });
-        });
-      } catch {
-        // Some browsers expose Notification but reject desktop presentation.
-      }
+      announce({
+        threadId: thread.id,
+        threadTitle: thread.title,
+        title,
+        sound: kind,
+        type: kind === "completion" ? "success" : status === "failed" ? "error" : "warning",
+        icon:
+          kind === "completion" ? (
+            <CircleCheckIcon aria-hidden className="size-4 text-success-foreground" />
+          ) : status === "approval" ? (
+            <ShieldQuestionIcon aria-hidden className="size-4 text-warning-foreground" />
+          ) : status === "failed" ? (
+            <CircleAlertIcon aria-hidden className="size-4 text-destructive-foreground" />
+          ) : (
+            <MessageCircleQuestionIcon aria-hidden className="size-4 text-info-foreground" />
+          ),
+      });
     }
     previous.current = next;
   }, [
