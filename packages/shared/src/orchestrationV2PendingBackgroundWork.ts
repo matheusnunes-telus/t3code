@@ -299,7 +299,8 @@ function pullRequestWatchTasks(
   pullRequests: ReadonlyArray<PendingBackgroundWorkPullRequest> | undefined,
 ): Array<PendingBackgroundWorkTask> {
   return (pullRequests ?? []).flatMap((link) =>
-    link.watch === undefined || link.source === "stack-dismissed"
+    // A watch that only notifies the user leaves nothing for the agent to wait on.
+    link.watch === undefined || link.watch.mode === "notify" || link.source === "stack-dismissed"
       ? []
       : [
           {

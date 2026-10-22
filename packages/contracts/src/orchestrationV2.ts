@@ -51,6 +51,8 @@ import {
   ThreadPullRequestLinkSource,
   ThreadPullRequestSnapshot,
   ThreadPullRequestStack,
+  ThreadPullRequestNotice,
+  ThreadPullRequestUpdates,
   ThreadPullRequestWatch,
 } from "./threadPullRequest.ts";
 import {
@@ -2726,6 +2728,8 @@ export const OrchestrationV2Command = Schema.Union([
     threadId: ThreadId,
     ...ThreadPullRequestKey.fields,
     watching: Schema.Boolean,
+    /** The level to keep for this link. Without it, watching acts and stopping drops back to the default. */
+    updates: Schema.optional(ThreadPullRequestUpdates),
     link: Schema.optional(
       Schema.Struct({
         url: TrimmedNonEmptyString,
@@ -3023,6 +3027,9 @@ const OrchestrationV2InternalCommand = Schema.Union([
     watch: Schema.NullOr(ThreadPullRequestWatch),
     /** With `watch: null`, the state the ended watch keeps instead of its last saved one. */
     endedWatch: Schema.optional(ThreadPullRequestWatch),
+    /** Starts `watch` on a link that has none, for a level the link follows. */
+    start: Schema.optional(Schema.Boolean),
+    notice: Schema.optional(ThreadPullRequestNotice),
     wake: Schema.optional(
       Schema.Struct({
         messageId: MessageId,

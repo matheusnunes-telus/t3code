@@ -165,6 +165,37 @@ const SUMMARY: Record<PullRequestWatchChange["kind"], string> = {
   conflicting: "merge conflict",
 };
 
+/** Review verdicts read better than "new comments" when that is what came in. */
+function summaryOf(change: PullRequestWatchChange): string {
+  if (change.kind !== "remarks") return SUMMARY[change.kind];
+  const states = new Set(change.remarks.map((remark) => remark.reviewState?.toUpperCase()));
+  if (states.has("CHANGES_REQUESTED")) return "changes requested";
+  if (states.has("APPROVED")) {
+    return change.remarks.length === 1 ? "approved" : "approved, new comments";
+  }
+  return SUMMARY.remarks;
+}
+
+/** A merge ends the watch, so the thread hears it once. */
+export function pullRequestMergedMessage(input: {
+  readonly number: number;
+  readonly url: string;
+  readonly baseBranch: string | null;
+}): { readonly text: string; readonly notification: OrchestrationV2Notification } {
+  return {
+    text: [
+      `Pull request #${input.number} (${input.url}) was merged${input.baseBranch === null ? "" : ` into ${input.baseBranch}`}, so T3 Code stopped watching it.`,
+      "",
+      "Wrap up anything the merge leaves for this task, then end your turn.",
+    ].join("\n"),
+    notification: {
+      source: { kind: "monitor" },
+      outcome: "completed",
+      summary: `#${input.number}: merged`,
+    },
+  };
+}
+
 export function pullRequestWatchMessage(input: {
   readonly number: number;
   readonly url: string;
@@ -188,7 +219,7 @@ export function pullRequestWatchMessage(input: {
   const failed = changes.some(
     (change) => change.kind === "checks-failed" || change.kind === "conflicting",
   );
-  const summary = changes.map((change) => SUMMARY[change.kind]);
+  const summary = changes.map(summaryOf);
   if (exhausted) summary.push("stopped watching");
   return {
     text,

@@ -84,9 +84,10 @@ export const layer: Layer.Layer<ThreadForkServiceV2> = Layer.succeed(
       }
       const targetThread: OrchestrationV2AppThread = {
         ...input.sourceProjection.thread,
-        // PR context follows the conversation; watching remains the source thread's responsibility.
+        // PR context follows the conversation; watching remains the source thread's responsibility,
+        // so the fork's links stay quiet until the user picks a level there too.
         pullRequests: input.sourceProjection.thread.pullRequests?.map(
-          ({ watch: _watch, ...link }) => link,
+          ({ watch: _watch, notice: _notice, ...link }) => ({ ...link, updates: "link" as const }),
         ),
         createdBy: input.createdBy,
         creationSource: input.creationSource,

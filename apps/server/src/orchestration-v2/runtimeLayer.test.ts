@@ -2385,13 +2385,12 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
         number: 7,
         watching: true,
       };
-      const blocked = yield* orchestrator
-        .dispatch({
-          ...restart,
-          commandId: CommandId.make(`pr-watch-settle-blocked-${mode}`),
-        })
-        .pipe(Effect.flip);
-      assert.equal(blocked._tag, "OrchestratorDispatchError");
+      // A settled thread may still watch: its news notifies instead of waking the agent.
+      yield* orchestrator.dispatch({
+        ...restart,
+        commandId: CommandId.make(`pr-watch-settle-blocked-${mode}`),
+      });
+      assert.isDefined((yield* orchestrator.getThreadShell(threadId))?.pullRequests?.[0]?.watch);
       assert.deepEqual((yield* orchestrator.getThreadRecords(threadId, ["messages"])).messages, []);
       yield* orchestrator.dispatch({
         type: "thread.unsettle",
@@ -2504,6 +2503,7 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
         Effect.provide(
           Layer.mergeAll(
             NodeServices.layer,
+            ServerSettings.layerTest({ pullRequestUpdates: "link" }),
             Layer.mock(PullRequestService.PullRequestService)({
               detail: () => Effect.die("host unreachable"),
               activity: () => Effect.die("host unreachable"),
@@ -2565,6 +2565,7 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
       let headSha = "ad70160aaa";
       const host = Layer.mergeAll(
         NodeServices.layer,
+        ServerSettings.layerTest({ pullRequestUpdates: "link" }),
         Layer.mock(PullRequestService.PullRequestService)({
           detail: () =>
             Effect.sync(() => ({
@@ -2689,6 +2690,7 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
       );
       const host = Layer.mergeAll(
         NodeServices.layer,
+        ServerSettings.layerTest({ pullRequestUpdates: "link" }),
         Layer.mock(PullRequestService.PullRequestService)({
           detail: () =>
             Effect.sync(() => ({
@@ -2743,6 +2745,229 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
         ...key,
         watching: false,
       });
+    }),
+  );
+
+  it.effect("a notify level leaves notices and never wakes the agent", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const threadId = ThreadId.make("runtime-pull-request-notify");
+      const projectId = ProjectId.make("pr-notify-project");
+      yield* seedProject({
+        projectId,
+        title: "Notify",
+        workspaceRoot: "/workspace/notify",
+        defaultModelSelection: null,
+        createdAt: "2026-10-01T00:00:00.000Z",
+      });
+      yield* orchestrator.dispatch({
+        type: "thread.create",
+        createdBy: "user",
+        creationSource: "web",
+        commandId: CommandId.make("pr-notify-create"),
+        threadId,
+        projectId,
+        title: "Notify",
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: null,
+      });
+      const key = { host: "github.com", repository: "pingdotgg/t3code", number: 21 };
+      yield* orchestrator.dispatch({
+        type: "thread.pull-request.link",
+        commandId: CommandId.make("pr-notify-link"),
+        threadId,
+        ...key,
+        url: "https://github.com/pingdotgg/t3code/pull/21",
+        source: "manual",
+      });
+      const linkOf = Effect.map(
+        orchestrator.getThreadShell(threadId),
+        (thread) => thread?.pullRequests?.[0],
+      );
+      const messages = Effect.map(
+        orchestrator.getThreadRecords(threadId, ["messages"]),
+        (records) => records.messages,
+      );
+
+      let state: "open" | "merged" = "open";
+      let approvedAt: string | null = null;
+      const at = "1970-01-01T00:05:00.000Z";
+      const host = Layer.mergeAll(
+        NodeServices.layer,
+        ServerSettings.layerTest({ pullRequestUpdates: "notify" }),
+        Layer.mock(PullRequestService.PullRequestService)({
+          detail: () =>
+            Effect.sync(() => ({
+              ...watchedPullRequestDetail({ projectId, number: 21, at }),
+              state,
+              checks: [
+                { name: "lint", status: "success", description: null, url: null, required: true },
+              ],
+            })),
+          activity: () =>
+            Effect.sync(() => ({
+              comments:
+                approvedAt !== null
+                  ? [
+                      {
+                        id: "approval",
+                        kind: "review" as const,
+                        author: { login: "reviewer", name: null, avatarUrl: null },
+                        body: "",
+                        createdAt: approvedAt,
+                        url: "https://github.com/pingdotgg/t3code/pull/21#review",
+                        path: null,
+                        reviewState: "APPROVED",
+                      },
+                    ]
+                  : [],
+              commentCount: approvedAt === null ? 0 : 1,
+              commentsTruncated: false,
+              reviewThreads: [],
+              commits: [],
+            })),
+        }),
+      );
+      const reactor = yield* PullRequestWatchReactor.make.pipe(Effect.provide(host));
+
+      // The default level starts a quiet watch: green checks that were already there say nothing.
+      yield* reactor.sweep;
+      const started = yield* linkOf;
+      assert.equal(started?.watch?.mode, "notify");
+      assert.isUndefined(started?.watch?.baseline);
+      assert.isUndefined(started?.notice);
+
+      approvedAt = DateTime.formatIso(
+        DateTime.add(DateTime.makeUnsafe(started?.watch?.startedAt ?? 0), { minutes: 1 }),
+      );
+      yield* TestClock.adjust("20 minutes");
+      yield* reactor.sweep;
+      assert.equal((yield* linkOf)?.notice?.summary, "#21: approved");
+
+      state = "merged";
+      yield* TestClock.adjust("20 minutes");
+      yield* reactor.sweep;
+      const merged = yield* linkOf;
+      assert.equal(merged?.notice?.summary, "#21: merged");
+      assert.isUndefined(merged?.watch);
+      assert.equal(merged?.endedWatch?.endedBy, "merged");
+      assert.deepEqual(yield* messages, []);
+
+      // An ended watch stays ended.
+      yield* reactor.sweep;
+      assert.isUndefined((yield* linkOf)?.watch);
+
+      // A link to a pull request merged long ago ends its first watch without a notice.
+      yield* orchestrator.dispatch({
+        type: "thread.pull-request.link",
+        commandId: CommandId.make("pr-notify-link-old"),
+        threadId,
+        ...key,
+        number: 23,
+        url: "https://github.com/pingdotgg/t3code/pull/23",
+        source: "manual",
+      });
+      yield* reactor.sweep;
+      const old = (yield* orchestrator.getThreadShell(threadId))?.pullRequests?.find(
+        (link) => link.number === 23,
+      );
+      assert.isUndefined(old?.watch);
+      assert.isUndefined(old?.notice);
+      assert.equal(old?.endedWatch?.endedBy, "merged");
+    }),
+  );
+
+  it.effect("an act level in a settled thread notifies instead of waking", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const threadId = ThreadId.make("runtime-pull-request-act-settled");
+      const projectId = ProjectId.make("pr-act-settled-project");
+      yield* seedProject({
+        projectId,
+        title: "Act settled",
+        workspaceRoot: "/workspace/act-settled",
+        defaultModelSelection: null,
+        createdAt: "2026-10-01T00:00:00.000Z",
+      });
+      yield* orchestrator.dispatch({
+        type: "thread.create",
+        createdBy: "user",
+        creationSource: "web",
+        commandId: CommandId.make("pr-act-settled-create"),
+        threadId,
+        projectId,
+        title: "Act settled",
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: null,
+      });
+      const key = { host: "github.com", repository: "pingdotgg/t3code", number: 22 };
+      yield* orchestrator.dispatch({
+        type: "thread.pull-request.link",
+        commandId: CommandId.make("pr-act-settled-link"),
+        threadId,
+        ...key,
+        url: "https://github.com/pingdotgg/t3code/pull/22",
+        source: "manual",
+      });
+      yield* orchestrator.dispatch({
+        type: "thread.pull-request.watch",
+        commandId: CommandId.make("pr-act-settled-level"),
+        threadId,
+        ...key,
+        watching: true,
+        updates: "act",
+      });
+      yield* orchestrator.dispatch({
+        type: "thread.settle",
+        commandId: CommandId.make("pr-act-settled-settle"),
+        threadId,
+      });
+      const linkOf = Effect.map(
+        orchestrator.getThreadShell(threadId),
+        (thread) => thread?.pullRequests?.[0],
+      );
+      assert.equal((yield* linkOf)?.updates, "act");
+
+      let state: "open" | "merged" = "open";
+      const host = Layer.mergeAll(
+        NodeServices.layer,
+        ServerSettings.layerTest({ pullRequestUpdates: "link" }),
+        Layer.mock(PullRequestService.PullRequestService)({
+          detail: () =>
+            Effect.sync(() => ({
+              ...watchedPullRequestDetail({
+                projectId,
+                number: 22,
+                at: "1970-01-01T00:05:00.000Z",
+              }),
+              state,
+            })),
+          activity: () =>
+            Effect.succeed({
+              comments: [],
+              commentCount: 0,
+              commentsTruncated: false,
+              reviewThreads: [],
+              commits: [],
+            }),
+        }),
+      );
+      const reactor = yield* PullRequestWatchReactor.make.pipe(Effect.provide(host));
+      yield* reactor.sweep;
+      assert.equal((yield* linkOf)?.watch?.mode, "notify");
+
+      state = "merged";
+      yield* TestClock.adjust("20 minutes");
+      yield* reactor.sweep;
+      assert.equal((yield* linkOf)?.notice?.summary, "#22: merged");
+      const { messages } = yield* orchestrator.getThreadRecords(threadId, ["messages"]);
+      assert.deepEqual(messages, []);
     }),
   );
 
@@ -2903,6 +3128,7 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
         Effect.provide(
           Layer.mergeAll(
             NodeServices.layer,
+            ServerSettings.layerTest({ pullRequestUpdates: "link" }),
             Layer.mock(PullRequestService.PullRequestService)({
               detail: () => Effect.succeed(detail),
               activity: () =>

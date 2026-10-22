@@ -2588,7 +2588,12 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         thread.settledOverride === "settled" ||
         thread.settledAt !== null ||
         isProviderNativeSubagentThread(thread);
-      if (link?.watch?.startedAt !== command.startedAt || (command.wake && inactive)) {
+      const starts = command.start === true && link !== undefined && link.watch === undefined;
+      if (
+        (!starts && link?.watch?.startedAt !== command.startedAt) ||
+        (command.wake && inactive) ||
+        (command.notice && thread.archivedAt !== null)
+      ) {
         return yield* new OrchestratorDispatchError({
           commandId: command.commandId,
           commandType: command.type,
@@ -2676,17 +2681,16 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         threadId: command.threadId,
       });
     }
+    // A settled thread still watches: its news notifies instead of waking the agent.
     if (
       command.type === "thread.pull-request.watch" &&
       command.watching &&
-      (thread.settledOverride === "settled" ||
-        thread.settledAt !== null ||
-        thread.archivedAt !== null)
+      thread.archivedAt !== null
     ) {
       return yield* new OrchestratorDispatchError({
         commandId: command.commandId,
         commandType: command.type,
-        cause: `Thread ${command.threadId} is settled or archived and cannot watch pull requests.`,
+        cause: `Thread ${command.threadId} is archived and cannot watch pull requests.`,
       });
     }
     // A subagent or delegated task reports to its parent thread, which owns the pull request.
@@ -3378,42 +3382,92 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
               : linked;
           const existing = links.find(visible);
           if (existing === undefined) return thread;
+          // Without a level, watching is the agent asking to act, and stopping drops an "act"
+          // back to the default rather than turning news off.
+          const updates =
+            command.type === "thread.pull-request-watch.sync"
+              ? existing.updates
+              : (command.updates ??
+                (command.watching
+                  ? "act"
+                  : existing.updates === "act"
+                    ? undefined
+                    : existing.updates));
+          const freshWatch = (
+            mode: "notify" | "act",
+            baseline: boolean,
+          ): ThreadPullRequestWatch => ({
+            startedAt,
+            mode,
+            ...(baseline && { baseline }),
+            headSha: null,
+            failedChecks: [],
+            passed: false,
+            passedChecks: [],
+            conflicting: false,
+            // Watching again must not repeat check or conflict news the last watch told.
+            ...(existing.endedWatch && {
+              headSha: existing.endedWatch.headSha,
+              failedChecks: existing.endedWatch.failedChecks,
+              passed: existing.endedWatch.passed,
+              passedChecks: existing.endedWatch.passedChecks,
+              conflicting: existing.endedWatch.conflicting,
+            }),
+            remarksThrough: startedAt,
+            remarkIds: [],
+            wakes: 0,
+          });
           const watch =
             command.type === "thread.pull-request-watch.sync"
-              ? existing.watch?.startedAt === command.startedAt
+              ? existing.watch?.startedAt === command.startedAt ||
+                (command.start === true && existing.watch === undefined)
                 ? (command.watch ?? undefined)
                 : existing.watch
-              : !command.watching
-                ? undefined
-                : (existing.watch ?? {
-                    startedAt,
-                    headSha: null,
-                    failedChecks: [],
-                    passed: false,
-                    passedChecks: [],
-                    conflicting: false,
-                    // Watching again must not repeat check or conflict news the last watch told.
-                    ...(existing.endedWatch && {
-                      headSha: existing.endedWatch.headSha,
-                      failedChecks: existing.endedWatch.failedChecks,
-                      passed: existing.endedWatch.passed,
-                      passedChecks: existing.endedWatch.passedChecks,
-                      conflicting: existing.endedWatch.conflicting,
-                    }),
-                    remarksThrough: startedAt,
-                    remarkIds: [],
-                    wakes: 0,
-                  });
-          if (watch === existing.watch && links === linked) return thread;
+              : command.updates !== undefined
+                ? command.updates === "link"
+                  ? undefined
+                  : existing.watch === undefined
+                    ? // A level picked by hand starts quietly: the user only wants what comes next.
+                      freshWatch(command.updates, true)
+                    : (existing.watch.mode ?? "act") === command.updates
+                      ? existing.watch
+                      : { ...existing.watch, mode: command.updates }
+                : !command.watching
+                  ? undefined
+                  : existing.watch === undefined
+                    ? freshWatch("act", false)
+                    : (existing.watch.mode ?? "act") === "act"
+                      ? existing.watch
+                      : { ...existing.watch, mode: "act" as const };
+          const notice =
+            command.type === "thread.pull-request-watch.sync" && command.notice !== undefined
+              ? command.notice
+              : existing.notice;
+          if (
+            watch === existing.watch &&
+            links === linked &&
+            updates === existing.updates &&
+            notice === existing.notice
+          ) {
+            return thread;
+          }
           const final =
             command.type === "thread.pull-request-watch.sync" && watch === undefined
               ? command.endedWatch
               : undefined;
+          const withLevel = (link: ThreadPullRequestLink): ThreadPullRequestLink => {
+            const { updates: _updates, notice: _notice, ...rest } = link;
+            return {
+              ...rest,
+              ...(updates !== undefined && { updates }),
+              ...(notice !== undefined && { notice }),
+            };
+          };
           return {
             ...thread,
             pullRequests: links.map((link) =>
               link === existing
-                ? withPullRequestWatch(final ? { ...link, watch: final } : link, watch)
+                ? withLevel(withPullRequestWatch(final ? { ...link, watch: final } : link, watch))
                 : link,
             ),
             updatedAt: command.type === "thread.pull-request.watch" ? now : thread.updatedAt,

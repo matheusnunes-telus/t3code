@@ -393,6 +393,17 @@ describe("derivePendingBackgroundWork kinds", () => {
       expect(backgroundWorkHoldsCompletion(tasks)).toBe(true);
     });
 
+    it("does not wait on a watch that only notifies the user", () => {
+      expect(
+        derivePendingBackgroundWork({
+          latestRun: { id: "run-1" as never, ordinal: 1, status: "completed" },
+          providerThreads: [],
+          turnItems: [],
+          pullRequests: [{ ...link(1, {}), watch: { ...watch, mode: "notify" as const } }],
+        }),
+      ).toEqual([]);
+    });
+
     it("keeps a thread that never ran waiting on its watch", () => {
       expect(
         derivePendingBackgroundWork({

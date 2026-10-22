@@ -81,8 +81,29 @@ export const ThreadPullRequestKey = Schema.Struct({
 });
 export type ThreadPullRequestKey = typeof ThreadPullRequestKey.Type;
 
+/**
+ * What a linked pull request's news does: nothing ("link"), notify the user ("notify"), or wake
+ * the thread's agent with it ("act"). A link without its own level follows the server setting.
+ */
+export const ThreadPullRequestUpdates = Schema.Literals(["link", "notify", "act"]);
+export type ThreadPullRequestUpdates = typeof ThreadPullRequestUpdates.Type;
+
+/** The latest news a watch told the user without waking the agent. */
+export const ThreadPullRequestNotice = Schema.Struct({
+  at: IsoDateTime,
+  summary: TrimmedNonEmptyString,
+  outcome: Schema.Literals(["completed", "failed", "updated"]),
+});
+export type ThreadPullRequestNotice = typeof ThreadPullRequestNotice.Type;
+
 export const ThreadPullRequestWatch = Schema.Struct({
   startedAt: IsoDateTime,
+  /** How news reaches the thread. Absent on watches from before levels existed: they act. */
+  mode: Schema.optional(Schema.Literals(["notify", "act"])),
+  /** A watch the server started on its own records the current state on its first read. */
+  baseline: Schema.optional(Schema.Boolean),
+  /** Why the server ended this watch. Its level does not start it again on its own. */
+  endedBy: Schema.optional(Schema.Literals(["merged", "closed", "unreadable", "comment-limit"])),
   headSha: Schema.NullOr(TrimmedNonEmptyString),
   failedChecks: Schema.Array(TrimmedNonEmptyString),
   passed: Schema.Boolean,
@@ -108,6 +129,9 @@ export const ThreadPullRequestLink = Schema.Struct({
   snapshot: Schema.NullOr(ThreadPullRequestSnapshot),
   stack: Schema.NullOr(ThreadPullRequestStack),
   watch: Schema.optional(ThreadPullRequestWatch),
+  /** The level the user picked for this link. Absent follows the server setting. */
+  updates: Schema.optional(ThreadPullRequestUpdates),
+  notice: Schema.optional(ThreadPullRequestNotice),
   /** The last watch as it ended. Watching again starts from it, so the thread is not told twice. */
   endedWatch: Schema.optional(ThreadPullRequestWatch),
 });

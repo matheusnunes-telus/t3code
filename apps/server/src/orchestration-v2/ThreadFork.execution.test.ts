@@ -139,6 +139,7 @@ it.effect("a persisted fork leaves PR watching with its parent until explicitly 
         linkedAt: parentWatch.startedAt,
         snapshot: null,
         stack: null,
+        updates: "link",
       },
     ]);
     assert.deepEqual(fork.pendingBackgroundTasks, []);
@@ -194,8 +195,10 @@ it.effect("a persisted fork leaves PR watching with its parent until explicitly 
     const [forkLink] = fork.pullRequests ?? [];
     assert.isDefined(forkLink);
     // The fork remembers its own watch, never the parent's, so watching again resumes from it.
+    // Stopping an agent's watch hands the link back to the server default.
+    const { updates: _updates, ...quietLink } = forkLink;
     assert.deepEqual(stoppedFork?.pullRequests, [
-      { ...forkLink, endedWatch: watchingFork.pullRequests[0].watch },
+      { ...quietLink, endedWatch: watchingFork.pullRequests[0].watch },
     ]);
     assert.deepEqual(stoppedFork?.pendingBackgroundTasks, []);
     assert.deepEqual(yield* orchestrator.getThreadShell(sourceThreadId), parentBefore);
