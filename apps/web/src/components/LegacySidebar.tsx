@@ -142,6 +142,13 @@ import { projectEnvironment } from "../state/projects";
 import { threadEnvironment, useEnvironmentThread } from "../state/threads";
 import { useEnvironment, useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
 import { buildThreadRouteParams, resolveActiveThreadRouteRef } from "../threadRoutes";
+import {
+  JiraSidebarTicketList,
+  SidebarGroupByToggle,
+  useSidebarGroupBy,
+} from "./jira/JiraSidebarTickets";
+import { JiraSyncStatus } from "./jira/JiraSyncStatus";
+import { useJiraSnapshot } from "../state/jira";
 import { stackedThreadToast, toastManager } from "./ui/toast";
 import { RelativeTime } from "./RelativeTime";
 import { Kbd } from "./ui/kbd";
@@ -3545,6 +3552,11 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
     attachProjectListAutoAnimateRef,
     projectsLength,
   } = props;
+  const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const jiraSnapshot = useJiraSnapshot(primaryEnvironmentId);
+  const jiraEnabled = jiraSnapshot?.enabled === true;
+  const [groupBy, setGroupBy] = useSidebarGroupBy();
+  const ticketMode = jiraEnabled && groupBy === "ticket";
 
   const handleProjectSortOrderChange = (sortOrder: SidebarProjectSortOrder) => {
     updateClientSettings({ sidebarProjectSortOrder: sortOrder });
@@ -3659,8 +3671,12 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
       <LocalSecondaryStatus />
       <SidebarGroup>
         <div className="mb-1 flex items-center justify-between pl-2 pr-1.5">
-          <span className="text-xs font-medium text-sidebar-muted-foreground/80">Projects</span>
-          <div className="flex items-center gap-1">
+          {jiraEnabled ? (
+            <SidebarGroupByToggle value={groupBy} onChange={setGroupBy} />
+          ) : (
+            <span className="text-xs font-medium text-sidebar-muted-foreground/80">Projects</span>
+          )}
+          <div className={cn("flex items-center gap-1", ticketMode && "hidden")}>
             <Tooltip>
               <TooltipTrigger
                 render={
@@ -3711,7 +3727,13 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
           </div>
         </div>
 
-        {isManualProjectSorting ? (
+        {ticketMode && jiraSnapshot !== null && primaryEnvironmentId !== null ? (
+          <JiraSidebarTicketList
+            environmentId={primaryEnvironmentId}
+            snapshot={jiraSnapshot}
+            routeThreadKey={routeThreadKey}
+          />
+        ) : isManualProjectSorting ? (
           <DndContext
             sensors={projectDnDSensors}
             collisionDetection={projectCollisionDetection}
@@ -3749,9 +3771,12 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
           </SidebarMenu>
         )}
 
-        {projectsLength === 0 && (
+        {projectsLength === 0 && !ticketMode && (
           <div className="px-2 pt-4 text-center text-secondary-label text-xs">No projects yet</div>
         )}
+        {jiraEnabled && primaryEnvironmentId !== null ? (
+          <JiraSyncStatus environmentId={primaryEnvironmentId} className="mt-2 px-2" />
+        ) : null}
       </SidebarGroup>
     </SidebarContent>
   );

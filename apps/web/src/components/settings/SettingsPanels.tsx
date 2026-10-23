@@ -851,6 +851,20 @@ export function GeneralSettingsPanel() {
     settings,
     textGenerationModelInstanceEntries,
   );
+  // Only Claude providers can reach Jira, through the account's Atlassian connector.
+  const jiraInstanceEntries = textGenerationModelInstanceEntries.filter(
+    (entry) => entry.driverKind === "claudeAgent",
+  );
+  const jiraDefaultEntry = jiraInstanceEntries.find((entry) => entry.enabled && entry.isAvailable);
+  const jiraDefaultSelection =
+    jiraDefaultEntry === undefined
+      ? null
+      : createModelSelection(
+          jiraDefaultEntry.instanceId,
+          jiraDefaultEntry.models.find((model) => /haiku/i.test(model.slug))?.slug ??
+            jiraDefaultEntry.models[0]?.slug ??
+            "claude-haiku-5-5",
+        );
   const mixedAddProjectBaseDirectory = useScopedSettingsMixed(["addProjectBaseDirectory"]);
   const mixedTextGenerationModel = useScopedSettingsMixed(["textGenerationModelSelection"]);
 
@@ -1908,6 +1922,70 @@ export function GeneralSettingsPanel() {
             )
           }
         />
+      </SettingsSection>
+
+      <SettingsSection id="jira-section" title="Jira">
+        <SettingsRow
+          serverScoped
+          settingKeys={["jiraModelSelection"]}
+          {...searchableSetting("jira")}
+          description="Links threads to your Jira tickets through the Atlassian connector of a Claude account. This model syncs your tickets, suggests a ticket for each new thread and drafts updates; nothing reaches Jira until you approve it."
+          control={
+            !hasServerTargets ? (
+              <span className="text-sm text-muted-foreground">
+                Connect an environment to use Jira.
+              </span>
+            ) : (
+              <div className="flex flex-wrap items-center justify-end gap-1.5">
+                {settings.jiraModelSelection !== null ? (
+                  <ProviderModelPicker
+                    environmentId={environmentId}
+                    activeInstanceId={settings.jiraModelSelection.instanceId}
+                    model={settings.jiraModelSelection.model}
+                    lockedProvider={null}
+                    instanceEntries={jiraInstanceEntries}
+                    modelOptionsByInstance={textGenerationModelOptionsByInstance}
+                    triggerClassName={SETTINGS_PICKER_TRIGGER_CLASSNAME}
+                    getModelDisabledReason={textGenerationModelDisabledReason}
+                    onInstanceModelChange={(instanceId, model) =>
+                      updateSettings({
+                        jiraModelSelection: createModelSelection(instanceId, model),
+                      })
+                    }
+                  />
+                ) : null}
+                <Switch
+                  checked={settings.jiraModelSelection !== null}
+                  disabled={settings.jiraModelSelection === null && jiraDefaultSelection === null}
+                  onCheckedChange={(checked) =>
+                    updateSettings({ jiraModelSelection: checked ? jiraDefaultSelection : null })
+                  }
+                  aria-label="Jira"
+                />
+              </div>
+            )
+          }
+        />
+        {settings.jiraModelSelection !== null ? (
+          <SettingsRow
+            serverScoped
+            settingKeys={["jiraSite"]}
+            {...searchableSetting("jira-site")}
+            description="The Atlassian site or cloud id. Leave it empty to use the first site the connector can reach."
+            control={
+              <Input
+                size="sm"
+                className="w-64"
+                placeholder="your-site.atlassian.net"
+                defaultValue={settings.jiraSite}
+                onBlur={(event) => {
+                  const next = event.currentTarget.value.trim();
+                  if (next !== settings.jiraSite) updateSettings({ jiraSite: next });
+                }}
+              />
+            }
+          />
+        ) : null}
       </SettingsSection>
 
       <SettingsSection id="about" title="About">

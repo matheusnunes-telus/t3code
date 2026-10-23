@@ -534,6 +534,21 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["generated thread titles source control content default provider"],
   },
   {
+    id: "jira",
+    title: "Jira",
+    to: "/settings/general",
+    scope: "environment-defaults",
+    searchTerms: ["atlassian ticket issue epic task sub-task link sync connector match"],
+  },
+  {
+    id: "jira-site",
+    title: "Jira site",
+    to: "/settings/general",
+    targetId: "jira",
+    scope: "environment-defaults",
+    searchTerms: ["atlassian cloud id site url"],
+  },
+  {
     id: "app-version",
     title: "Version",
     to: "/settings/general",
