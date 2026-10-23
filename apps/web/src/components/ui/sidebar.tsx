@@ -103,7 +103,11 @@ const SIDEBAR_PEEK_HOLD_SELECTOR = [
   .join(",");
 
 function shouldHoldSidebarPeek(container: HTMLElement | null): boolean {
-  if (document.querySelector(SIDEBAR_PEEK_HOLD_SELECTOR) !== null) return true;
+  // Some popups stay mounted while closed (the pull request composer does), so only open,
+  // visible ones count; otherwise the peek never closed once one had mounted.
+  for (const popup of document.querySelectorAll(SIDEBAR_PEEK_HOLD_SELECTOR)) {
+    if (!popup.hasAttribute("data-closed") && popup.checkVisibility()) return true;
+  }
   const active = document.activeElement;
   // Typing in the sidebar search keeps it open while the pointer wanders off.
   return (
