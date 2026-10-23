@@ -363,6 +363,7 @@ import {
   ScheduledTaskMutationResult,
 } from "./scheduledTask.ts";
 import { SecretRequestAnswerInput, SecretRequestError } from "./secretRequest.ts";
+import { JiraCommand, JiraError, JiraSnapshot, JiraSubscribeInput } from "./jira.ts";
 import {
   ProjectCloneActionInput,
   ProjectCloneActionResult,
@@ -528,6 +529,9 @@ export const WS_METHODS = {
   secretsAnswerRequest: "secrets.answerRequest",
   scheduledTasksListWebhookDeliveries: "scheduledTasks.listWebhookDeliveries",
   scheduledTasksGetWebhookDelivery: "scheduledTasks.getWebhookDelivery",
+
+  jiraSubscribe: "jira.subscribe",
+  jiraCommand: "jira.command",
 
   cloudGetRelayClientStatus: "cloud.getRelayClientStatus",
   cloudInstallRelayClient: "cloud.installRelayClient",
@@ -1798,6 +1802,19 @@ const WsSubscribeServerLifecycleRpc = Rpc.make(WS_METHODS.subscribeServerLifecyc
   stream: true,
 });
 
+const JiraRpcError = Schema.Union([JiraError, EnvironmentAuthorizationError]);
+
+const WsJiraSubscribeRpc = Rpc.make(WS_METHODS.jiraSubscribe, {
+  payload: JiraSubscribeInput,
+  success: JiraSnapshot,
+  error: JiraRpcError,
+  stream: true,
+});
+const WsJiraCommandRpc = Rpc.make(WS_METHODS.jiraCommand, {
+  payload: JiraCommand,
+  error: JiraRpcError,
+});
+
 const WsScheduledTasksListRpc = Rpc.make(WS_METHODS.scheduledTasksList, {
   payload: ScheduledTaskListInput,
   success: ScheduledTaskListResult,
@@ -1956,6 +1973,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsSecretsAnswerRequestRpc,
   WsScheduledTasksListWebhookDeliveriesRpc,
   WsScheduledTasksGetWebhookDeliveryRpc,
+  WsJiraSubscribeRpc,
+  WsJiraCommandRpc,
   WsServerReportClientActivityRpc,
   WsServerReportHostPowerStateRpc,
   WsServerGetBackgroundPolicyRpc,

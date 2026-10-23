@@ -12,6 +12,7 @@ import { HttpClient } from "effect/http";
 import { ChildProcessSpawner } from "effect/process";
 
 import { makeClaudeTextGeneration } from "../../textGeneration/ClaudeTextGeneration.ts";
+import { makeClaudeConnectorAgent } from "./ClaudeConnectorAgent.ts";
 import * as ProviderLatestVersions from "@t3tools/provider-core/server/ProviderLatestVersions";
 import * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
 import * as ServerConfig from "../../config.ts";
@@ -192,6 +193,11 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv, Path.
       ),
     );
     const textGeneration = yield* makeClaudeTextGeneration(
+      effectiveConfig,
+      processEnv,
+      modelCatalog,
+    );
+    const connectorAgent = yield* makeClaudeConnectorAgent(
       effectiveConfig,
       processEnv,
       modelCatalog,
@@ -406,6 +412,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv, Path.
         ),
       orchestrationAdapter,
       textGeneration,
+      connectorAgent,
       consumeResetCredit,
     } satisfies ProviderInstance;
   }),

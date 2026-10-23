@@ -13,6 +13,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schedule from "effect/Schedule";
 
+import { JiraFirstMessageHook } from "../jira/JiraService.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as TextGeneration from "../textGeneration/TextGeneration.ts";
 import type { OrchestratorV2Error } from "./Orchestrator.ts";
@@ -46,6 +47,7 @@ const make = Effect.gen(function* () {
   const projects = yield* ProjectStore.ProjectStoreV2;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
   const textGeneration = yield* TextGeneration.TextGeneration;
+  const onFirstMessage = yield* JiraFirstMessageHook;
 
   const complete = (input: {
     readonly threadId: ThreadId;
@@ -104,6 +106,10 @@ const make = Effect.gen(function* () {
       }
       if (context.message.length === 0 && context.attachments.length === 0) {
         return { type: "complete" as const };
+      }
+      // The first message is also when Jira looks for the thread's ticket; it runs on its own.
+      if (input.kind.type === "initial" && onFirstMessage !== undefined) {
+        yield* onFirstMessage({ threadId: input.threadId, message: context.message });
       }
 
       const settings = resolveProjectSettings(

@@ -8,11 +8,13 @@ import type {
   AcpRegistryListProvidersResult,
   AcpRegistryOperationError,
   AcpRegistrySetProviderInput,
+  ModelSelection,
   ProviderDriverKind,
   ProviderInstanceEnvironment,
   ProviderInstanceId,
   ServerProvider,
   ServerProviderWorkspaceSnapshot,
+  TextGenerationError,
 } from "@t3tools/contracts";
 import type * as Effect from "effect/Effect";
 import type * as Schema from "effect/Schema";
@@ -39,6 +41,45 @@ export interface ProviderDriverMetadata {
 export type ProviderWorkspaceSnapshot = ServerProvider &
   Pick<ServerProviderWorkspaceSnapshot, "slashCommandsPending" | "optionDescriptors">;
 
+/** One tool call a connector agent made, with the tool's raw reply. */
+export interface ConnectorAgentToolResult {
+  readonly tool: string;
+  readonly input: unknown;
+  readonly isError: boolean;
+  readonly text: string;
+}
+
+export interface ConnectorAgentRun {
+  readonly operation: string;
+  readonly prompt: string;
+  readonly modelSelection: ModelSelection;
+  /** Tool name prefixes it may call, such as `mcp__claude_ai_Atlassian__`; nothing else runs. */
+  readonly toolPrefixes: ReadonlyArray<string>;
+  /** JSON Schema for its final answer, when the caller needs one. */
+  readonly outputSchema?: unknown;
+  readonly timeoutMs?: number;
+}
+
+export interface ConnectorAgentResult {
+  readonly toolResults: ReadonlyArray<ConnectorAgentToolResult>;
+  /** The structured answer when `outputSchema` was given, otherwise its last text. */
+  readonly output: unknown;
+  /** The account's connector tools this run could see, to tell "not connected" from failures. */
+  readonly availableTools: ReadonlyArray<string>;
+  readonly mcpServers: ReadonlyArray<{ readonly name: string; readonly status: string }>;
+}
+
+/**
+ * Runs the provider's own agent with the account's connectors (such as claude.ai's Atlassian
+ * one), so the server can reach services it holds no credentials for. Tool replies come back
+ * raw so callers can parse them in code instead of having the model copy them out.
+ */
+export interface ConnectorAgent {
+  readonly run: (
+    request: ConnectorAgentRun,
+  ) => Effect.Effect<ConnectorAgentResult, TextGenerationError>;
+}
+
 export interface ProviderInstance {
   readonly instanceId: ProviderInstanceId;
   readonly driverKind: ProviderDriverKind;
@@ -58,6 +99,7 @@ export interface ProviderInstance {
   >;
   readonly orchestrationAdapter: ProviderAdapter.ProviderAdapterV2["Service"];
   readonly textGeneration: ProviderTextGeneration;
+  readonly connectorAgent?: ConnectorAgent;
   readonly auth?: ProviderAuthController;
   readonly acpSessionManagement?: {
     readonly listSessions: (input: {

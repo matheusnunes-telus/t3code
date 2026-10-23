@@ -1247,6 +1247,16 @@ export const ServerSettings = Schema.Struct({
   ),
   reviewGuideInstructions: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
 
+  /**
+   * The provider and model that talk to Jira through its Atlassian connector. Null keeps Jira
+   * off; only a Claude provider whose account has the connector can reach it.
+   */
+  jiraModelSelection: Schema.NullOr(ModelSelection).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  /** The Atlassian site or cloud id; empty picks the first site the connector can reach. */
+  jiraSite: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+
   pullRequestMergeMethod: Schema.NullOr(PullRequestMergeMethod).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
@@ -1516,6 +1526,8 @@ export const ServerSettingsPatch = Schema.Struct({
   sourceControlWriterModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
   reviewGuidesEnabled: Schema.optionalKey(Schema.Boolean),
   reviewGuideModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
+  jiraModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
+  jiraSite: Schema.optionalKey(TrimmedString),
   reviewGuideInstructions: Schema.optionalKey(TrimmedString),
   pullRequestMergeMethod: Schema.optionalKey(Schema.NullOr(PullRequestMergeMethod)),
   observability: Schema.optionalKey(
