@@ -36,6 +36,7 @@ import {
   MessageSquareDashed,
   Plus,
   TerminalSquare,
+  TicketIcon,
   X,
 } from "lucide-react";
 import { Volume2, VolumeOff } from "lucide";
@@ -581,6 +582,8 @@ function surfaceTitle(
       return `#${surface.number}`;
     case "pull-requests":
       return "Pull requests";
+    case "jira":
+      return "Jira";
     case "device":
       return surface.title ?? surface.target?.name ?? "Device";
     case "side-chat":
@@ -673,6 +676,8 @@ function SurfaceIcon({
       );
     case "pull-requests":
       return <PullRequestGlyph.link className="size-3 shrink-0" />;
+    case "jira":
+      return <TicketIcon className="size-3 shrink-0" />;
     case "device":
       return surface.target?.platform === "ios" ? (
         <AppleIcon className="size-3 shrink-0" />

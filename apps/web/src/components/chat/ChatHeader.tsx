@@ -36,6 +36,7 @@ import {
 import { observeResize } from "~/lib/observeResize";
 import { cn } from "~/lib/utils";
 import { useClientSettings } from "../../hooks/useSettings";
+import { JiraHeaderChips } from "../jira/JiraHeaderChips";
 
 interface ChatHeaderProps {
   activeThreadEnvironmentId: EnvironmentId;
@@ -275,7 +276,7 @@ export const ChatHeader = memo(function ChatHeader({
     >
       <WorkspaceBreadcrumb
         ariaLabel="Thread breadcrumb"
-        className="flex-1 overflow-clip [overflow-clip-margin:2px]"
+        className="min-w-0 shrink overflow-clip [overflow-clip-margin:2px]"
       >
         {activeProject ? (
           <>
@@ -398,6 +399,15 @@ export const ChatHeader = memo(function ChatHeader({
           )}
         </WorkspaceBreadcrumbItem>
       </WorkspaceBreadcrumb>
+      {isServerThread ? (
+        <JiraHeaderChips
+          environmentId={activeThreadEnvironmentId}
+          threadId={activeThreadId}
+          // The header's tool buttons overlap the row's end while the right panel is closed.
+          className={rightPanelOpen ? undefined : "mr-16"}
+        />
+      ) : null}
+      <div className="flex-1" />
     </div>
   );
 });
