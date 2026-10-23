@@ -17,7 +17,11 @@ import {
   stepRecentTabCycle,
 } from "../chatTabCycle";
 import { useChatTabsStore } from "../chatTabsStore";
-import { type DraftId, useComposerDraftStore } from "../composerDraftStore";
+import {
+  composerDraftHasUserContent,
+  type DraftId,
+  useComposerDraftStore,
+} from "../composerDraftStore";
 import { useFileAutoSaveStore } from "../fileAutoSaveStore";
 import { closeFilesTab, filesDraftIdForThreadKey } from "../filesTabs";
 import { useFilesTabsStore } from "../filesTabsStore";
@@ -111,6 +115,7 @@ export function ChatTabsBar() {
   const projects = useProjects();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const navigateToThreadKey = useNavigateToThreadKey();
+  const router = useRouter();
   const routeTarget = useThreadRouteTarget();
   const filesTabsByDraftId = useFilesTabsStore((state) => state.tabsByDraftId);
   const filesDirtyByDraftId = useFilesTabsStore((state) => state.dirtyByDraftId);
@@ -145,6 +150,26 @@ export function ChatTabsBar() {
     return draft ? (`${draft.environmentId}:${draft.projectId}` as const) : null;
   });
   const showDraftTab = routeDraftProjectKey !== null && !routeIsFilesTab;
+  const routeDraftId = routeTarget?.kind === "draft" ? routeTarget.draftId : null;
+  // Unsent chats with something typed keep their tab after you leave them, so the text is one
+  // click away. Closing one hides its tab; the draft itself stays in the sidebar.
+  const [closedDraftIds, setClosedDraftIds] = useState<ReadonlySet<string>>(() => new Set());
+  const draftsByThreadKey = useComposerDraftStore((store) => store.draftsByThreadKey);
+  const draftTabs = Object.entries(draftThreadsByThreadKey)
+    .filter(([draftId, session]) =>
+      draftId === routeDraftId
+        ? showDraftTab
+        : session.promotedTo == null &&
+          filesTabsByDraftId[draftId] === undefined &&
+          !closedDraftIds.has(draftId) &&
+          composerDraftHasUserContent(draftsByThreadKey[draftId]),
+    )
+    .toSorted(([, a], [, b]) => a.createdAt.localeCompare(b.createdAt))
+    .map(([draftId, session]) => ({
+      draftId: draftId as DraftId,
+      project: projectByKey.get(`${session.environmentId}:${session.projectId}`),
+      title: draftsByThreadKey[draftId]?.prompt.trim().split("\n")[0]?.slice(0, 60) || "New chat",
+    }));
   // A files tab is a draft, so its route is the draft's.
   const activeThreadKey =
     routeTarget?.kind === "server"
@@ -160,7 +185,6 @@ export function ChatTabsBar() {
       return [[key, { draftId: draftId as DraftId, session, filesTab }] as const];
     }),
   );
-  const draftProject = routeDraftProjectKey ? projectByKey.get(routeDraftProjectKey) : undefined;
   const lastDraftThreadKeyRef = useRef<string | null>(null);
   useEffect(() => {
     if (routeDraftThreadKey) lastDraftThreadKeyRef.current = routeDraftThreadKey;
@@ -241,10 +265,20 @@ export function ChatTabsBar() {
     if (threadKey === activeThreadKey) void navigateToThreadKey(next);
   };
   // Leaves the unsent chat in place (it stays in the sidebar as a draft).
-  const handleCloseDraftTab = () => {
+  const handleCloseDraftTab = (draftId: DraftId) => {
+    setClosedDraftIds((current) => new Set(current).add(draftId));
+    if (draftId !== routeDraftId) return;
     const lastTab = useChatTabsStore.getState().tabs.at(-1);
-    if (lastTab) void navigateToThreadKey(lastTab.threadKey);
+    if (lastTab) {
+      void navigateToThreadKey(lastTab.threadKey);
+      return;
+    }
+    const otherDraft = draftTabs.find((draft) => draft.draftId !== draftId);
+    if (otherDraft) {
+      void router.navigate({ to: "/draft/$draftId", params: { draftId: otherDraft.draftId } });
+    }
   };
+
   const onKeyDown = useStableCallback((event: KeyboardEvent) => {
     if (event.defaultPrevented || isCommandPaletteOpen()) return;
     if (event.target instanceof HTMLElement && event.target.closest("[data-keybinding-capture]")) {
@@ -258,10 +292,10 @@ export function ChatTabsBar() {
       },
     });
     if (command === "chatTab.close") {
-      if (showDraftTab && useChatTabsStore.getState().tabs.length > 0) {
+      if (showDraftTab && routeDraftId !== null && (tabs.length > 0 || draftTabs.length > 1)) {
         event.preventDefault();
         event.stopPropagation();
-        if (!event.repeat) handleCloseDraftTab();
+        if (!event.repeat) handleCloseDraftTab(routeDraftId);
         return;
       }
       const current = activeThreadKey;
@@ -299,7 +333,7 @@ export function ChatTabsBar() {
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [onKeyDown]);
 
-  if (tabs.length === 0 && !showDraftTab) return null;
+  if (tabs.length === 0 && draftTabs.length === 0) return null;
 
   return (
     // The inset that clears the window buttons and sidebar toggle stays on this outer bar,
@@ -464,29 +498,67 @@ export function ChatTabsBar() {
             </div>
           );
         })}
-        {showDraftTab ? (
-          <div
-            role="tab"
-            aria-selected
-            aria-label="New chat"
-            className="relative flex h-8 max-w-56 min-w-24 shrink-0 items-center gap-1.5 rounded-t-md border border-b-0 border-border bg-background px-2.5 text-xs text-foreground select-none [-webkit-app-region:no-drag]"
-          >
-            {draftProject ? (
-              <ProjectFavicon project={draftProject} className="size-3.5 shrink-0" />
-            ) : null}
-            <span className="min-w-0 flex-1 truncate italic">New chat</span>
-            {tabs.length > 0 ? (
-              <button
-                type="button"
-                aria-label="Close New chat"
-                className="inline-flex size-4 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground"
-                onClick={handleCloseDraftTab}
-              >
-                <XIcon className="size-3" />
-              </button>
-            ) : null}
-          </div>
-        ) : null}
+        {draftTabs.map((draft) => {
+          const isActive = draft.draftId === routeDraftId;
+          return (
+            <div
+              key={draft.draftId}
+              role="tab"
+              tabIndex={0}
+              aria-selected={isActive}
+              aria-label={`${draft.title} (unsent)`}
+              className={cn(
+                "group/chat-tab relative flex h-8 max-w-56 min-w-24 shrink-0 cursor-pointer items-center gap-1.5 rounded-t-md border border-b-0 px-2.5 text-xs select-none [-webkit-app-region:no-drag]",
+                isActive
+                  ? "border-border bg-background text-foreground"
+                  : "border-transparent text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+              )}
+              onClick={() => {
+                if (!isActive) {
+                  void router.navigate({
+                    to: "/draft/$draftId",
+                    params: { draftId: draft.draftId },
+                  });
+                }
+              }}
+              onAuxClick={(event) => {
+                if (event.button !== 1) return;
+                event.preventDefault();
+                handleCloseDraftTab(draft.draftId);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  void router.navigate({
+                    to: "/draft/$draftId",
+                    params: { draftId: draft.draftId },
+                  });
+                }
+              }}
+            >
+              {draft.project ? (
+                <ProjectFavicon project={draft.project} className="size-3.5 shrink-0" />
+              ) : null}
+              <span className="min-w-0 flex-1 truncate italic">{draft.title}</span>
+              {tabs.length > 0 || draftTabs.length > 1 ? (
+                <button
+                  type="button"
+                  aria-label={`Close ${draft.title}`}
+                  className={cn(
+                    "inline-flex size-4 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground",
+                    isActive ? "opacity-100" : "opacity-0 group-hover/chat-tab:opacity-100",
+                  )}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    handleCloseDraftTab(draft.draftId);
+                  }}
+                >
+                  <XIcon className="size-3" />
+                </button>
+              ) : null}
+            </div>
+          );
+        })}
         <Tooltip>
           <TooltipTrigger
             render={
