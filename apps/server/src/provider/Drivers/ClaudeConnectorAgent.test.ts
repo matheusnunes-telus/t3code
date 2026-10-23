@@ -1,7 +1,7 @@
 import { expect, it } from "@effect/vitest";
 import * as Schema from "effect/Schema";
 
-import { parseClaudeAgentStream } from "./ClaudeConnectorAgent.ts";
+import { parseClaudeAgentStream, savedOutputPath } from "./ClaudeConnectorAgent.ts";
 
 const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 const lines = (...messages: ReadonlyArray<unknown>) =>
@@ -75,4 +75,15 @@ it("prefers the structured answer, and reports a failed run", () => {
 
 it("skips lines that are not JSON", () => {
   expect(parseClaudeAgentStream("warning: something\n\n").toolResults).toEqual([]);
+});
+
+it("finds the file a large reply was saved to, without the sentence's period", () => {
+  const path =
+    "/Users/me/.claude/projects/run/abc/tool-results/mcp-claude_ai_Atlassian-searchJiraIssuesUsingJql-1.txt";
+  expect(
+    savedOutputPath(
+      `Error: result (110,327 characters) exceeds maximum allowed tokens. Output has been saved to ${path}.\nFormat: JSON`,
+    ),
+  ).toBe(path);
+  expect(savedOutputPath("plain reply")).toBeUndefined();
 });

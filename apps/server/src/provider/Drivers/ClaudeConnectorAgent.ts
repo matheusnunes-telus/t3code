@@ -29,6 +29,11 @@ const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 /** Where Claude Code says it saved a tool reply too large to keep in the conversation. */
 const SAVED_OUTPUT_PATH = /(\/[^\s"'`]*tool-results\/[^\s"'`]+)/;
 
+/** The saved file's path; the sentence around it ends with a period that isn't part of it. */
+export function savedOutputPath(text: string): string | undefined {
+  return SAVED_OUTPUT_PATH.exec(text)?.[1]?.replace(/[.,;:]+$/, "");
+}
+
 interface ParsedStream {
   readonly toolResults: ReadonlyArray<ConnectorAgentToolResult>;
   readonly output: unknown;
@@ -145,7 +150,7 @@ export const makeClaudeConnectorAgent = Effect.fn("makeClaudeConnectorAgent")(fu
 
   /** A reply Claude Code moved to a file is swapped back for the file, so callers get it whole. */
   const expandSavedOutput = (result: ConnectorAgentToolResult) => {
-    const path = SAVED_OUTPUT_PATH.exec(result.text)?.[1];
+    const path = savedOutputPath(result.text);
     if (path === undefined) return Effect.succeed(result);
     return fileSystem.readFileString(path).pipe(
       Effect.map((text) => ({ ...result, text })),
