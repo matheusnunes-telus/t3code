@@ -147,8 +147,39 @@ function useSidebarPeekState(enabled: boolean) {
   };
   React.useEffect(() => clearTimer, []);
 
+  // pointerleave alone can miss: window drag regions (the title bar, the rail's top corner)
+  // swallow pointer events, so a quick exit through them left the peek stuck open. While it's
+  // open, any move outside it, or leaving the window, closes it.
+  const isPeekOpen = enabled && peeking;
+  const onDocumentPointerMove = React.useEffectEvent((event: PointerEvent) => {
+    const container = containerRef.current;
+    const inside =
+      container !== null && event.target instanceof Node && container.contains(event.target);
+    pointerInsideRef.current = inside;
+    if (inside) clearTimer();
+    else if (timerRef.current === null) scheduleClose();
+  });
+  const onLeaveWindow = React.useEffectEvent((event: PointerEvent | FocusEvent) => {
+    if (event instanceof PointerEvent && event.relatedTarget !== null) return;
+    pointerInsideRef.current = false;
+    scheduleClose();
+  });
+  React.useEffect(() => {
+    if (!isPeekOpen) return;
+    const onPointerMove = (event: PointerEvent) => onDocumentPointerMove(event);
+    const onLeave = (event: PointerEvent | FocusEvent) => onLeaveWindow(event);
+    document.addEventListener("pointermove", onPointerMove, true);
+    document.documentElement.addEventListener("pointerleave", onLeave);
+    window.addEventListener("blur", onLeave);
+    return () => {
+      document.removeEventListener("pointermove", onPointerMove, true);
+      document.documentElement.removeEventListener("pointerleave", onLeave);
+      window.removeEventListener("blur", onLeave);
+    };
+  }, [isPeekOpen]);
+
   return {
-    peeking: enabled && peeking,
+    peeking: isPeekOpen,
     containerRef,
     openPeek,
     railHandlers: {
