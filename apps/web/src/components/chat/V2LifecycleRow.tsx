@@ -587,45 +587,65 @@ export function HandoffRow(props: {
   readonly environmentId: EnvironmentId;
   readonly endpoints: HandoffEndpoints;
   readonly providers: ReadonlyArray<ServerProvider>;
-  readonly pending?: boolean;
   readonly failed?: boolean;
+}) {
+  return (
+    <TimelineSystemDivider
+      label="Context handoff"
+      icon={ArrowRightLeftIcon}
+      showDetailSeparator={false}
+      tone={props.failed ? "danger" : "neutral"}
+      detail={
+        <HandoffEndpointsLabel
+          environmentId={props.environmentId}
+          endpoints={props.endpoints}
+          providers={props.providers}
+        />
+      }
+    />
+  );
+}
+
+/** "From model -> to model" for a handoff, with each side's provider badge. */
+export function HandoffEndpointsLabel(props: {
+  readonly environmentId: EnvironmentId;
+  readonly endpoints: HandoffEndpoints;
+  readonly providers: ReadonlyArray<ServerProvider>;
+  readonly align?: "center" | "start";
 }) {
   const { from: fromEndpoints, to } = props.endpoints;
   const settings = useAtomValue(serverEnvironment.settingsValueAtom(props.environmentId));
   const derived = deriveProviderInstanceEntries(props.providers);
   const entries = settings ? applyProviderInstanceSettings(derived, settings, null) : derived;
   return (
-    <TimelineSystemDivider
-      label={props.pending ? "Context handoff pending" : "Context handoff"}
-      icon={ArrowRightLeftIcon}
-      showDetailSeparator={false}
-      tone={props.failed ? "danger" : "neutral"}
-      detail={
-        <span className="inline-flex min-w-0 flex-wrap items-center justify-center gap-1.5">
-          {fromEndpoints.map((endpoint, index) => (
-            <span
-              key={`${endpoint.instanceId}:${endpoint.model ?? ""}`}
-              className="inline-flex min-w-0 items-center"
-            >
-              <HandoffEndpoint
-                entries={entries}
-                instanceId={endpoint.instanceId}
-                model={endpoint.model}
-              />
-              {index < fromEndpoints.length - 1 ? (
-                <span aria-hidden="true" className="ml-0.5">
-                  ,
-                </span>
-              ) : null}
+    <span
+      className={cn(
+        "inline-flex min-w-0 flex-wrap items-center gap-1.5",
+        props.align === "start" ? "justify-start" : "justify-center",
+      )}
+    >
+      {fromEndpoints.map((endpoint, index) => (
+        <span
+          key={`${endpoint.instanceId}:${endpoint.model ?? ""}`}
+          className="inline-flex min-w-0 items-center"
+        >
+          <HandoffEndpoint
+            entries={entries}
+            instanceId={endpoint.instanceId}
+            model={endpoint.model}
+          />
+          {index < fromEndpoints.length - 1 ? (
+            <span aria-hidden="true" className="ml-0.5">
+              ,
             </span>
-          ))}
-          {fromEndpoints.length > 0 ? (
-            <ArrowRightIcon aria-hidden="true" className="size-3 shrink-0" />
           ) : null}
-          <HandoffEndpoint entries={entries} instanceId={to.instanceId} model={to.model} />
         </span>
-      }
-    />
+      ))}
+      {fromEndpoints.length > 0 ? (
+        <ArrowRightIcon aria-hidden="true" className="size-3 shrink-0" />
+      ) : null}
+      <HandoffEndpoint entries={entries} instanceId={to.instanceId} model={to.model} />
+    </span>
   );
 }
 

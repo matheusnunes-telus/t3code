@@ -99,7 +99,7 @@ import {
 } from "@t3tools/client-runtime/state/subagentRuntime";
 import { threadSupportsProviderHandoff } from "@t3tools/client-runtime/state/thread-workflows";
 import { resolvePendingHandoff } from "@t3tools/client-runtime/handoff";
-import { HandoffRow } from "./chat/V2LifecycleRow";
+import { HandoffEndpointsLabel } from "./chat/V2LifecycleRow";
 import {
   codexFeedbackMessage,
   parseCodexFeedbackCommand,
@@ -235,6 +235,7 @@ import { isEditableFocused } from "../lib/editableFocus";
 import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
 import { shortcutLabelForCommand } from "../keybindings";
 import {
+  ArrowRightLeftIcon,
   AlarmClockIcon,
   CheckCircle2Icon,
   PaperclipIcon,
@@ -4139,6 +4140,29 @@ export default function ChatView(props: ChatViewProps) {
           },
         })
       : null;
+  // Shown above the composer, not in the chat: nothing has switched until the message is sent.
+  const handoffBannerItems: ComposerBannerStackItem[] =
+    pendingHandoff === null
+      ? []
+      : [
+          {
+            id: `handoff-pending:${pendingHandoff.to.instanceId}:${pendingHandoff.to.model ?? ""}`,
+            variant: "info",
+            priority: "notice",
+            icon: <ArrowRightLeftIcon />,
+            title: (
+              <span className="inline-flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                <span>Context hands off when you send</span>
+                <HandoffEndpointsLabel
+                  environmentId={environmentId}
+                  endpoints={pendingHandoff}
+                  providers={providerStatuses}
+                  align="start"
+                />
+              </span>
+            ),
+          },
+        ];
   const composerBannerItems = (() => {
     const limitRecoveryItems = limitRecoveryBanner === null ? [] : [limitRecoveryBanner];
     const backgroundWorkItems = [childInputBanner, goalBanner, backgroundWorkBanner].filter(
@@ -4153,6 +4177,7 @@ export default function ChatView(props: ChatViewProps) {
         ...usageLimitsItems,
         ...projectCloneItems,
         ...systemComposerBannerItems,
+        ...handoffBannerItems,
         ...backgroundWorkItems,
         ...jiraBannerItems,
       ];
@@ -4163,6 +4188,7 @@ export default function ChatView(props: ChatViewProps) {
       ...usageLimitsItems,
       ...projectCloneItems,
       ...systemComposerBannerItems,
+      ...handoffBannerItems,
       ...backgroundWorkItems,
       ...jiraBannerItems,
       branchMismatchBannerItem({
@@ -6957,23 +6983,7 @@ export default function ChatView(props: ChatViewProps) {
                   : {})}
                 {...(onOpenWorktreeSetupTerminal ? { onOpenWorktreeSetupTerminal } : {})}
                 isPreparingWorktree={!paintOnlyDisplayedTimeline && isPreparingWorktree}
-                footer={
-                  paintOnlyDisplayedTimeline ? null : pendingHandoff === null ? (
-                    threadStatusLine
-                  ) : (
-                    <>
-                      <div className="chat-content-lane">
-                        <HandoffRow
-                          environmentId={environmentId}
-                          endpoints={pendingHandoff}
-                          providers={providerStatuses}
-                          pending
-                        />
-                      </div>
-                      {threadStatusLine}
-                    </>
-                  )
-                }
+                footer={paintOnlyDisplayedTimeline ? null : threadStatusLine}
                 listRef={legendListRef}
                 timelineEntries={displayedTimeline.entries}
                 runs={paintOnlyDisplayedTimeline ? [] : (serverProjection?.runs ?? [])}
