@@ -53,6 +53,7 @@ import { FilesTabView } from "./files/FilesTabView";
 import { convertDraftToFilesTab } from "../filesTabs";
 import { useFilesTabsStore } from "../filesTabsStore";
 import { useJiraComposerBanners } from "./jira/useJiraComposerBanners";
+import { useJiraSnapshot } from "~/state/jira";
 import { ArrowRightLeftIcon, FolderOpenIcon } from "lucide-react";
 import { feedbackBannerItem } from "./chat/ComposerFeedback";
 import { useUsageLimitsPanel } from "./chat/useUsageLimitsPanel";
@@ -2511,6 +2512,7 @@ export default function ChatView(props: ChatViewProps) {
     void handleSwitchCheckoutToThread();
   };
   const handleRestoreThreadBranchStable = useStableCallback(handleRestoreThreadBranch);
+  const jiraSnapshot = useJiraSnapshot(isServerThread ? environmentId : null);
   const jiraBannerItems = useJiraComposerBanners(
     activeThreadShell?.environmentId ?? null,
     activeThreadShell?.id ?? null,
@@ -4026,6 +4028,9 @@ export default function ChatView(props: ChatViewProps) {
           onAddPullRequests={addPullRequestsSurfaceStable}
           onAddDevice={addDeviceSurfaceStable}
           onAddSideChat={() => void startSideChatStable("", undefined)}
+          onAddJira={() => {
+            if (activeThreadRef) useRightPanelStore.getState().open(activeThreadRef, "jira");
+          }}
           browserAvailable={canOperatePreview && browserAvailable}
           terminalAvailable={activeProject !== null && canOperateTerminal}
           diffAvailable={isServerThread && isGitRepo}
@@ -4034,6 +4039,9 @@ export default function ChatView(props: ChatViewProps) {
           pullRequestsAvailable={pullRequestsSurfaceAvailable}
           deviceAvailable={activeThreadRef !== null}
           sideChatAvailable={sideChatSourceRunId !== null}
+          jiraAvailable={
+            isServerThread && activeThreadRef !== null && jiraSnapshot?.enabled === true
+          }
         >
           {rightPanelContent}
         </ChatRightPanel>

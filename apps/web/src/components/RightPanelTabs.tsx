@@ -132,6 +132,7 @@ export interface RightPanelTabsProps {
   onAddPullRequests: () => void;
   onAddDevice: () => void;
   onAddSideChat?: (() => void) | undefined;
+  onAddJira?: (() => void) | undefined;
   browserAvailable: boolean;
   terminalAvailable: boolean;
   diffAvailable: boolean;
@@ -140,6 +141,7 @@ export interface RightPanelTabsProps {
   pullRequestsAvailable: boolean;
   deviceAvailable: boolean;
   sideChatAvailable?: boolean | undefined;
+  jiraAvailable?: boolean | undefined;
   pullRequestStatusSeeds?: Readonly<Record<string, PullRequestTabStatusSeed>>;
   children: ReactNode;
 }
@@ -167,6 +169,7 @@ const SURFACE_DISABLED_REASONS = {
   pullRequests: "No linked pull requests are available for this thread.",
   device: "Devices are only available from a thread.",
   sideChat: "A side chat needs a reply in this chat to copy from.",
+  jira: "Turn on Jira in Settings → Threads to see this thread's tickets.",
 } as const;
 
 // Closed keepMounted popups must stop blocking shortcuts once their exit transition ends.
@@ -192,6 +195,7 @@ const SURFACE_UNAVAILABLE_HINTS = {
   pullRequests: "No linked pull requests available.",
   device: "Available from a thread.",
   sideChat: "Available once this chat has a reply.",
+  jira: "Turn on Jira in Settings.",
 } as const;
 
 type TabContextMenuAction =
@@ -310,6 +314,7 @@ function RightPanelEmptyState(props: {
   onAddPullRequests: () => void;
   onAddDevice: () => void;
   onAddSideChat?: (() => void) | undefined;
+  onAddJira?: (() => void) | undefined;
   browserAvailable: boolean;
   terminalAvailable: boolean;
   diffAvailable: boolean;
@@ -318,6 +323,7 @@ function RightPanelEmptyState(props: {
   pullRequestsAvailable: boolean;
   deviceAvailable: boolean;
   sideChatAvailable?: boolean | undefined;
+  jiraAvailable?: boolean | undefined;
 }) {
   const [highlight, setHighlight] = useState(-1);
 
@@ -387,6 +393,15 @@ function RightPanelEmptyState(props: {
       available: props.sideChatAvailable === true,
       disabledReason: SURFACE_UNAVAILABLE_HINTS.sideChat,
       onClick: () => props.onAddSideChat?.(),
+    },
+    {
+      label: "Jira",
+      description: "The Jira tickets linked to this chat.",
+      icon: TicketIcon,
+      shortcut: "J",
+      available: props.jiraAvailable === true,
+      disabledReason: SURFACE_UNAVAILABLE_HINTS.jira,
+      onClick: () => props.onAddJira?.(),
     },
   ] as const;
 
@@ -1111,6 +1126,14 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
       disabledReason: SURFACE_DISABLED_REASONS.sideChat,
       onClick: () => props.onAddSideChat?.(),
     },
+    {
+      label: "Jira",
+      icon: TicketIcon,
+      shortcut: "J",
+      available: props.jiraAvailable === true,
+      disabledReason: SURFACE_DISABLED_REASONS.jira,
+      onClick: () => props.onAddJira?.(),
+    },
   ] as const;
 
   const handleAddSurfaceMenuKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
@@ -1478,6 +1501,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             onAddPullRequests={props.onAddPullRequests}
             onAddDevice={props.onAddDevice}
             onAddSideChat={props.onAddSideChat}
+            onAddJira={props.onAddJira}
             browserAvailable={props.browserAvailable}
             terminalAvailable={props.terminalAvailable}
             diffAvailable={props.diffAvailable}
@@ -1486,6 +1510,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             pullRequestsAvailable={props.pullRequestsAvailable}
             deviceAvailable={props.deviceAvailable}
             sideChatAvailable={props.sideChatAvailable}
+            jiraAvailable={props.jiraAvailable}
           />
         ) : (
           props.children
