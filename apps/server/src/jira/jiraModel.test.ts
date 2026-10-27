@@ -10,6 +10,7 @@ import {
   missingAncestors,
   parseAccessibleSite,
   parseIssueSearch,
+  validateFormDraft,
   validateMatch,
 } from "./jiraModel.ts";
 
@@ -262,5 +263,36 @@ describe("connector replies", () => {
     expect(looksSignedOut("Request failed with status 401 Unauthorized")).toBe(true);
     expect(looksSignedOut("The Atlassian connector is needs-auth.")).toBe(true);
     expect(looksSignedOut("Field 'parent' is invalid")).toBe(false);
+  });
+});
+
+describe("validateFormDraft", () => {
+  const tree = [
+    issue({ key: "AIPR-1177", level: 1, type: "Epic" }),
+    issue({ key: "AIPR-1057", level: 2, type: "Initiative" }),
+  ];
+
+  it("keeps the text and the parent when the parent fits", () => {
+    expect(
+      validateFormDraft(
+        { draft: { parentKey: "aipr-1177", summary: "Add alerting", description: "Goal." } },
+        tree,
+      ),
+    ).toEqual({ parentKey: "AIPR-1177", summary: "Add alerting", description: "Goal." });
+  });
+
+  it("keeps the text when no parent fits, leaving the parent to the user", () => {
+    for (const parentKey of [null, "AIPR-1057", "NOPE-1"]) {
+      expect(validateFormDraft({ draft: { parentKey, summary: "Add alerting" } }, tree)).toEqual({
+        parentKey: null,
+        summary: "Add alerting",
+        description: "",
+      });
+    }
+  });
+
+  it("gives nothing without a summary", () => {
+    expect(validateFormDraft({ draft: { parentKey: "AIPR-1177" } }, tree)).toBeNull();
+    expect(validateFormDraft(null, tree)).toBeNull();
   });
 });

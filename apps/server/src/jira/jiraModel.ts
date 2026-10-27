@@ -5,6 +5,7 @@ import type {
   JiraIssue,
   JiraStatusCategory,
   JiraTicketDraft,
+  JiraTicketFormDraft,
   JiraTicketMatch,
   JiraTicketNotice,
   JiraTicketUpdates,
@@ -269,6 +270,33 @@ export function buildMatchPrompt(input: {
   ].join("\n");
 }
 
+/** Asks for a new ticket for a chat the user wants one for, so a draft always comes back. */
+export function buildDraftTicketPrompt(input: {
+  readonly title: string;
+  readonly firstMessage: string;
+  readonly lastReply: string;
+  readonly issues: ReadonlyArray<JiraIssue>;
+}): string {
+  return [
+    "A developer wants a new Jira ticket for the work in their chat. Draft it from the chat below.",
+    "Below is their open Jira tree (key | level | status | summary | parent).",
+    "",
+    "- parentKey: the epic or task it fits best, never an initiative; null if none fits. Always draft the rest anyway.",
+    "- Write a short summary (under 80 characters) in the style of the tree's summaries.",
+    "- Write a 1-3 sentence description of the goal, plain text.",
+    "",
+    "Tree:",
+    formatTree(input.issues.filter((issue) => issue.statusCategory !== "done")),
+    "",
+    `Chat title: ${input.title}`,
+    "First message:",
+    input.firstMessage.slice(0, 4_000),
+    "",
+    "Latest reply:",
+    input.lastReply.length === 0 ? "(none)" : input.lastReply.slice(-3_000),
+  ].join("\n");
+}
+
 export const MATCH_OUTPUT_SCHEMA = {
   type: "object",
   additionalProperties: false,
@@ -303,6 +331,25 @@ export const MATCH_OUTPUT_SCHEMA = {
           },
         },
       ],
+    },
+  },
+} as const;
+
+/** The user asked for a ticket, so a draft is required; the parent is empty when none fits. */
+export const DRAFT_OUTPUT_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["draft"],
+  properties: {
+    draft: {
+      type: "object",
+      additionalProperties: false,
+      required: ["parentKey", "summary", "description"],
+      properties: {
+        parentKey: { type: ["string", "null"] },
+        summary: { type: "string" },
+        description: { type: "string" },
+      },
     },
   },
 } as const;
@@ -350,6 +397,26 @@ export function validateMatch(
     };
   }
   return { matches: matches.slice(0, 3), draft };
+}
+
+/**
+ * The form draft for a ticket the user asked to create. Unlike a suggestion, it keeps the
+ * summary and description when no parent fits, and leaves the parent for the user to pick.
+ */
+export function validateFormDraft(
+  output: unknown,
+  issues: ReadonlyArray<JiraIssue>,
+): JiraTicketFormDraft | null {
+  const draftEntry = record(record(output)?.draft);
+  const summary = text(draftEntry?.summary);
+  if (summary === undefined) return null;
+  const parent = issues.find((issue) => issue.key === text(draftEntry?.parentKey)?.toUpperCase());
+  return {
+    parentKey:
+      parent !== undefined && (parent.level === 0 || parent.level === 1) ? parent.key : null,
+    summary: summary.slice(0, 200),
+    description: text(draftEntry?.description) ?? "",
+  };
 }
 
 /** A key typed in the message that the tree knows is a sure match, with no model needed. */

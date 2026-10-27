@@ -64,6 +64,23 @@ const makeFakeAgent = (calls: Ref.Ref<ReadonlyArray<ConnectorAgentRun>>) => ({
           },
         } satisfies ConnectorAgentResult;
       }
+      if (operation === "jira.draftTicket") {
+        return {
+          toolResults: [],
+          availableTools: [],
+          mcpServers: [],
+          // The model names the wrong type; the epic parent makes it a Task.
+          output: {
+            matches: [],
+            draft: {
+              parentKey: "AIPR-1177",
+              type: "Sub-task",
+              summary: "Board export button",
+              description: "Add an export button to the board.",
+            },
+          },
+        } satisfies ConnectorAgentResult;
+      }
       if (prompt.includes("getAccessibleAtlassianResources")) {
         return reply("getAccessibleAtlassianResources", [
           { id: "cloud-1", url: "https://example.atlassian.net" },
@@ -111,7 +128,16 @@ const makeLayer = (calls: Ref.Ref<ReadonlyArray<ConnectorAgentRun>>) =>
           getInstance: () =>
             Effect.succeed({ connectorAgent: makeFakeAgent(calls) } as unknown as ProviderInstance),
         }),
-        Layer.mock(ThreadManagementService.ThreadManagementService)({}),
+        Layer.mock(ThreadManagementService.ThreadManagementService)({
+          getThreadRecords: (_threadId, _records, options) =>
+            Effect.succeed({
+              thread: { title: "Board export", pullRequests: [] },
+              messages:
+                options?.messageRoles?.[0] === "user"
+                  ? [{ text: "add an export button to the board agent" }]
+                  : [{ text: "Added the button." }],
+            }) as never,
+        }),
         ServerConfig.layerTest(process.cwd(), { prefix: "t3-jira-test-" }),
       ),
     ),
@@ -170,6 +196,29 @@ describe("JiraService", () => {
         const linked = yield* waitFor(jira, (snapshot) => snapshot.links.length === 1);
         expect(linked.links[0]).toMatchObject({ key: "AIPR-1309", source: "suggestion" });
         expect(linked.suggestions[0]?.state).toBe("dismissed");
+      }).pipe(Effect.provide(makeLayer(calls)));
+    }),
+  );
+
+  it.effect("drafts a new ticket from the chat without writing to Jira", () =>
+    Effect.gen(function* () {
+      const calls = yield* Ref.make<ReadonlyArray<ConnectorAgentRun>>([]);
+      yield* Effect.gen(function* () {
+        const jira = yield* JiraService.JiraService;
+        yield* jira.command({ type: "sync" });
+        yield* waitFor(jira, (snapshot) => snapshot.sync.status === "ok");
+        const draft = yield* jira.command({ type: "draftTicket", threadId });
+        expect(draft).toEqual({
+          parentKey: "AIPR-1177",
+          summary: "Board export button",
+          description: "Add an export button to the board.",
+        });
+        const call = (yield* Ref.get(calls)).find(
+          (entry) => entry.operation === "jira.draftTicket",
+        );
+        expect(call?.toolPrefixes).toEqual([]);
+        expect(call?.prompt).toContain("add an export button to the board agent");
+        expect(call?.prompt).toContain("Added the button.");
       }).pipe(Effect.provide(makeLayer(calls)));
     }),
   );

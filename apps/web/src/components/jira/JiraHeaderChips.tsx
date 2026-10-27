@@ -1,6 +1,6 @@
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentId, JiraSnapshot, ThreadId } from "@t3tools/contracts";
-import { ExternalLinkIcon, PanelRightIcon, PlusIcon, TicketIcon } from "lucide-react";
+import { ExternalLinkIcon, PanelRightIcon, PlusIcon, SparklesIcon, TicketIcon } from "lucide-react";
 import { useState } from "react";
 
 import { cn } from "~/lib/utils";
@@ -18,6 +18,7 @@ import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { JiraCreateTicketDialog, type JiraDraftRequest } from "./JiraCreateTicketDialog";
 import {
   JiraKey,
   JiraLevelTag,
@@ -172,73 +173,114 @@ function JiraAddTicket({
     setQuery("");
     void command({ type: "link", threadId, key, linked: true });
   };
+  const [createOpen, setCreateOpen] = useState(false);
+  const [draftRequest, setDraftRequest] = useState<JiraDraftRequest>({ status: "drafting" });
+  // The model drafts while the dialog opens, from the chat as it is now.
+  const openCreate = () => {
+    setOpen(false);
+    setQuery("");
+    const request: JiraDraftRequest = { status: "drafting" };
+    setDraftRequest(request);
+    setCreateOpen(true);
+    void command({ type: "draftTicket", threadId }).then((result) =>
+      setDraftRequest((current) =>
+        current !== request
+          ? current
+          : result !== null && result._tag === "Success"
+            ? { status: "ready", draft: result.value }
+            : { status: "failed" },
+      ),
+    );
+  };
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <PopoverTrigger
-              render={
-                <button
-                  type="button"
-                  aria-label="Link a Jira ticket"
-                  className={cn(CHIP_CLASS, "border-dashed text-muted-foreground")}
-                />
-              }
+    <>
+      <Popover open={open} onOpenChange={setOpen}>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <PopoverTrigger
+                render={
+                  <button
+                    type="button"
+                    aria-label="Link a Jira ticket"
+                    className={cn(CHIP_CLASS, "border-dashed text-muted-foreground")}
+                  />
+                }
+              />
+            }
+          >
+            {hasLinks ? <PlusIcon className="size-3" /> : <TicketIcon className="size-3" />}
+            {hasLinks ? null : <span>ticket</span>}
+          </TooltipTrigger>
+          <TooltipPopup side="bottom">Link a Jira ticket</TooltipPopup>
+        </Tooltip>
+        <PopoverPopup align="start" className="w-96">
+          <div className="flex flex-col gap-2">
+            <Input
+              autoFocus
+              size="sm"
+              placeholder="Search by key or summary"
+              value={query}
+              onChange={(event) => setQuery(event.currentTarget.value)}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter") return;
+                const first = typedKey ?? candidates[0]?.key;
+                if (first) link(first);
+              }}
             />
-          }
-        >
-          {hasLinks ? <PlusIcon className="size-3" /> : <TicketIcon className="size-3" />}
-          {hasLinks ? null : <span>ticket</span>}
-        </TooltipTrigger>
-        <TooltipPopup side="bottom">Link a Jira ticket</TooltipPopup>
-      </Tooltip>
-      <PopoverPopup align="start" className="w-96">
-        <div className="flex flex-col gap-2">
-          <Input
-            autoFocus
-            size="sm"
-            placeholder="Search by key or summary"
-            value={query}
-            onChange={(event) => setQuery(event.currentTarget.value)}
-            onKeyDown={(event) => {
-              if (event.key !== "Enter") return;
-              const first = typedKey ?? candidates[0]?.key;
-              if (first) link(first);
-            }}
-          />
-          <ul className="flex max-h-72 flex-col overflow-y-auto">
-            {candidates.map((issue) => (
-              <li key={issue.key}>
-                <button
-                  type="button"
-                  onClick={() => link(issue.key)}
-                  className="flex w-full min-w-0 items-center gap-2 rounded-md px-1.5 py-1 text-left text-xs hover:bg-accent"
-                >
-                  <JiraKey value={issue.key} />
-                  <span className="min-w-0 flex-1 truncate">{issue.summary}</span>
-                  <span className="shrink-0 text-muted-foreground">{levelLabel(issue.level)}</span>
-                </button>
-              </li>
-            ))}
-            {candidates.length === 0 && typedKey === null ? (
-              <li className="px-1.5 py-1 text-xs text-muted-foreground">No open tickets match.</li>
-            ) : null}
-            {typedKey !== null && !candidates.some((issue) => issue.key === typedKey) ? (
-              <li>
-                <button
-                  type="button"
-                  onClick={() => link(typedKey)}
-                  className="flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left text-xs hover:bg-accent"
-                >
-                  Link <JiraKey value={typedKey} /> anyway
-                </button>
-              </li>
-            ) : null}
-          </ul>
-        </div>
-      </PopoverPopup>
-    </Popover>
+            <ul className="flex max-h-72 flex-col overflow-y-auto">
+              {candidates.map((issue) => (
+                <li key={issue.key}>
+                  <button
+                    type="button"
+                    onClick={() => link(issue.key)}
+                    className="flex w-full min-w-0 items-center gap-2 rounded-md px-1.5 py-1 text-left text-xs hover:bg-accent"
+                  >
+                    <JiraKey value={issue.key} />
+                    <span className="min-w-0 flex-1 truncate">{issue.summary}</span>
+                    <span className="shrink-0 text-muted-foreground">
+                      {levelLabel(issue.level)}
+                    </span>
+                  </button>
+                </li>
+              ))}
+              {candidates.length === 0 && typedKey === null ? (
+                <li className="px-1.5 py-1 text-xs text-muted-foreground">
+                  No open tickets match.
+                </li>
+              ) : null}
+              {typedKey !== null && !candidates.some((issue) => issue.key === typedKey) ? (
+                <li>
+                  <button
+                    type="button"
+                    onClick={() => link(typedKey)}
+                    className="flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left text-xs hover:bg-accent"
+                  >
+                    Link <JiraKey value={typedKey} /> anyway
+                  </button>
+                </li>
+              ) : null}
+            </ul>
+            <button
+              type="button"
+              onClick={openCreate}
+              className="flex w-full items-center gap-2 rounded-md border-t px-1.5 pt-2 pb-1 text-left text-xs text-muted-foreground hover:text-foreground"
+            >
+              <SparklesIcon className="size-3.5" />
+              Create a Jira task from this chat…
+            </button>
+          </div>
+        </PopoverPopup>
+      </Popover>
+      <JiraCreateTicketDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        environmentId={environmentId}
+        threadId={threadId}
+        snapshot={snapshot}
+        request={draftRequest}
+      />
+    </>
   );
 }
 

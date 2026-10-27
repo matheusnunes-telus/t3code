@@ -1,0 +1,211 @@
+import type {
+  EnvironmentId,
+  JiraSnapshot,
+  JiraTicketFormDraft,
+  ThreadId,
+} from "@t3tools/contracts";
+import { LoaderIcon, SparklesIcon } from "lucide-react";
+import { useState } from "react";
+
+import { issueByKey, levelLabel, useJiraCommand } from "~/state/jira";
+import { Button } from "../ui/button";
+import {
+  Dialog,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogPanel,
+  DialogPopup,
+  DialogTitle,
+} from "../ui/dialog";
+import { Input } from "../ui/input";
+import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
+import { Textarea } from "../ui/textarea";
+import { JiraKey } from "./JiraTicketBits";
+
+/** The model's draft for the dialog, started by the click that opens it. */
+export type JiraDraftRequest =
+  | { readonly status: "drafting" }
+  | { readonly status: "ready"; readonly draft: JiraTicketFormDraft | null }
+  | { readonly status: "failed" };
+
+/**
+ * A new ticket for this chat. The Jira model fills it in from the chat when it opens; nothing
+ * reaches Jira until Create, which also links the ticket to the chat.
+ */
+export function JiraCreateTicketDialog({
+  open,
+  onOpenChange,
+  environmentId,
+  threadId,
+  snapshot,
+  request,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  environmentId: EnvironmentId;
+  threadId: ThreadId;
+  snapshot: JiraSnapshot;
+  request: JiraDraftRequest;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogPopup className="max-w-lg">
+        {/* Mounted per opening, so each one starts from that opening's draft. */}
+        {open ? (
+          <CreateTicketForm
+            environmentId={environmentId}
+            threadId={threadId}
+            snapshot={snapshot}
+            request={request}
+            onDone={() => onOpenChange(false)}
+          />
+        ) : null}
+      </DialogPopup>
+    </Dialog>
+  );
+}
+
+function CreateTicketForm({
+  environmentId,
+  threadId,
+  snapshot,
+  request,
+  onDone,
+}: {
+  environmentId: EnvironmentId;
+  threadId: ThreadId;
+  snapshot: JiraSnapshot;
+  request: JiraDraftRequest;
+  onDone: () => void;
+}) {
+  const command = useJiraCommand(environmentId);
+  const [parentKey, setParentKey] = useState("");
+  const [summary, setSummary] = useState("");
+  const [description, setDescription] = useState("");
+  // When the draft lands, it fills only the fields the user hasn't typed into yet.
+  const [appliedRequest, setAppliedRequest] = useState<JiraDraftRequest | null>(null);
+  if (appliedRequest !== request) {
+    setAppliedRequest(request);
+    if (request.status === "ready" && request.draft !== null) {
+      const { draft } = request;
+      setParentKey((current) => current || (draft.parentKey ?? ""));
+      setSummary((current) => current || draft.summary);
+      setDescription((current) => current || draft.description);
+    }
+  }
+  // Epics take tasks and tasks take sub-tasks; initiatives and sub-tasks can't be parents here.
+  const parents = snapshot.issues
+    .filter((issue) => issue.statusCategory !== "done" && (issue.level === 1 || issue.level === 0))
+    .toSorted((a, b) => b.level - a.level || a.key.localeCompare(b.key));
+  const parent = parentKey ? issueByKey(snapshot, parentKey) : undefined;
+
+  const canCreate = parent !== undefined && summary.trim().length > 0;
+  const create = () => {
+    if (!parent) return;
+    void command({
+      type: "createTicket",
+      threadId,
+      draft: {
+        parentKey: parent.key,
+        type: parent.level === 1 ? "Task" : "Sub-task",
+        summary: summary.trim(),
+        description: description.trim(),
+      },
+    });
+    onDone();
+  };
+
+  return (
+    <>
+      <DialogHeader>
+        <DialogTitle>New Jira ticket</DialogTitle>
+        <DialogDescription>
+          {request.status === "drafting" ? (
+            <span className="inline-flex items-center gap-1.5">
+              <LoaderIcon className="size-3.5 animate-spin" />
+              Drafting from this chat…
+            </span>
+          ) : request.status === "failed" ? (
+            "Couldn't draft from this chat. Fill it in below."
+          ) : request.draft !== null ? (
+            <span className="inline-flex items-center gap-1.5">
+              <SparklesIcon className="size-3.5" />
+              {request.draft.parentKey === null
+                ? "Drafted from this chat. No parent in your tree fits, so pick one."
+                : "Drafted from this chat. Edit anything before creating it."}
+            </span>
+          ) : (
+            "Couldn't draft from this chat. Fill it in below."
+          )}
+        </DialogDescription>
+      </DialogHeader>
+      <DialogPanel>
+        <div className="flex flex-col gap-3">
+          <label className="flex flex-col gap-1.5 text-sm">
+            <span className="text-muted-foreground">Parent</span>
+            <Select value={parentKey} onValueChange={(value) => setParentKey(value ?? "")}>
+              <SelectTrigger size="sm" aria-label="Parent ticket">
+                <SelectValue>
+                  {parent ? (
+                    <span className="flex min-w-0 items-center gap-2">
+                      <JiraKey value={parent.key} />
+                      <span className="truncate">{parent.summary}</span>
+                    </span>
+                  ) : (
+                    <span className="text-muted-foreground">Choose an epic or task</span>
+                  )}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectPopup className="max-h-80">
+                {parents.map((issue) => (
+                  <SelectItem key={issue.key} hideIndicator value={issue.key}>
+                    <span className="flex min-w-0 items-center gap-2">
+                      <JiraKey value={issue.key} />
+                      <span className="min-w-0 flex-1 truncate">{issue.summary}</span>
+                      <span className="shrink-0 text-muted-foreground">
+                        {levelLabel(issue.level)}
+                      </span>
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectPopup>
+            </Select>
+            {parent ? (
+              <span className="text-xs text-muted-foreground">
+                Creates a {parent.level === 1 ? "task" : "sub-task"} under {parent.key}, assigned to
+                you.
+              </span>
+            ) : null}
+          </label>
+          <label className="flex flex-col gap-1.5 text-sm">
+            <span className="text-muted-foreground">Summary</span>
+            <Input
+              size="sm"
+              value={summary}
+              placeholder={request.status === "drafting" ? "Drafting…" : "What the ticket is for"}
+              onChange={(event) => setSummary(event.currentTarget.value)}
+            />
+          </label>
+          <label className="flex flex-col gap-1.5 text-sm">
+            <span className="text-muted-foreground">Description</span>
+            <Textarea
+              value={description}
+              rows={4}
+              placeholder={request.status === "drafting" ? "Drafting…" : "Optional"}
+              onChange={(event) => setDescription(event.currentTarget.value)}
+            />
+          </label>
+        </div>
+      </DialogPanel>
+      <DialogFooter>
+        <Button size="sm" variant="outline" onClick={onDone}>
+          Cancel
+        </Button>
+        <Button size="sm" disabled={!canCreate} onClick={create}>
+          Create and link
+        </Button>
+      </DialogFooter>
+    </>
+  );
+}

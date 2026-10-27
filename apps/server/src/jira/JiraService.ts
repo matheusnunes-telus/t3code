@@ -2,6 +2,7 @@ import {
   type JiraChange,
   type JiraChangeSet,
   type JiraCommand,
+  type JiraCommandResult,
   type JiraIssue,
   JiraError,
   JiraIssue as JiraIssueSchema,
@@ -41,6 +42,7 @@ import * as ThreadManagementService from "../orchestration-v2/ThreadManagementSe
 import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import {
+  buildDraftTicketPrompt,
   buildMatchPrompt,
   CHANGES_OUTPUT_SCHEMA,
   JIRA_SEARCH_FIELDS,
@@ -52,6 +54,8 @@ import {
   missingAncestors,
   parseAccessibleSite,
   parseIssueSearch,
+  DRAFT_OUTPUT_SCHEMA,
+  validateFormDraft,
   validateMatch,
 } from "./jiraModel.ts";
 
@@ -151,7 +155,7 @@ export class JiraService extends Context.Service<
       readonly updates: "link" | "notify";
     }) => Effect.Effect<void, JiraError>;
     readonly clearNotice: (input: { readonly key: string }) => Effect.Effect<void, JiraError>;
-    readonly command: (input: JiraCommand) => Effect.Effect<void, JiraError>;
+    readonly command: (input: JiraCommand) => Effect.Effect<JiraCommandResult, JiraError>;
     readonly onFirstMessage: (input: JiraFirstMessage) => Effect.Effect<void>;
   }
 >()("t3/jira/JiraService") {}
@@ -755,6 +759,25 @@ export const make = Effect.gen(function* () {
     };
   });
 
+  const draftTicket = Effect.fn("JiraService.draftTicket")(function* (threadId: ThreadId) {
+    if ((yield* selection) === null) return yield* jiraError("Jira is off.");
+    const issues = (yield* Ref.get(store)).issues;
+    const context = yield* threadContext(threadId);
+    const first = yield* firstUserMessage(threadId);
+    const result = yield* runAgent({
+      operation: "jira.draftTicket",
+      toolPrefixes: [],
+      prompt: buildDraftTicketPrompt({
+        title: context.title,
+        firstMessage: first?.text ?? "",
+        lastReply: context.lastReply,
+        issues,
+      }),
+      outputSchema: DRAFT_OUTPUT_SCHEMA,
+    }).pipe(Effect.mapError((error) => jiraError(error.message)));
+    return validateFormDraft(result.output, issues);
+  });
+
   const draftChanges = Effect.fn("JiraService.draftChanges")(function* (
     threadId: ThreadId,
     key: string,
@@ -984,23 +1007,26 @@ export const make = Effect.gen(function* () {
   }).pipe(Effect.scoped, Effect.forkIn(scope));
 
   const command: JiraService["Service"]["command"] = (input) => {
+    const done = <E>(effect: Effect.Effect<void, E>) => Effect.as(effect, null);
     switch (input.type) {
       case "sync":
-        return sync(input);
+        return done(sync(input));
       case "link":
-        return link(input);
+        return done(link(input));
       case "suggestion":
-        return suggestion(input);
+        return done(suggestion(input));
+      case "draftTicket":
+        return draftTicket(input.threadId);
       case "createTicket":
-        return createTicket(input);
+        return done(createTicket(input));
       case "proposeChanges":
-        return proposeChanges(input);
+        return done(proposeChanges(input));
       case "resolveChanges":
-        return resolveChanges(input);
+        return done(resolveChanges(input));
       case "ticketUpdates":
-        return setTicketUpdates(input);
+        return done(setTicketUpdates(input));
       case "clearNotice":
-        return clearNotice(input);
+        return done(clearNotice(input));
     }
   };
 

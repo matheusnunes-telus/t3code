@@ -367,7 +367,13 @@ import {
   ScheduledTaskMutationResult,
 } from "./scheduledTask.ts";
 import { SecretRequestAnswerInput, SecretRequestError } from "./secretRequest.ts";
-import { JiraCommand, JiraError, JiraSnapshot, JiraSubscribeInput } from "./jira.ts";
+import {
+  JiraCommand,
+  JiraCommandResult,
+  JiraError,
+  JiraSnapshot,
+  JiraSubscribeInput,
+} from "./jira.ts";
 import {
   ProjectCloneActionInput,
   ProjectCloneActionResult,
@@ -1841,6 +1847,7 @@ const WsJiraSubscribeRpc = Rpc.make(WS_METHODS.jiraSubscribe, {
 });
 const WsJiraCommandRpc = Rpc.make(WS_METHODS.jiraCommand, {
   payload: JiraCommand,
+  success: JiraCommandResult,
   error: JiraRpcError,
 });
 

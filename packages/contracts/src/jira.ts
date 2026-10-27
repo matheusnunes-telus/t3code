@@ -172,6 +172,8 @@ export const JiraCommand = Schema.Union([
     threadId: ThreadId,
     action: Schema.Literals(["dismiss", "rematch"]),
   }),
+  /** Drafts a new ticket from the chat for the user to edit; nothing reaches Jira. */
+  Schema.Struct({ type: Schema.Literal("draftTicket"), threadId: ThreadId }),
   Schema.Struct({
     type: Schema.Literal("createTicket"),
     threadId: ThreadId,
@@ -198,3 +200,15 @@ export const JiraCommand = Schema.Union([
   Schema.Struct({ type: Schema.Literal("clearNotice"), key: JiraIssueKey }),
 ]);
 export type JiraCommand = typeof JiraCommand.Type;
+
+/** Pre-fill for the new ticket form. The parent is left empty when nothing in the tree fits. */
+export const JiraTicketFormDraft = Schema.Struct({
+  parentKey: Schema.NullOr(JiraIssueKey),
+  summary: TrimmedNonEmptyString,
+  description: Schema.String,
+});
+export type JiraTicketFormDraft = typeof JiraTicketFormDraft.Type;
+
+/** `draftTicket` answers with its form draft (null when the model gave none); the rest with null. */
+export const JiraCommandResult = Schema.NullOr(JiraTicketFormDraft);
+export type JiraCommandResult = typeof JiraCommandResult.Type;
