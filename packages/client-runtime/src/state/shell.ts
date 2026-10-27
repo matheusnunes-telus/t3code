@@ -365,11 +365,13 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
         yield* Ref.set(activeSubscriptionSession, session);
         const { supportsCompletionMarker, omitIdleSubagents, omitOlderSettled } =
           yield* session.initialConfig.pipe(
+            // Custom fork: always ask for every thread. The legacy sidebar groups chats into
+            // sub-projects and folds subagents from the shell alone, and can't page in the idle
+            // subagents or older settled threads that trimmed shells leave out.
             Effect.map((config) => ({
               supportsCompletionMarker: config.shellResumeCompletionMarker === true,
-              omitIdleSubagents: config.shellThreadFamilies === true,
-              omitOlderSettled:
-                config.shellOlderSettled === true && config.shellThreadFamilies === true,
+              omitIdleSubagents: false,
+              omitOlderSettled: false,
             })),
             Effect.orElseSucceed(() => ({
               supportsCompletionMarker: false,
