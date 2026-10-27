@@ -1,8 +1,5 @@
-import type {
-  OrchestrationV2ProjectedTurnItem,
-  OrchestrationV2ThreadProjection,
-  UsageTokenTotals,
-} from "@t3tools/contracts";
+import type { UsageTokenTotals } from "@t3tools/contracts";
+import type { ThreadStructure } from "@t3tools/client-runtime/state/models";
 
 export interface ChatSessionTokenTotals extends UsageTokenTotals {}
 
@@ -70,11 +67,8 @@ export function totalTokens(totals: ChatSessionTokenTotals): number {
  * reads and writes, so the uncached part is what is left after taking them out.
  */
 export function deriveChatSessionStats(
-  projection: Pick<
-    OrchestrationV2ThreadProjection,
-    "providerTurns" | "attempts" | "runs" | "thread"
-  >,
-  turnItems: ReadonlyArray<Pick<OrchestrationV2ProjectedTurnItem, "item">>,
+  projection: Pick<ThreadStructure, "providerTurns" | "attempts" | "runs" | "thread">,
+  turnItems: ReadonlyArray<{ readonly item: { readonly type: string } }>,
 ): ChatSessionStats {
   let userMessages = 0;
   let assistantMessages = 0;

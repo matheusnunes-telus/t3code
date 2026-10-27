@@ -1,9 +1,5 @@
-import type {
-  OrchestrationV2ThreadProjection,
-  ProviderInteractionMode,
-  RuntimeMode,
-  ServerProvider,
-} from "@t3tools/contracts";
+import type { ThreadStructure } from "@t3tools/client-runtime/state/models";
+import type { ProviderInteractionMode, RuntimeMode, ServerProvider } from "@t3tools/contracts";
 import { formatModelSelectionEffort } from "@t3tools/client-runtime/state/thread-execution";
 import type { ReactNode } from "react";
 
@@ -40,14 +36,14 @@ export function ChatStatusDialog(props: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   provider: ServerProvider | null;
-  projection: OrchestrationV2ThreadProjection | null;
+  projection: ThreadStructure | null;
   runtimeMode: RuntimeMode;
   interactionMode: ProviderInteractionMode;
   cwd: string | null;
 }) {
   const { provider, projection } = props;
   const latestRun =
-    projection?.runs.reduce<OrchestrationV2ThreadProjection["runs"][number] | null>(
+    projection?.runs.reduce<ThreadStructure["runs"][number] | null>(
       (latest, run) => (latest === null || run.ordinal > latest.ordinal ? run : latest),
       null,
     ) ?? null;

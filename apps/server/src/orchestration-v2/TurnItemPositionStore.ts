@@ -142,14 +142,16 @@ export const layer: Layer.Layer<TurnItemPositionStoreV2, never, SqlClient.SqlCli
 
     return TurnItemPositionStoreV2.of({
       allocate,
-      normalize: (item, runOrdinal, runBucket) =>
-        allocate({
+      // Per-event normalization shares the enclosing orchestration span.
+      normalize: Effect.fnUntraced(function* (item, runOrdinal, runBucket) {
+        return yield* allocate({
           threadId: item.threadId,
           turnItemId: item.id,
           runId: item.runId,
           ...(runOrdinal === undefined ? {} : { runOrdinal }),
           ...(runBucket === undefined ? {} : { runBucket }),
-        }).pipe(Effect.map((ordinal) => (item.ordinal === ordinal ? item : { ...item, ordinal }))),
+        }).pipe(Effect.map((ordinal) => (item.ordinal === ordinal ? item : { ...item, ordinal })));
+      }),
     });
   }),
 );

@@ -1,10 +1,9 @@
 import { useAtomValue } from "@effect/atom-react";
+import type { EnvironmentId, UsagePriceInput } from "@t3tools/contracts";
 import type {
-  EnvironmentId,
-  OrchestrationV2ProjectedTurnItem,
-  OrchestrationV2ThreadProjection,
-  UsagePriceInput,
-} from "@t3tools/contracts";
+  ThreadStructure,
+  ThreadStructureVisibleTurnItem,
+} from "@t3tools/client-runtime/state/models";
 import { ChartNoAxesColumnIcon } from "lucide-react";
 import * as Option from "effect/Option";
 import { AsyncResult } from "effect/reactivity";
@@ -189,17 +188,18 @@ function ChatStatsContent(props: {
 /** Header button with a small popover of the chat's message, token, cost and cache stats. */
 export function ChatStatsButton(props: {
   environmentId: EnvironmentId;
-  projection: OrchestrationV2ThreadProjection | null;
-  turnItems: ReadonlyArray<OrchestrationV2ProjectedTurnItem>;
+  projection: ThreadStructure | null;
+  turnItems: ReadonlyArray<ThreadStructureVisibleTurnItem>;
 }) {
   const [open, setOpen] = useState(false);
   const now = useNow(30_000);
   if (props.projection === null) return null;
   const stats = deriveChatSessionStats(props.projection, props.turnItems);
   const cacheState = resolveChatCacheState(stats.cache, now);
-  const latestRun = props.projection.runs.reduce<
-    OrchestrationV2ThreadProjection["runs"][number] | null
-  >((latest, run) => (latest === null || run.ordinal > latest.ordinal ? run : latest), null);
+  const latestRun = props.projection.runs.reduce<ThreadStructure["runs"][number] | null>(
+    (latest, run) => (latest === null || run.ordinal > latest.ordinal ? run : latest),
+    null,
+  );
   const latestModel =
     latestRun?.modelSelection.model || props.projection.thread.modelSelection?.model || null;
 

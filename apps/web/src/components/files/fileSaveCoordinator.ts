@@ -9,6 +9,8 @@ export interface FileSaveCoordinatorOptions<A, E> {
   readonly onPendingChange: (pending: boolean) => void;
   /** Return false when another editor has newer unsaved contents. */
   readonly onConfirmed: (contents: string) => boolean | void;
+  /** Called when a write pass ends with nothing further scheduled. */
+  readonly onSettled?: () => void;
 }
 
 export class FileSaveCoordinator<A = unknown, E = unknown> {
@@ -19,6 +21,7 @@ export class FileSaveCoordinator<A = unknown, E = unknown> {
   private lastChangeAt = 0;
   private saving = false;
   private disposed = false;
+  private flushing = false;
 
   constructor(private readonly options: FileSaveCoordinatorOptions<A, E>) {}
 
@@ -40,6 +43,18 @@ export class FileSaveCoordinator<A = unknown, E = unknown> {
 
   hasUnsavedChanges(): boolean {
     return this.latestRevision !== this.confirmedRevision;
+  }
+
+  /** The newest contents not yet written, which is the last write this coordinator will make. */
+  get unconfirmedContents(): string | null {
+    return this.latestRevision === this.confirmedRevision ? null : this.latestContents;
+  }
+
+  /** Writes the newest draft now instead of after the debounce, then any draft queued behind it. */
+  flush(): void {
+    this.clearTimer();
+    this.flushing = true;
+    void this.persistLatest();
   }
 
   dispose(): void {
@@ -69,8 +84,9 @@ export class FileSaveCoordinator<A = unknown, E = unknown> {
   }
 
   private async persistLatest(): Promise<void> {
-    if (this.saving || this.latestRevision === this.confirmedRevision) return;
-    if (this.options.canPersist?.() === false) {
+    if (this.saving) return;
+    if (this.latestRevision === this.confirmedRevision || this.options.canPersist?.() === false) {
+      this.settle();
       return;
     }
 
@@ -88,6 +104,7 @@ export class FileSaveCoordinator<A = unknown, E = unknown> {
     this.saving = false;
     if (revision === this.latestRevision) {
       if (confirmed) this.options.onPendingChange(false);
+      this.settle();
       return;
     }
 
@@ -95,10 +112,15 @@ export class FileSaveCoordinator<A = unknown, E = unknown> {
       0,
       this.options.debounceMs - (Date.now() - this.lastChangeAt),
     );
-    if (this.disposed) {
-      if (this.autoSaves()) void this.persistLatest();
-    } else if (this.autoSaves()) {
+    if (this.flushing || (this.disposed && this.autoSaves())) {
+      void this.persistLatest();
+    } else if (!this.disposed && this.autoSaves()) {
       this.schedule(remainingDebounce);
     }
+  }
+
+  private settle(): void {
+    this.flushing = false;
+    this.options.onSettled?.();
   }
 }

@@ -153,7 +153,6 @@ function suggestionBanner(input: {
       return {
         id,
         variant: "default",
-        priority: "activity",
         icon: <Spinner className="size-4" />,
         title: "Looking for this thread's Jira ticket…",
       };
@@ -161,7 +160,6 @@ function suggestionBanner(input: {
       return {
         id,
         variant: "default",
-        priority: "activity",
         icon: <Spinner className="size-4" />,
         title: "Creating the ticket in Jira…",
       };
@@ -324,7 +322,6 @@ function changeSetBanner(input: {
     return {
       id,
       variant: "default",
-      priority: "activity",
       icon: <Spinner className="size-4" />,
       title: `Updating ${set.key} in Jira…`,
     };
@@ -346,7 +343,6 @@ function changeSetBanner(input: {
   return {
     id,
     variant: "warning",
-    priority: "urgent",
     icon: <TicketIcon />,
     title: `Jira changes for ${set.key}`,
     description: set.state === "failed" ? (set.message ?? "The update failed.") : set.reason,
