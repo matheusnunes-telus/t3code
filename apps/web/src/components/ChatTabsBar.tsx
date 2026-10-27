@@ -51,6 +51,7 @@ import { resolveThreadLastVisitedAt, resolveThreadStatusPill } from "./Sidebar.l
 import { ProjectFavicon } from "./ProjectFavicon";
 import { primaryServerKeybindingsAtom } from "../state/server";
 import { buildThreadRouteParams } from "../threadRoutes";
+import { useDraftTabsStore } from "../draftTabsStore";
 import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "../workspaceTitlebar";
 
 const CHAT_TAB_DRAG_TYPE = "application/x-t3-chat-tab";
@@ -151,9 +152,12 @@ export function ChatTabsBar() {
   });
   const showDraftTab = routeDraftProjectKey !== null && !routeIsFilesTab;
   const routeDraftId = routeTarget?.kind === "draft" ? routeTarget.draftId : null;
-  // Unsent chats with something typed keep their tab after you leave them, so the text is one
-  // click away. Closing one hides its tab; the draft itself stays in the sidebar.
-  const [closedDraftIds, setClosedDraftIds] = useState<ReadonlySet<string>>(() => new Set());
+  // Unsent chats opened this session keep their tab after you leave them, if something is
+  // typed, so the text is one click away. Closing one hides its tab; the draft stays in the sidebar.
+  const openedDraftIds = useDraftTabsStore((state) => state.draftIds);
+  useEffect(() => {
+    if (showDraftTab && routeDraftId !== null) useDraftTabsStore.getState().add(routeDraftId);
+  }, [showDraftTab, routeDraftId]);
   const draftsByThreadKey = useComposerDraftStore((store) => store.draftsByThreadKey);
   const draftTabs = Object.entries(draftThreadsByThreadKey)
     .filter(([draftId, session]) =>
@@ -161,7 +165,7 @@ export function ChatTabsBar() {
         ? showDraftTab
         : session.promotedTo == null &&
           filesTabsByDraftId[draftId] === undefined &&
-          !closedDraftIds.has(draftId) &&
+          openedDraftIds.has(draftId) &&
           composerDraftHasUserContent(draftsByThreadKey[draftId]),
     )
     .toSorted(([, a], [, b]) => a.createdAt.localeCompare(b.createdAt))
@@ -266,7 +270,7 @@ export function ChatTabsBar() {
   };
   // Leaves the unsent chat in place (it stays in the sidebar as a draft).
   const handleCloseDraftTab = (draftId: DraftId) => {
-    setClosedDraftIds((current) => new Set(current).add(draftId));
+    useDraftTabsStore.getState().remove(draftId);
     if (draftId !== routeDraftId) return;
     const lastTab = useChatTabsStore.getState().tabs.at(-1);
     if (lastTab) {
