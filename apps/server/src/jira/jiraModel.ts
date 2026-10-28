@@ -488,11 +488,14 @@ const nameOf = (value: unknown) =>
 
 /** Reads a getJiraIssue reply into panel details; undefined when it isn't an issue. */
 export function parseIssueDetails(reply: string, fetchedAt: string): JiraIssueDetails | undefined {
-  const root = record(parseJson(reply));
+  const parsed = record(parseJson(reply));
+  // The connector wraps the issue like a search reply: `issues.nodes[0]`.
+  const nodes = record(parsed?.issues)?.nodes;
+  const root = Array.isArray(nodes) ? record(nodes[0]) : parsed;
   const key = text(root?.key);
   const fields = record(root?.fields);
   if (key === undefined || fields === undefined) return undefined;
-  // A ticket can sit in several sprints over time; the last one is the current or latest.
+  // A ticket can sit in several sprints over time, in no set order.
   const sprints = Object.entries(fields)
     .filter(([name]) => name.startsWith("customfield_"))
     .flatMap(([, value]) => (Array.isArray(value) ? value : []))
@@ -516,7 +519,11 @@ export function parseIssueDetails(reply: string, fetchedAt: string): JiraIssueDe
     labels: Array.isArray(fields.labels)
       ? fields.labels.flatMap((label) => (typeof label === "string" ? [label] : []))
       : [],
-    sprint: sprints.at(-1) ?? null,
+    sprint:
+      sprints.find((sprint) => sprint.state === "active") ??
+      sprints.find((sprint) => sprint.state === "future") ??
+      sprints.at(-1) ??
+      null,
     createdAt: text(fields.created) ?? null,
     dueDate: text(fields.duedate) ?? null,
   };

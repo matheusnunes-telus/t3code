@@ -348,6 +348,35 @@ describe("parseIssueDetails", () => {
     });
   });
 
+  it("unwraps the connector's issues.nodes reply and prefers the active sprint", () => {
+    const details = parseIssueDetails(
+      encodeJson({
+        issues: {
+          nodes: [
+            {
+              key: "AIPR-1310",
+              fields: {
+                description: null,
+                priority: { name: "Medium" },
+                customfield_10020: [
+                  { id: 5851, name: "Sprint 22 - GAINS", state: "active", boardId: 430 },
+                  { id: 5841, name: "Sprint 21 - GAINS", state: "closed", boardId: 430 },
+                ],
+              },
+            },
+          ],
+        },
+      }),
+      "2026-10-28T00:00:00.000Z",
+    );
+    expect(details).toMatchObject({
+      key: "AIPR-1310",
+      description: "",
+      priority: "Medium",
+      sprint: { name: "Sprint 22 - GAINS", state: "active" },
+    });
+  });
+
   it("keeps plain text descriptions and rejects replies that aren't an issue", () => {
     expect(adfToText("already text")).toBe("already text");
     expect(parseIssueDetails("Issue not found", "2026-10-28T00:00:00.000Z")).toBeUndefined();
