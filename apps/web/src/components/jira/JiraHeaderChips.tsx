@@ -18,7 +18,7 @@ import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import { JiraCreateTicketDialog, type JiraDraftRequest } from "./JiraCreateTicketDialog";
+import { useJiraCreateTicket } from "./JiraCreateTicketDialog";
 import {
   JiraKey,
   JiraLevelTag,
@@ -173,24 +173,11 @@ function JiraAddTicket({
     setQuery("");
     void command({ type: "link", threadId, key, linked: true });
   };
-  const [createOpen, setCreateOpen] = useState(false);
-  const [draftRequest, setDraftRequest] = useState<JiraDraftRequest>({ status: "drafting" });
-  // The model drafts while the dialog opens, from the chat as it is now.
+  const create = useJiraCreateTicket({ environmentId, threadId, snapshot });
   const openCreate = () => {
     setOpen(false);
     setQuery("");
-    const request: JiraDraftRequest = { status: "drafting" };
-    setDraftRequest(request);
-    setCreateOpen(true);
-    void command({ type: "draftTicket", threadId }).then((result) =>
-      setDraftRequest((current) =>
-        current !== request
-          ? current
-          : result !== null && result._tag === "Success"
-            ? { status: "ready", draft: result.value }
-            : { status: "failed" },
-      ),
-    );
+    create.open();
   };
   return (
     <>
@@ -272,14 +259,7 @@ function JiraAddTicket({
           </div>
         </PopoverPopup>
       </Popover>
-      <JiraCreateTicketDialog
-        open={createOpen}
-        onOpenChange={setCreateOpen}
-        environmentId={environmentId}
-        threadId={threadId}
-        snapshot={snapshot}
-        request={draftRequest}
-      />
+      {create.dialog}
     </>
   );
 }

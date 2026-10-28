@@ -17,6 +17,7 @@ import { Checkbox } from "../ui/checkbox";
 import { Input } from "../ui/input";
 import { Spinner } from "../ui/spinner";
 import { Textarea } from "../ui/textarea";
+import { useJiraCreateTicket } from "./JiraCreateTicketDialog";
 import { JiraKey, JiraStatusBadge, JiraTicketPath } from "./JiraTicketBits";
 
 type Command = ReturnType<typeof useJiraCommand>;
@@ -135,7 +136,34 @@ function DraftEditor({
   );
 }
 
+/** The pre-filled new ticket dialog, opened from the banner when nothing matched. */
+function NoMatchActions({
+  environmentId,
+  snapshot,
+  threadId,
+  onDismiss,
+}: {
+  environmentId: EnvironmentId;
+  snapshot: JiraSnapshot;
+  threadId: ThreadId;
+  onDismiss: () => void;
+}) {
+  const create = useJiraCreateTicket({ environmentId, threadId, snapshot });
+  return (
+    <>
+      <Button size="xs" onClick={create.open}>
+        Create one…
+      </Button>
+      <Button size="xs" variant="ghost" onClick={onDismiss}>
+        Not a ticket
+      </Button>
+      {create.dialog}
+    </>
+  );
+}
+
 function suggestionBanner(input: {
+  environmentId: EnvironmentId;
   snapshot: JiraSnapshot;
   suggestion: JiraThreadSuggestion;
   command: Command;
@@ -209,7 +237,23 @@ function suggestionBanner(input: {
         };
       }
       const draft = input.draft ?? suggestion.draft;
-      if (draft === null) return null;
+      if (draft === null) {
+        return {
+          id,
+          variant: "default",
+          icon: <TicketIcon />,
+          title: "No matching Jira ticket",
+          description: "Nothing in your open tickets fits this chat.",
+          actions: (
+            <NoMatchActions
+              environmentId={input.environmentId}
+              snapshot={snapshot}
+              threadId={threadId}
+              onDismiss={dismiss}
+            />
+          ),
+        };
+      }
       return {
         id,
         variant: suggestion.message ? "warning" : "info",
@@ -371,12 +415,15 @@ export function useJiraComposerBanners(
   const command = useJiraCommand(environmentId);
   const [draft, setDraft] = useState<{ threadId: ThreadId; draft: JiraTicketDraft } | null>(null);
   const [chosen, setChosen] = useState<Record<string, ReadonlyArray<JiraChange>>>({});
-  if (snapshot === null || !snapshot.enabled || threadId === null) return [];
+  if (snapshot === null || !snapshot.enabled || threadId === null || environmentId === null) {
+    return [];
+  }
   const items: ComposerBannerStackItem[] = [];
   const suggestion = snapshot.suggestions.find((entry) => entry.threadId === threadId);
   const linked = snapshot.links.some((link) => link.threadId === threadId);
   if (suggestion !== undefined && !linked) {
     const item = suggestionBanner({
+      environmentId,
       snapshot,
       suggestion,
       command,

@@ -5,7 +5,7 @@ import type {
   ThreadId,
 } from "@t3tools/contracts";
 import { LoaderIcon, SparklesIcon } from "lucide-react";
-import { useState } from "react";
+import { type ReactElement, useState } from "react";
 
 import { issueByKey, levelLabel, useJiraCommand } from "~/state/jira";
 import { Button } from "../ui/button";
@@ -30,6 +30,48 @@ export type JiraDraftRequest =
   | { readonly status: "drafting" }
   | { readonly status: "ready"; readonly draft: JiraTicketFormDraft | null }
   | { readonly status: "failed" };
+
+/** Opens the new ticket dialog and starts the model's draft from the chat as it is now. */
+export function useJiraCreateTicket({
+  environmentId,
+  threadId,
+  snapshot,
+}: {
+  environmentId: EnvironmentId;
+  threadId: ThreadId;
+  snapshot: JiraSnapshot;
+}): { open: () => void; dialog: ReactElement } {
+  const command = useJiraCommand(environmentId);
+  const [isOpen, setOpen] = useState(false);
+  const [request, setRequest] = useState<JiraDraftRequest>({ status: "drafting" });
+  const open = () => {
+    const pending: JiraDraftRequest = { status: "drafting" };
+    setRequest(pending);
+    setOpen(true);
+    void command({ type: "draftTicket", threadId }).then((result) =>
+      setRequest((current) =>
+        current !== pending
+          ? current
+          : result !== null && result._tag === "Success"
+            ? { status: "ready", draft: result.value }
+            : { status: "failed" },
+      ),
+    );
+  };
+  return {
+    open,
+    dialog: (
+      <JiraCreateTicketDialog
+        open={isOpen}
+        onOpenChange={setOpen}
+        environmentId={environmentId}
+        threadId={threadId}
+        snapshot={snapshot}
+        request={request}
+      />
+    ),
+  };
+}
 
 /**
  * A new ticket for this chat. The Jira model fills it in from the chat when it opens; nothing
