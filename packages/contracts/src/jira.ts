@@ -34,6 +34,15 @@ export type JiraIssue = typeof JiraIssue.Type;
 export const JiraStatusName = Schema.Literals(["To Do", "In Progress", "Blocked", "Done"]);
 export type JiraStatusName = typeof JiraStatusName.Type;
 
+/** A sprint seen on the user's projects' open tickets: the active one and any upcoming. */
+export const JiraSprint = Schema.Struct({
+  id: Schema.Int,
+  name: Schema.String,
+  state: Schema.String,
+  boardId: Schema.Int,
+});
+export type JiraSprint = typeof JiraSprint.Type;
+
 /** What the panel shows beyond the synced tree, fetched when a ticket is opened. */
 export const JiraIssueDetails = Schema.Struct({
   key: JiraIssueKey,
@@ -43,8 +52,15 @@ export const JiraIssueDetails = Schema.Struct({
   assignee: Schema.NullOr(Schema.String),
   reporter: Schema.NullOr(Schema.String),
   labels: Schema.Array(Schema.String),
-  /** The latest sprint the ticket is in. */
-  sprint: Schema.NullOr(Schema.Struct({ name: Schema.String, state: Schema.String })),
+  /** The active sprint the ticket is in, else its upcoming or latest one. */
+  sprint: Schema.NullOr(
+    Schema.Struct({
+      /** Optional so details read before sprints could be changed still load. */
+      id: Schema.optionalKey(Schema.Int),
+      name: Schema.String,
+      state: Schema.String,
+    }),
+  ),
   createdAt: Schema.NullOr(Schema.String),
   dueDate: Schema.NullOr(Schema.String),
 });
@@ -96,6 +112,8 @@ export const JiraTicketDraft = Schema.Struct({
   type: Schema.Literals(["Task", "Sub-task"]),
   summary: TrimmedNonEmptyString,
   description: Schema.String,
+  /** Null or missing leaves the ticket in the backlog. */
+  sprintId: Schema.optionalKey(Schema.NullOr(Schema.Int)),
 });
 export type JiraTicketDraft = typeof JiraTicketDraft.Type;
 
@@ -169,6 +187,7 @@ export const JiraSnapshot = Schema.Struct({
   ticketUpdates: Schema.Record(Schema.String, JiraTicketUpdates),
   notices: Schema.Array(JiraTicketNotice),
   details: Schema.Record(Schema.String, JiraIssueDetails),
+  sprints: Schema.Array(JiraSprint),
 });
 export type JiraSnapshot = typeof JiraSnapshot.Type;
 
@@ -221,6 +240,12 @@ export const JiraCommand = Schema.Union([
   Schema.Struct({ type: Schema.Literal("clearNotice"), key: JiraIssueKey }),
   /** Moves the ticket in Jira; the click is the user's approval. */
   Schema.Struct({ type: Schema.Literal("setStatus"), key: JiraIssueKey, status: JiraStatusName }),
+  /** Moves the ticket to a sprint, or to the backlog with null. */
+  Schema.Struct({
+    type: Schema.Literal("setSprint"),
+    key: JiraIssueKey,
+    sprintId: Schema.NullOr(Schema.Int),
+  }),
   /** Reads the ticket's description, sprint and the rest into the snapshot's details. */
   Schema.Struct({ type: Schema.Literal("loadDetails"), key: JiraIssueKey }),
 ]);

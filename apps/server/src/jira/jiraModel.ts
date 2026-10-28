@@ -4,6 +4,7 @@ import * as Schema from "effect/Schema";
 import type {
   JiraIssue,
   JiraIssueDetails,
+  JiraSprint,
   JiraStatusCategory,
   JiraTicketDraft,
   JiraTicketFormDraft,
@@ -486,6 +487,45 @@ export function adfToText(node: unknown): string {
 const nameOf = (value: unknown) =>
   text(record(value)?.displayName) ?? text(record(value)?.name) ?? null;
 
+/** The sprints in an issue's fields. The sprint field is a custom field, so any one is read. */
+function sprintsIn(fields: Record<string, unknown>): Array<JiraSprint> {
+  return Object.entries(fields)
+    .filter(([name]) => name.startsWith("customfield_"))
+    .flatMap(([, value]) => (Array.isArray(value) ? value : []))
+    .flatMap((value) => {
+      const sprint = record(value);
+      const name = text(sprint?.name);
+      const state = text(sprint?.state);
+      const id = sprint?.id;
+      const boardId = sprint?.boardId;
+      return name !== undefined &&
+        state !== undefined &&
+        typeof id === "number" &&
+        typeof boardId === "number"
+        ? [{ id, name, state, boardId }]
+        : [];
+    });
+}
+
+/** The active and upcoming sprints named on a search reply's tickets, active first. */
+export function parseOpenSprints(reply: string): Array<JiraSprint> | undefined {
+  const nodes = record(record(parseJson(reply))?.issues)?.nodes;
+  if (!Array.isArray(nodes)) return undefined;
+  const byId = new Map<number, JiraSprint>();
+  for (const node of nodes) {
+    const fields = record(record(node)?.fields);
+    if (fields === undefined) continue;
+    for (const sprint of sprintsIn(fields)) {
+      if (sprint.state !== "closed") byId.set(sprint.id, sprint);
+    }
+  }
+  return [...byId.values()].toSorted(
+    (a, b) =>
+      Number(b.state === "active") - Number(a.state === "active") ||
+      a.name.localeCompare(b.name, undefined, { numeric: true }),
+  );
+}
+
 /** Reads a getJiraIssue reply into panel details; undefined when it isn't an issue. */
 export function parseIssueDetails(reply: string, fetchedAt: string): JiraIssueDetails | undefined {
   const parsed = record(parseJson(reply));
@@ -496,17 +536,7 @@ export function parseIssueDetails(reply: string, fetchedAt: string): JiraIssueDe
   const fields = record(root?.fields);
   if (key === undefined || fields === undefined) return undefined;
   // A ticket can sit in several sprints over time, in no set order.
-  const sprints = Object.entries(fields)
-    .filter(([name]) => name.startsWith("customfield_"))
-    .flatMap(([, value]) => (Array.isArray(value) ? value : []))
-    .flatMap((value) => {
-      const sprint = record(value);
-      const name = text(sprint?.name);
-      const state = text(sprint?.state);
-      return name !== undefined && state !== undefined && sprint?.boardId !== undefined
-        ? [{ name, state }]
-        : [];
-    });
+  const sprints = sprintsIn(fields).map(({ id, name, state }) => ({ id, name, state }));
   return {
     key,
     fetchedAt,

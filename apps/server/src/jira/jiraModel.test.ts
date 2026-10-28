@@ -12,6 +12,7 @@ import {
   parseAccessibleSite,
   parseIssueDetails,
   parseIssueSearch,
+  parseOpenSprints,
   validateFormDraft,
   validateMatch,
 } from "./jiraModel.ts";
@@ -380,5 +381,32 @@ describe("parseIssueDetails", () => {
   it("keeps plain text descriptions and rejects replies that aren't an issue", () => {
     expect(adfToText("already text")).toBe("already text");
     expect(parseIssueDetails("Issue not found", "2026-10-28T00:00:00.000Z")).toBeUndefined();
+  });
+});
+
+describe("parseOpenSprints", () => {
+  it("collects each open sprint once, active first, and drops closed ones", () => {
+    const sprint = (id: number, name: string, state: string) => ({ id, name, state, boardId: 430 });
+    const sprints = parseOpenSprints(
+      encodeJson({
+        issues: {
+          nodes: [
+            {
+              fields: {
+                customfield_10020: [
+                  sprint(5852, "Sprint 23 - GAINS", "future"),
+                  sprint(5841, "Sprint 21 - GAINS", "closed"),
+                ],
+              },
+            },
+            { fields: { customfield_10020: [sprint(5851, "Sprint 22 - GAINS", "active")] } },
+            { fields: { customfield_10020: [sprint(5852, "Sprint 23 - GAINS", "future")] } },
+            { fields: { customfield_10020: null } },
+          ],
+        },
+      }),
+    );
+    expect(sprints?.map((entry) => entry.name)).toEqual(["Sprint 22 - GAINS", "Sprint 23 - GAINS"]);
+    expect(parseOpenSprints("not json")).toBeUndefined();
   });
 });

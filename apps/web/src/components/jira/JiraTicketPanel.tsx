@@ -215,6 +215,7 @@ function TicketCard({
         environmentId={environmentId}
         issueKey={issueKey}
         details={snapshot.details[issueKey]}
+        sprints={snapshot.sprints}
         now={now}
       />
       <p className="text-xs text-muted-foreground">

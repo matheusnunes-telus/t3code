@@ -7,6 +7,7 @@ import {
   JiraError,
   JiraIssue as JiraIssueSchema,
   JiraIssueDetails as JiraIssueDetailsSchema,
+  JiraSprint as JiraSprintSchema,
   JiraChangeSet as JiraChangeSetSchema,
   type JiraSnapshot,
   JiraSyncState,
@@ -57,6 +58,7 @@ import {
   missingAncestors,
   parseAccessibleSite,
   parseIssueSearch,
+  parseOpenSprints,
   DRAFT_OUTPUT_SCHEMA,
   validateFormDraft,
   validateMatch,
@@ -86,6 +88,7 @@ const StoreFile = Schema.Struct({
   pullRequests: Schema.Record(Schema.String, Schema.Record(Schema.String, Schema.String)),
   /** Optional so stores written before ticket details still load. */
   details: Schema.optionalKey(Schema.Record(Schema.String, JiraIssueDetailsSchema)),
+  sprints: Schema.optionalKey(Schema.Array(JiraSprintSchema)),
 });
 type StoreFile = typeof StoreFile.Type;
 
@@ -256,6 +259,7 @@ export const make = Effect.gen(function* () {
       ticketUpdates: current.ticketUpdates,
       notices: current.notices,
       details: current.details ?? {},
+      sprints: current.sprints ?? [],
     };
   };
 
@@ -476,6 +480,27 @@ export const make = Effect.gen(function* () {
       };
       yield* update((state) => mergeInto(state, own.issues, own.parents, fullSync));
 
+      // No connector tool lists a board's sprints, so they're read off the open sprints' tickets.
+      if (fullSync || before.sprints === undefined) {
+        const projects = [
+          ...new Set(
+            (yield* Ref.get(store)).issues
+              .filter((issue) => issue.assignedToMe)
+              .map((issue) => issue.key.split("-")[0]),
+          ),
+        ];
+        if (projects.length > 0) {
+          const reply = yield* callTool("jira.sprints", "searchJiraIssuesUsingJql", {
+            cloudId,
+            jql: `project in (${projects.join(",")}) AND sprint in openSprints()`,
+            fields: ["customfield_10020"],
+            maxResults: MAX_SEARCH_RESULTS,
+          });
+          const sprints = parseOpenSprints(reply);
+          if (sprints !== undefined) yield* update((state) => ({ ...state, sprints }));
+        }
+      }
+
       // Walk up to the initiatives, and fetch linked tickets the tree does not hold.
       const asked = new Set<string>();
       for (let round = 0; round < 3; round += 1) {
@@ -692,6 +717,9 @@ export const make = Effect.gen(function* () {
         description: input.draft.description,
         parent: input.draft.parentKey,
         ...(accountId === null ? {} : { assignee_account_id: accountId }),
+        ...(input.draft.sprintId == null
+          ? {}
+          : { additional_fields: { customfield_10020: input.draft.sprintId } }),
       });
       const key = /"key"\s*:\s*"([A-Z][A-Z0-9]+-\d+)"/.exec(reply)?.[1];
       if (key === undefined) {
@@ -965,6 +993,23 @@ export const make = Effect.gen(function* () {
     yield* update((state) => ({ ...state, details: { ...state.details, [key]: details } }));
   });
 
+  const setSprint = Effect.fn("JiraService.setSprint")(function* (input: {
+    readonly key: string;
+    readonly sprintId: number | null;
+  }) {
+    if ((yield* selection) === null) return yield* jiraError("Jira is off.");
+    const key = input.key.toUpperCase();
+    yield* Effect.gen(function* () {
+      const cloudId = yield* ensureSite;
+      yield* callTool("jira.setSprint", "editJiraIssue", {
+        cloudId,
+        issueIdOrKey: key,
+        fields: { customfield_10020: input.sprintId },
+      });
+    }).pipe(Effect.mapError((error) => jiraError(error.message)));
+    yield* loadDetails({ key });
+  });
+
   const setTicketUpdates: JiraService["Service"]["setTicketUpdates"] = (input) =>
     update((state) => ({
       ...state,
@@ -1076,6 +1121,8 @@ export const make = Effect.gen(function* () {
         return done(setStatus(input));
       case "loadDetails":
         return done(loadDetails(input));
+      case "setSprint":
+        return done(setSprint(input));
     }
   };
 

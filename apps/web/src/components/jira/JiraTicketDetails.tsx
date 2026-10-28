@@ -2,6 +2,7 @@ import type {
   EnvironmentId,
   JiraIssue,
   JiraIssueDetails,
+  JiraSprint,
   JiraStatusName,
 } from "@t3tools/contracts";
 import { ChevronDownIcon, LoaderIcon, RefreshCwIcon } from "lucide-react";
@@ -72,6 +73,70 @@ export function JiraStatusMenu({
   );
 }
 
+const sprintLabel = (sprint: Pick<JiraSprint, "name" | "state">) =>
+  `${sprint.name}${sprint.state === "active" ? "" : ` (${sprint.state})`}`;
+
+/** The sprint row, which moves the ticket to another open sprint or the backlog. */
+function JiraSprintMenu({
+  environmentId,
+  issueKey,
+  current,
+  sprints,
+}: {
+  environmentId: EnvironmentId;
+  issueKey: string;
+  current: JiraIssueDetails["sprint"];
+  sprints: ReadonlyArray<JiraSprint>;
+}) {
+  const command = useJiraCommand(environmentId);
+  const [moving, setMoving] = useState<string | null>(null);
+  const move = async (sprintId: number | null, label: string) => {
+    setMoving(label);
+    await command({ type: "setSprint", key: issueKey, sprintId });
+    setMoving(null);
+  };
+  const inOpenSprint = current !== null && current.state !== "closed";
+  return (
+    <Menu>
+      <MenuTrigger
+        disabled={moving !== null}
+        aria-label={`Change sprint of ${issueKey}`}
+        render={
+          <button
+            type="button"
+            className="inline-flex max-w-full cursor-pointer items-center gap-1 rounded-sm hover:text-foreground"
+          />
+        }
+      >
+        {moving !== null ? <LoaderIcon className="size-3 shrink-0 animate-spin" /> : null}
+        <span className="min-w-0 truncate">
+          {moving ??
+            (current ? (
+              sprintLabel(current)
+            ) : (
+              <span className="text-muted-foreground">Backlog</span>
+            ))}
+        </span>
+        {moving === null ? <ChevronDownIcon className="size-3 shrink-0 opacity-70" /> : null}
+      </MenuTrigger>
+      <MenuPopup align="start">
+        {sprints.map((sprint) => (
+          <MenuItem
+            key={sprint.id}
+            disabled={current?.id === sprint.id}
+            onClick={() => void move(sprint.id, sprint.name)}
+          >
+            {sprintLabel(sprint)}
+          </MenuItem>
+        ))}
+        <MenuItem disabled={!inOpenSprint} onClick={() => void move(null, "Backlog")}>
+          Backlog
+        </MenuItem>
+      </MenuPopup>
+    </Menu>
+  );
+}
+
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <>
@@ -96,11 +161,13 @@ export function JiraTicketDetails({
   environmentId,
   issueKey,
   details,
+  sprints,
   now,
 }: {
   environmentId: EnvironmentId;
   issueKey: string;
   details: JiraIssueDetails | undefined;
+  sprints: ReadonlyArray<JiraSprint>;
   now: number;
 }) {
   const command = useJiraCommand(environmentId);
@@ -136,14 +203,16 @@ export function JiraTicketDetails({
     );
   }
 
-  const sprint = details.sprint
-    ? `${details.sprint.name}${details.sprint.state === "active" ? "" : ` (${details.sprint.state})`}`
-    : null;
   return (
     <div className="flex flex-col gap-2">
       <dl className="grid grid-cols-[5.5rem_1fr] gap-x-3 gap-y-1 text-xs">
         <Field label="Sprint">
-          {sprint ?? <span className="text-muted-foreground">None</span>}
+          <JiraSprintMenu
+            environmentId={environmentId}
+            issueKey={issueKey}
+            current={details.sprint}
+            sprints={sprints}
+          />
         </Field>
         <Field label="Priority">{details.priority ?? "None"}</Field>
         <Field label="Assignee">{details.assignee ?? "Unassigned"}</Field>

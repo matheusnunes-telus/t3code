@@ -23,6 +23,8 @@ import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../
 import { Textarea } from "../ui/textarea";
 import { JiraKey } from "./JiraTicketBits";
 
+const BACKLOG = "backlog";
+
 /** The model's draft for the dialog, started by the click that opens it. */
 export type JiraDraftRequest =
   | { readonly status: "drafting" }
@@ -83,6 +85,12 @@ function CreateTicketForm({
   const [parentKey, setParentKey] = useState("");
   const [summary, setSummary] = useState("");
   const [description, setDescription] = useState("");
+  // Work started from a chat is usually for now, so the active sprint comes first.
+  const [sprintValue, setSprintValue] = useState(() => {
+    const active = snapshot.sprints.find((sprint) => sprint.state === "active");
+    return active === undefined ? BACKLOG : String(active.id);
+  });
+  const sprint = snapshot.sprints.find((candidate) => String(candidate.id) === sprintValue);
   // When the draft lands, it fills only the fields the user hasn't typed into yet.
   const [appliedRequest, setAppliedRequest] = useState<JiraDraftRequest | null>(null);
   if (appliedRequest !== request) {
@@ -111,6 +119,7 @@ function CreateTicketForm({
         type: parent.level === 1 ? "Task" : "Sub-task",
         summary: summary.trim(),
         description: description.trim(),
+        sprintId: sprint?.id ?? null,
       },
     });
     onDone();
@@ -177,6 +186,38 @@ function CreateTicketForm({
                 you.
               </span>
             ) : null}
+          </label>
+          <label className="flex flex-col gap-1.5 text-sm">
+            <span className="text-muted-foreground">Sprint</span>
+            <Select value={sprintValue} onValueChange={(value) => setSprintValue(value ?? BACKLOG)}>
+              <SelectTrigger size="sm" aria-label="Sprint">
+                <SelectValue>
+                  {sprint ? (
+                    <span className="truncate">
+                      {sprint.name}
+                      {sprint.state === "active" ? null : (
+                        <span className="text-muted-foreground"> · {sprint.state}</span>
+                      )}
+                    </span>
+                  ) : (
+                    "Backlog"
+                  )}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectPopup>
+                {snapshot.sprints.map((candidate) => (
+                  <SelectItem key={candidate.id} hideIndicator value={String(candidate.id)}>
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span className="min-w-0 flex-1 truncate">{candidate.name}</span>
+                      <span className="shrink-0 text-muted-foreground">{candidate.state}</span>
+                    </span>
+                  </SelectItem>
+                ))}
+                <SelectItem hideIndicator value={BACKLOG}>
+                  Backlog
+                </SelectItem>
+              </SelectPopup>
+            </Select>
           </label>
           <label className="flex flex-col gap-1.5 text-sm">
             <span className="text-muted-foreground">Summary</span>
