@@ -15,6 +15,11 @@ export interface UseResizableWidthOptions {
   readonly minWidth: number;
   readonly maxWidth: number;
   readonly edge: "left" | "right";
+  /**
+   * Keeps the width as a share of this (the window's width), so a screen of another size
+   * shows the same proportion instead of the same pixels.
+   */
+  readonly viewportWidth?: number | undefined;
 }
 
 export interface ResizableWidthHandlers {
@@ -31,7 +36,8 @@ export function useResizableWidth(options: UseResizableWidthOptions): {
   readonly width: number;
   readonly handlers: ResizableWidthHandlers;
 } {
-  const { storageKey, defaultWidth, minWidth, maxWidth, edge } = options;
+  const { storageKey, defaultWidth, minWidth, maxWidth, edge, viewportWidth } = options;
+  const ratioKey = `${storageKey}:ratio`;
 
   const clamp = (value: number): number => {
     if (!Number.isFinite(value)) return defaultWidth;
@@ -48,12 +54,30 @@ export function useResizableWidth(options: UseResizableWidthOptions): {
       return defaultWidth;
     }
   };
-  const [widthState, setWidthState] = useState(() => ({ storageKey, width: readWidth() }));
+  const readRatio = () => {
+    if (viewportWidth === undefined || typeof window === "undefined") return null;
+    try {
+      return getLocalStorageItem(ratioKey, WidthSchema);
+    } catch (error) {
+      console.error("Could not read persisted panel width.", error);
+      return null;
+    }
+  };
+  const [widthState, setWidthState] = useState(() => ({
+    storageKey,
+    width: readWidth(),
+    ratio: readRatio(),
+  }));
   if (widthState.storageKey !== storageKey) {
-    setWidthState({ storageKey, width: readWidth() });
+    setWidthState({ storageKey, width: readWidth(), ratio: readRatio() });
   }
 
-  const clampedWidth = clamp(widthState.width);
+  // A width saved before ratios existed keeps its pixels until the next drag.
+  const clampedWidth = clamp(
+    viewportWidth !== undefined && widthState.ratio !== null
+      ? Math.round(widthState.ratio * viewportWidth)
+      : widthState.width,
+  );
 
   const drag = useResizeDrag<HTMLElement>((event) => {
     const host = event.currentTarget.parentElement;
@@ -72,9 +96,12 @@ export function useResizableWidth(options: UseResizableWidthOptions): {
         return nextWidth;
       },
       finish(finalWidth) {
-        setWidthState({ storageKey: startStorageKey, width: finalWidth });
+        const ratio =
+          viewportWidth !== undefined && viewportWidth > 0 ? finalWidth / viewportWidth : null;
+        setWidthState({ storageKey: startStorageKey, width: finalWidth, ratio });
         try {
           setLocalStorageItem(startStorageKey, finalWidth, WidthSchema);
+          if (ratio !== null) setLocalStorageItem(`${startStorageKey}:ratio`, ratio, WidthSchema);
         } catch (error) {
           console.error("Could not persist panel width.", error);
         }

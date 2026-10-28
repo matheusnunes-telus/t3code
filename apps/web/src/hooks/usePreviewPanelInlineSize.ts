@@ -30,12 +30,18 @@ export function usePreviewPanelInlineSize(
   const [maxWidth, setMaxWidth] = useState(() =>
     getPreviewPanelMaxWidth(typeof window === "undefined" ? 1280 : window.innerWidth),
   );
+  // The panel keeps its share of the window, so moving between a laptop and an ultrawide
+  // screen keeps the layout instead of the pixels.
+  const [viewportWidth, setViewportWidth] = useState(() =>
+    typeof window === "undefined" ? 1280 : window.innerWidth,
+  );
   const { width, handlers } = useResizableWidth({
     storageKey: options.widthStorageKey ?? PREVIEW_PANEL_WIDTH_STORAGE_KEY,
     defaultWidth: options.defaultWidth ?? PREVIEW_PANEL_DEFAULT_WIDTH,
     minWidth: PREVIEW_PANEL_MIN_WIDTH,
     maxWidth,
     edge: "left",
+    viewportWidth,
   });
   const observeRow = (host: HTMLElement) => {
     const row = container ?? (enabled ? host.parentElement : null) ?? null;
@@ -44,6 +50,7 @@ export function usePreviewPanelInlineSize(
     // of a sidebar drag, but an unchanged cap skips re-rendering the owner.
     const measure = () => {
       setMaxWidth(getPreviewPanelMaxWidth(window.innerWidth, row?.clientWidth));
+      setViewportWidth(window.innerWidth);
     };
     measure();
     let frame = 0;
