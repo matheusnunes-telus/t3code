@@ -3,12 +3,14 @@ import { describe, expect, it } from "@effect/vitest";
 import * as Schema from "effect/Schema";
 
 import {
+  adfToText,
   buildMatchPrompt,
   keysMentioned,
   looksSignedOut,
   mergeSync,
   missingAncestors,
   parseAccessibleSite,
+  parseIssueDetails,
   parseIssueSearch,
   validateFormDraft,
   validateMatch,
@@ -294,5 +296,60 @@ describe("validateFormDraft", () => {
   it("gives nothing without a summary", () => {
     expect(validateFormDraft({ draft: { parentKey: "AIPR-1177" } }, tree)).toBeNull();
     expect(validateFormDraft(null, tree)).toBeNull();
+  });
+});
+
+describe("parseIssueDetails", () => {
+  it("reads the description, the latest sprint and the people from getJiraIssue", () => {
+    const details = parseIssueDetails(
+      encodeJson({
+        key: "AIPR-1320",
+        fields: {
+          description: {
+            type: "doc",
+            content: [
+              { type: "paragraph", content: [{ type: "text", text: "Redeploy from main." }] },
+              {
+                type: "bulletList",
+                content: [
+                  {
+                    type: "listItem",
+                    content: [
+                      { type: "paragraph", content: [{ type: "text", text: "board-agent" }] },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+          priority: { name: "High" },
+          assignee: { displayName: "Matheus" },
+          reporter: null,
+          labels: ["security"],
+          created: "2026-10-20T10:00:00.000-0300",
+          duedate: null,
+          customfield_10020: [
+            { id: 1, name: "GAINS 41", state: "closed", boardId: 7 },
+            { id: 2, name: "GAINS 42", state: "active", boardId: 7 },
+          ],
+        },
+      }),
+      "2026-10-28T00:00:00.000Z",
+    );
+    expect(details).toMatchObject({
+      key: "AIPR-1320",
+      description: "Redeploy from main.\n\n- board-agent",
+      priority: "High",
+      assignee: "Matheus",
+      reporter: null,
+      labels: ["security"],
+      sprint: { name: "GAINS 42", state: "active" },
+      dueDate: null,
+    });
+  });
+
+  it("keeps plain text descriptions and rejects replies that aren't an issue", () => {
+    expect(adfToText("already text")).toBe("already text");
+    expect(parseIssueDetails("Issue not found", "2026-10-28T00:00:00.000Z")).toBeUndefined();
   });
 });

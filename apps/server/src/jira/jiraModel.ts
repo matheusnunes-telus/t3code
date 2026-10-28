@@ -3,6 +3,7 @@ import * as Schema from "effect/Schema";
 
 import type {
   JiraIssue,
+  JiraIssueDetails,
   JiraStatusCategory,
   JiraTicketDraft,
   JiraTicketFormDraft,
@@ -444,3 +445,79 @@ export const CHANGES_OUTPUT_SCHEMA = {
     description: { anyOf: [{ type: "null" }, { type: "string" }] },
   },
 } as const;
+
+/** The fields the ticket panel shows; `customfield_10020` is Jira Cloud's sprint field. */
+export const JIRA_DETAIL_FIELDS = [
+  "description",
+  "priority",
+  "assignee",
+  "reporter",
+  "labels",
+  "created",
+  "duedate",
+  "customfield_10020",
+] as const;
+
+/** Jira Cloud sends descriptions as Atlassian Document Format; this keeps the text and lines. */
+export function adfToText(node: unknown): string {
+  if (typeof node === "string") return node;
+  const entry = record(node);
+  if (entry === undefined) return "";
+  if (entry.type === "text") return typeof entry.text === "string" ? entry.text : "";
+  if (entry.type === "hardBreak") return "\n";
+  if (entry.type === "mention" || entry.type === "emoji") {
+    return text(record(entry.attrs)?.text) ?? "";
+  }
+  if (entry.type === "inlineCard") return text(record(entry.attrs)?.url) ?? "";
+  const children = Array.isArray(entry.content) ? entry.content.map(adfToText) : [];
+  switch (entry.type) {
+    case "listItem":
+      return `- ${children.join("").trim()}\n`;
+    case "paragraph":
+    case "heading":
+    case "codeBlock":
+    case "blockquote":
+      return `${children.join("")}\n\n`;
+    default:
+      return children.join("");
+  }
+}
+
+const nameOf = (value: unknown) =>
+  text(record(value)?.displayName) ?? text(record(value)?.name) ?? null;
+
+/** Reads a getJiraIssue reply into panel details; undefined when it isn't an issue. */
+export function parseIssueDetails(reply: string, fetchedAt: string): JiraIssueDetails | undefined {
+  const root = record(parseJson(reply));
+  const key = text(root?.key);
+  const fields = record(root?.fields);
+  if (key === undefined || fields === undefined) return undefined;
+  // A ticket can sit in several sprints over time; the last one is the current or latest.
+  const sprints = Object.entries(fields)
+    .filter(([name]) => name.startsWith("customfield_"))
+    .flatMap(([, value]) => (Array.isArray(value) ? value : []))
+    .flatMap((value) => {
+      const sprint = record(value);
+      const name = text(sprint?.name);
+      const state = text(sprint?.state);
+      return name !== undefined && state !== undefined && sprint?.boardId !== undefined
+        ? [{ name, state }]
+        : [];
+    });
+  return {
+    key,
+    fetchedAt,
+    description: adfToText(fields.description)
+      .replace(/\n{3,}/g, "\n\n")
+      .trim(),
+    priority: nameOf(fields.priority),
+    assignee: nameOf(fields.assignee),
+    reporter: nameOf(fields.reporter),
+    labels: Array.isArray(fields.labels)
+      ? fields.labels.flatMap((label) => (typeof label === "string" ? [label] : []))
+      : [],
+    sprint: sprints.at(-1) ?? null,
+    createdAt: text(fields.created) ?? null,
+    dueDate: text(fields.duedate) ?? null,
+  };
+}

@@ -30,6 +30,26 @@ export const JiraIssue = Schema.Struct({
 });
 export type JiraIssue = typeof JiraIssue.Type;
 
+/** The statuses every ticket can move between; Jira's transitions are global for these. */
+export const JiraStatusName = Schema.Literals(["To Do", "In Progress", "Blocked", "Done"]);
+export type JiraStatusName = typeof JiraStatusName.Type;
+
+/** What the panel shows beyond the synced tree, fetched when a ticket is opened. */
+export const JiraIssueDetails = Schema.Struct({
+  key: JiraIssueKey,
+  fetchedAt: IsoDateTime,
+  description: Schema.String,
+  priority: Schema.NullOr(Schema.String),
+  assignee: Schema.NullOr(Schema.String),
+  reporter: Schema.NullOr(Schema.String),
+  labels: Schema.Array(Schema.String),
+  /** The latest sprint the ticket is in. */
+  sprint: Schema.NullOr(Schema.Struct({ name: Schema.String, state: Schema.String })),
+  createdAt: Schema.NullOr(Schema.String),
+  dueDate: Schema.NullOr(Schema.String),
+});
+export type JiraIssueDetails = typeof JiraIssueDetails.Type;
+
 export const JiraSyncStatus = Schema.Literals([
   "off",
   "never",
@@ -148,6 +168,7 @@ export const JiraSnapshot = Schema.Struct({
   changeSets: Schema.Array(JiraChangeSet),
   ticketUpdates: Schema.Record(Schema.String, JiraTicketUpdates),
   notices: Schema.Array(JiraTicketNotice),
+  details: Schema.Record(Schema.String, JiraIssueDetails),
 });
 export type JiraSnapshot = typeof JiraSnapshot.Type;
 
@@ -198,6 +219,10 @@ export const JiraCommand = Schema.Union([
     updates: JiraTicketUpdates,
   }),
   Schema.Struct({ type: Schema.Literal("clearNotice"), key: JiraIssueKey }),
+  /** Moves the ticket in Jira; the click is the user's approval. */
+  Schema.Struct({ type: Schema.Literal("setStatus"), key: JiraIssueKey, status: JiraStatusName }),
+  /** Reads the ticket's description, sprint and the rest into the snapshot's details. */
+  Schema.Struct({ type: Schema.Literal("loadDetails"), key: JiraIssueKey }),
 ]);
 export type JiraCommand = typeof JiraCommand.Type;
 

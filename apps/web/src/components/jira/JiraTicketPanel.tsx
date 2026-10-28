@@ -32,14 +32,9 @@ import {
 import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
 import { Button } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import {
-  JiraKey,
-  JiraLevelTag,
-  JiraStatusBadge,
-  JiraTicketPath,
-  JiraTicketThreads,
-} from "./JiraTicketBits";
+import { JiraKey, JiraLevelTag, JiraTicketPath, JiraTicketThreads } from "./JiraTicketBits";
 import { JiraSyncStatus } from "./JiraSyncStatus";
+import { JiraStatusMenu, JiraTicketDetails } from "./JiraTicketDetails";
 
 const UPDATE_LEVELS: ReadonlyArray<{
   readonly value: JiraTicketUpdates;
@@ -206,7 +201,7 @@ function TicketCard({
     <section className="flex flex-col gap-2 border-b border-border px-4 py-3 last:border-b-0">
       <div className="flex items-center gap-2">
         <JiraKey value={issueKey} />
-        {issue ? <JiraStatusBadge issue={issue} /> : null}
+        {issue ? <JiraStatusMenu environmentId={environmentId} issue={issue} /> : null}
         {issue ? <JiraLevelTag level={issue.level} /> : null}
         <span className="flex-1" />
         <TicketUpdatesToggle
@@ -216,6 +211,12 @@ function TicketCard({
       </div>
       <h3 className="text-sm font-medium">{issue?.summary ?? "Not in the synced tree yet"}</h3>
       <JiraTicketPath snapshot={snapshot} issueKey={issueKey} />
+      <JiraTicketDetails
+        environmentId={environmentId}
+        issueKey={issueKey}
+        details={snapshot.details[issueKey]}
+        now={now}
+      />
       <p className="text-xs text-muted-foreground">
         Synced {relativeAge(snapshot.sync.lastSyncedAt, now)} by the agent ·{" "}
         <button

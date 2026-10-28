@@ -6,6 +6,7 @@ import {
   type JiraIssue,
   JiraError,
   JiraIssue as JiraIssueSchema,
+  JiraIssueDetails as JiraIssueDetailsSchema,
   JiraChangeSet as JiraChangeSetSchema,
   type JiraSnapshot,
   JiraSyncState,
@@ -46,7 +47,9 @@ import {
   buildMatchPrompt,
   CHANGES_OUTPUT_SCHEMA,
   JIRA_SEARCH_FIELDS,
+  JIRA_DETAIL_FIELDS,
   JIRA_STATUSES,
+  parseIssueDetails,
   keysMentioned,
   looksSignedOut,
   MATCH_OUTPUT_SCHEMA,
@@ -81,6 +84,8 @@ const StoreFile = Schema.Struct({
   notices: Schema.Array(JiraTicketNotice),
   /** Each linked thread's pull request states as last seen, keyed `repository#number`. */
   pullRequests: Schema.Record(Schema.String, Schema.Record(Schema.String, Schema.String)),
+  /** Optional so stores written before ticket details still load. */
+  details: Schema.optionalKey(Schema.Record(Schema.String, JiraIssueDetailsSchema)),
 });
 type StoreFile = typeof StoreFile.Type;
 
@@ -250,6 +255,7 @@ export const make = Effect.gen(function* () {
       changeSets: current.changeSets,
       ticketUpdates: current.ticketUpdates,
       notices: current.notices,
+      details: current.details ?? {},
     };
   };
 
@@ -866,7 +872,7 @@ export const make = Effect.gen(function* () {
   };
 
   const applyChanges = Effect.fn("JiraService.applyChanges")(function* (
-    set: JiraChangeSet,
+    key: string,
     changesToApply: ReadonlyArray<JiraChange>,
   ) {
     const cloudId = yield* ensureSite;
@@ -874,7 +880,7 @@ export const make = Effect.gen(function* () {
       operation: "jira.applyChanges",
       toolPrefixes: ATLASSIAN_TOOL_PREFIXES,
       prompt: [
-        `Apply exactly these changes to Jira issue ${set.key} (cloudId ${cloudId}), in order, with the Atlassian tools. Do nothing else.`,
+        `Apply exactly these changes to Jira issue ${key} (cloudId ${cloudId}), in order, with the Atlassian tools. Do nothing else.`,
         ...changesToApply.map((change, index) => `${index + 1}. ${describeChange(change)}`),
         "Reply with done, or with what failed.",
       ].join("\n\n"),
@@ -909,7 +915,7 @@ export const make = Effect.gen(function* () {
     if (chosen.length === 0) return yield* setChangeSet(set.id, { state: "dismissed" });
     yield* setChangeSet(set.id, { state: "applying", changes: chosen, message: null });
     yield* fork(
-      applyChanges(set, chosen).pipe(
+      applyChanges(set.key, chosen).pipe(
         Effect.andThen(setChangeSet(set.id, { state: "applied" })),
         Effect.andThen(sync({}).pipe(Effect.ignore)),
         Effect.catchTags({
@@ -918,6 +924,45 @@ export const make = Effect.gen(function* () {
         }),
       ),
     );
+  });
+
+  const setStatus = Effect.fn("JiraService.setStatus")(function* (input: {
+    readonly key: string;
+    readonly status: (typeof JIRA_STATUSES)[number];
+  }) {
+    if ((yield* selection) === null) return yield* jiraError("Jira is off.");
+    const key = input.key.toUpperCase();
+    yield* applyChanges(key, [{ kind: "status", to: input.status }]).pipe(
+      Effect.mapError((error) => jiraError(error.message)),
+    );
+    const statusCategory =
+      input.status === "Done" ? "done" : input.status === "To Do" ? "new" : "indeterminate";
+    // Shown at once; the sync that follows confirms it against Jira.
+    yield* update((state) => ({
+      ...state,
+      issues: state.issues.map((issue) =>
+        issue.key === key ? { ...issue, status: input.status, statusCategory } : issue,
+      ),
+    }));
+    yield* fork(sync({}).pipe(Effect.ignore));
+  });
+
+  const loadDetails = Effect.fn("JiraService.loadDetails")(function* (input: {
+    readonly key: string;
+  }) {
+    if ((yield* selection) === null) return yield* jiraError("Jira is off.");
+    const key = input.key.toUpperCase();
+    const details = yield* Effect.gen(function* () {
+      const cloudId = yield* ensureSite;
+      const reply = yield* callTool("jira.issueDetails", "getJiraIssue", {
+        cloudId,
+        issueIdOrKey: key,
+        fields: [...JIRA_DETAIL_FIELDS],
+      });
+      return parseIssueDetails(reply, yield* nowIso);
+    }).pipe(Effect.mapError((error) => jiraError(error.message)));
+    if (details === undefined) return yield* jiraError(`Could not read ${key} from Jira.`);
+    yield* update((state) => ({ ...state, details: { ...state.details, [key]: details } }));
   });
 
   const setTicketUpdates: JiraService["Service"]["setTicketUpdates"] = (input) =>
@@ -1027,6 +1072,10 @@ export const make = Effect.gen(function* () {
         return done(setTicketUpdates(input));
       case "clearNotice":
         return done(clearNotice(input));
+      case "setStatus":
+        return done(setStatus(input));
+      case "loadDetails":
+        return done(loadDetails(input));
     }
   };
 
