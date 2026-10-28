@@ -265,6 +265,8 @@ describe("connector replies", () => {
   it("tells a lost login from other errors", () => {
     expect(looksSignedOut("Request failed with status 401 Unauthorized")).toBe(true);
     expect(looksSignedOut("The Atlassian connector is needs-auth.")).toBe(true);
+    expect(looksSignedOut('{"error":"invalid_token","message":"Token revoked"}')).toBe(true);
+    expect(looksSignedOut("Your session has expired")).toBe(true);
     expect(looksSignedOut("Field 'parent' is invalid")).toBe(false);
   });
 });

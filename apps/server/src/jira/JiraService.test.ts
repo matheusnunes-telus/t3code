@@ -89,6 +89,15 @@ const makeFakeAgent = (calls: Ref.Ref<ReadonlyArray<ConnectorAgentRun>>) => ({
       if (prompt.includes("atlassianUserInfo")) {
         return reply("atlassianUserInfo", { account_id: "me-1" });
       }
+      // The login lapsed: Claude Code reports the connector but loads none of its tools.
+      if (prompt.includes("getJiraIssue")) {
+        return {
+          toolResults: [],
+          output: "done",
+          availableTools: [],
+          mcpServers: [{ name: "claude.ai Atlassian", status: "needs-auth" }],
+        } satisfies ConnectorAgentResult;
+      }
       if (prompt.includes("createJiraIssue")) {
         return reply("createJiraIssue", { id: "1", key: "AIPR-1400" });
       }
@@ -196,6 +205,23 @@ describe("JiraService", () => {
         const linked = yield* waitFor(jira, (snapshot) => snapshot.links.length === 1);
         expect(linked.links[0]).toMatchObject({ key: "AIPR-1309", source: "suggestion" });
         expect(linked.suggestions[0]?.state).toBe("dismissed");
+      }).pipe(Effect.provide(makeLayer(calls)));
+    }),
+  );
+
+  it.effect("marks Jira signed out when any call finds the login gone", () =>
+    Effect.gen(function* () {
+      const calls = yield* Ref.make<ReadonlyArray<ConnectorAgentRun>>([]);
+      yield* Effect.gen(function* () {
+        const jira = yield* JiraService.JiraService;
+        yield* jira.command({ type: "sync" });
+        yield* waitFor(jira, (snapshot) => snapshot.sync.status === "ok");
+        const failed = yield* jira
+          .command({ type: "loadDetails", key: "AIPR-1309" })
+          .pipe(Effect.flip);
+        expect(failed.message).toContain("sign in again");
+        const signedOut = yield* waitFor(jira, (snapshot) => snapshot.sync.status === "signed-out");
+        expect(signedOut.sync.message).toContain("claude.ai connector settings");
       }).pipe(Effect.provide(makeLayer(calls)));
     }),
   );

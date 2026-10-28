@@ -324,7 +324,10 @@ export const make = Effect.gen(function* () {
     if (server !== undefined && server.status !== "connected") {
       return new JiraCallError({
         kind: "signed-out",
-        message: `The Atlassian connector is ${server.status}. Reconnect it in your claude.ai connector settings.`,
+        message:
+          server.status === "needs-auth"
+            ? "Atlassian needs you to sign in again. Reconnect it in your claude.ai connector settings."
+            : `The Atlassian connector is ${server.status}. Reconnect it in your claude.ai connector settings.`,
       });
     }
     return new JiraCallError({
@@ -335,38 +338,52 @@ export const make = Effect.gen(function* () {
   };
 
   /** One connector tool call. The model only places the call; its reply is read here, raw. */
-  const callTool = Effect.fn("JiraService.callTool")(function* (
-    operation: string,
-    tool: string,
-    args: Record<string, unknown>,
-  ) {
-    const result = yield* runAgent({
-      operation,
-      toolPrefixes: ATLASSIAN_TOOL_PREFIXES,
-      prompt: [
-        `Call the Atlassian tool ${tool} exactly once with exactly these arguments, then reply with the single word done.`,
-        "Do not call any other tool and do not summarize the result.",
-        "",
-        encodeJson(args),
-      ].join("\n"),
-    });
-    const problem = connectorProblem(result);
-    if (problem !== undefined) return yield* problem;
-    const reply = result.toolResults.findLast((entry) => entry.tool.endsWith(`__${tool}`));
-    if (reply === undefined) {
-      return yield* new JiraCallError({
-        kind: "failed",
-        message: `The agent did not call ${tool}.`,
+  const callTool = Effect.fn("JiraService.callTool")(
+    function* (operation: string, tool: string, args: Record<string, unknown>) {
+      const result = yield* runAgent({
+        operation,
+        toolPrefixes: ATLASSIAN_TOOL_PREFIXES,
+        prompt: [
+          `Call the Atlassian tool ${tool} exactly once with exactly these arguments, then reply with the single word done.`,
+          "Do not call any other tool and do not summarize the result.",
+          "",
+          encodeJson(args),
+        ].join("\n"),
       });
-    }
-    if (reply.isError) {
-      return yield* new JiraCallError({
-        kind: looksSignedOut(reply.text) ? "signed-out" : "failed",
-        message: reply.text.slice(0, 500),
-      });
-    }
-    return reply.text;
-  });
+      const problem = connectorProblem(result);
+      if (problem !== undefined) return yield* problem;
+      const reply = result.toolResults.findLast((entry) => entry.tool.endsWith(`__${tool}`));
+      if (reply === undefined) {
+        return yield* new JiraCallError({
+          kind: "failed",
+          message: `The agent did not call ${tool}.`,
+        });
+      }
+      if (reply.isError) {
+        return yield* new JiraCallError({
+          kind: looksSignedOut(reply.text) ? "signed-out" : "failed",
+          message: reply.text.slice(0, 500),
+        });
+      }
+      return reply.text;
+    },
+    (effect) =>
+      effect.pipe(
+        // Any call can find the login gone, not only a sync, and any call that works proves it back.
+        Effect.tapError((error) =>
+          error.kind === "signed-out"
+            ? setSync({ status: "signed-out", message: error.message })
+            : Effect.void,
+        ),
+        Effect.tap(() =>
+          Effect.gen(function* () {
+            const { sync } = yield* Ref.get(store);
+            if (sync.status !== "signed-out") return;
+            yield* setSync({ status: sync.lastSyncedAt === null ? "never" : "ok", message: null });
+          }),
+        ),
+      ),
+  );
 
   const ensureSite = Effect.gen(function* () {
     const settings = yield* serverSettings.getSettings.pipe(Effect.orElseSucceed(() => null));

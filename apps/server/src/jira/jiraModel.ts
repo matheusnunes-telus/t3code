@@ -137,7 +137,7 @@ export function parseAccessibleSite(reply: string): { id: string; url: string | 
 }
 
 const SIGNED_OUT =
-  /\b(401|403|unauthori[sz]ed|forbidden|re-?authenticat|authenticat\w* (failed|required|expired)|token (has )?expired|not (logged|signed) in|log ?in again|sign ?in again|needs-auth)\b/i;
+  /\b(401|403|unauthori[sz]ed|forbidden|re-?authenticat|authenticat\w* (failed|required|expired)|token (has )?expired|not (logged|signed) in|log ?in again|sign ?in again|needs-auth|invalid[_ ]token|invalid_grant|session (has )?expired)\b/i;
 
 export function looksSignedOut(message: string): boolean {
   return SIGNED_OUT.test(message);
