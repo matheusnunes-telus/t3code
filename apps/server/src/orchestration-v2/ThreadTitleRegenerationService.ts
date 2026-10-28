@@ -123,11 +123,6 @@ const make = Effect.gen(function* () {
         return { type: "stale" as const };
       }
 
-      const project = yield* projects.get(projection.thread.projectId);
-      if (Option.isNone(project)) {
-        return { type: "complete" as const };
-      }
-
       let context: {
         readonly message: string;
         readonly attachments: ReadonlyArray<ChatAttachment>;
@@ -149,9 +144,15 @@ const make = Effect.gen(function* () {
       if (context.message.length === 0 && context.attachments.length === 0) {
         return { type: "complete" as const };
       }
-      // The first message is also when Jira looks for the thread's ticket; it runs on its own.
+      // The first message is also when Jira looks for the thread's ticket; it runs on its own,
+      // and for chats without a project too.
       if (input.kind.type === "initial" && onFirstMessage !== undefined) {
         yield* onFirstMessage({ threadId: input.threadId, message: context.message });
+      }
+
+      const project = yield* projects.get(projection.thread.projectId);
+      if (Option.isNone(project)) {
+        return { type: "complete" as const };
       }
 
       // A deleted source should not cost the fork its title.
