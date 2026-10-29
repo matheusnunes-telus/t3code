@@ -137,7 +137,7 @@ export function parseAccessibleSite(reply: string): { id: string; url: string | 
 }
 
 const SIGNED_OUT =
-  /\b(401|403|unauthori[sz]ed|forbidden|re-?authenticat|authenticat\w* (failed|required|expired)|token (has )?expired|not (logged|signed) in|log ?in again|sign ?in again|needs-auth|invalid[_ ]token|invalid_grant|session (has )?expired)\b/i;
+  /\b(401|403|unauthori[sz]ed|forbidden|re-?authenticat|authenticat\w* (failed|required|expired)|token (has )?expired|not (logged|signed) in|log ?in again|sign ?in again|needs-auth|not authenticated|unauthenticated|invalid[_ ]token|invalid_grant|session (has )?expired)\b/i;
 
 export function looksSignedOut(message: string): boolean {
   return SIGNED_OUT.test(message);
@@ -519,11 +519,53 @@ export function parseOpenSprints(reply: string): Array<JiraSprint> | undefined {
       if (sprint.state !== "closed") byId.set(sprint.id, sprint);
     }
   }
-  return [...byId.values()].toSorted(
+  return sortSprints([...byId.values()]);
+}
+
+const sortSprints = (sprints: ReadonlyArray<JiraSprint>) =>
+  sprints.toSorted(
     (a, b) =>
       Number(b.state === "active") - Number(a.state === "active") ||
       a.name.localeCompare(b.name, undefined, { numeric: true }),
   );
+
+/** The keys in an Atlassian CLI search reply, a plain array of issues. */
+export function parseCliSearchKeys(reply: string): Array<string> | undefined {
+  const parsed = parseJson(reply);
+  if (!Array.isArray(parsed)) return undefined;
+  return parsed.flatMap((entry) => {
+    const key = text(record(entry)?.key);
+    return key === undefined ? [] : [key];
+  });
+}
+
+/** The scrum board ids in an Atlassian CLI `board search` reply; kanban boards have no sprints. */
+export function parseBoardIds(reply: string): Array<number> {
+  const values = record(parseJson(reply))?.values;
+  if (!Array.isArray(values)) return [];
+  return values.flatMap((value) => {
+    const board = record(value);
+    return typeof board?.id === "number" && board.type !== "kanban" ? [board.id] : [];
+  });
+}
+
+/** The open sprints in Atlassian CLI `board list-sprints` replies, one per board, active first. */
+export function parseBoardSprints(
+  replies: ReadonlyArray<{ readonly boardId: number; readonly reply: string }>,
+): Array<JiraSprint> {
+  const byId = new Map<number, JiraSprint>();
+  for (const { boardId, reply } of replies) {
+    const sprints = record(parseJson(reply))?.sprints;
+    if (!Array.isArray(sprints)) continue;
+    for (const value of sprints) {
+      const sprint = record(value);
+      const name = text(sprint?.name);
+      const state = text(sprint?.state);
+      if (typeof sprint?.id !== "number" || name === undefined || state === undefined) continue;
+      if (state !== "closed") byId.set(sprint.id, { id: sprint.id, name, state, boardId });
+    }
+  }
+  return sortSprints([...byId.values()]);
 }
 
 /** Reads a getJiraIssue reply into panel details; undefined when it isn't an issue. */

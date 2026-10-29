@@ -188,6 +188,8 @@ export const JiraSnapshot = Schema.Struct({
   notices: Schema.Array(JiraTicketNotice),
   details: Schema.Record(Schema.String, JiraIssueDetails),
   sprints: Schema.Array(JiraSprint),
+  /** How a lost login is fixed: T3 runs the Atlassian CLI's browser login, or claude.ai's connector. */
+  signIn: Schema.Literals(["cli", "connector"]),
 });
 export type JiraSnapshot = typeof JiraSnapshot.Type;
 
@@ -248,6 +250,8 @@ export const JiraCommand = Schema.Union([
   }),
   /** Reads the ticket's description, sprint and the rest into the snapshot's details. */
   Schema.Struct({ type: Schema.Literal("loadDetails"), key: JiraIssueKey }),
+  /** Opens the Atlassian CLI's browser login, then syncs once it works. */
+  Schema.Struct({ type: Schema.Literal("signIn") }),
 ]);
 export type JiraCommand = typeof JiraCommand.Type;
 

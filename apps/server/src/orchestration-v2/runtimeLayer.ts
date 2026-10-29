@@ -37,6 +37,7 @@ import * as ProviderContinuationRequests from "@t3tools/provider-core/server/Pro
 import * as ProviderContinuationService from "./ProviderContinuationService.ts";
 import * as ThreadTitleRegenerationService from "./ThreadTitleRegenerationService.ts";
 import * as JiraService from "../jira/JiraService.ts";
+import * as ProcessRunner from "../processRunner.ts";
 import * as ProviderEventIngestor from "./ProviderEventIngestor.ts";
 import * as ThreadCommandExecutor from "./ThreadCommandExecutor.ts";
 import * as ProviderSessionManager from "./ProviderSessionManager.ts";
@@ -304,7 +305,9 @@ const layerProviderContinuationWorkerProvided = ProviderContinuationService.laye
     ),
   ),
 );
-const layerJiraProvided = JiraService.layer.pipe(Layer.provide(layerThreadManagementProvided));
+const layerJiraProvided = JiraService.layer.pipe(
+  Layer.provide(Layer.mergeAll(layerThreadManagementProvided, ProcessRunner.layer)),
+);
 const layerThreadTitleRegenerationProvided = ThreadTitleRegenerationService.layer.pipe(
   Layer.provide(
     Layer.mergeAll(

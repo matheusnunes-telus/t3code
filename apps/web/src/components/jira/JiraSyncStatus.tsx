@@ -61,14 +61,24 @@ export function JiraSyncStatus({
     ) : health === "signed-out" ? (
       <>
         Jira signed you out ·{" "}
-        <a
-          href={CLAUDE_CONNECTOR_SETTINGS_URL}
-          target="_blank"
-          rel="noreferrer"
-          className="underline underline-offset-2 hover:text-foreground"
-        >
-          Reconnect
-        </a>{" "}
+        {snapshot.signIn === "cli" ? (
+          <button
+            type="button"
+            className="cursor-pointer underline underline-offset-2 hover:text-foreground"
+            onClick={() => void command({ type: "signIn" })}
+          >
+            Sign in
+          </button>
+        ) : (
+          <a
+            href={CLAUDE_CONNECTOR_SETTINGS_URL}
+            target="_blank"
+            rel="noreferrer"
+            className="underline underline-offset-2 hover:text-foreground"
+          >
+            Reconnect
+          </a>
+        )}{" "}
         · {refresh}
       </>
     ) : (

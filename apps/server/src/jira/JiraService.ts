@@ -40,6 +40,7 @@ import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 
 import * as ServerConfig from "../config.ts";
+import * as ProcessRunner from "../processRunner.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
 import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
@@ -57,6 +58,9 @@ import {
   mergeSync,
   missingAncestors,
   parseAccessibleSite,
+  parseBoardIds,
+  parseBoardSprints,
+  parseCliSearchKeys,
   parseIssueSearch,
   parseOpenSprints,
   DRAFT_OUTPUT_SCHEMA,
@@ -70,6 +74,10 @@ const SYNC_INTERVAL = Duration.hours(1);
 const FULL_SYNC_INTERVAL = Duration.hours(24);
 const TICK_INTERVAL = Duration.minutes(5);
 const MAX_SEARCH_RESULTS = 100;
+/** The Atlassian CLI reads one ticket per call, so a sync reads a few at once. */
+const CLI_CONCURRENCY = 6;
+const CLI_SIGNED_OUT_MESSAGE =
+  "The Atlassian CLI is signed out. Sign in again from the notification, or run acli jira auth login --web.";
 
 const StoreFile = Schema.Struct({
   version: Schema.Literal(1),
@@ -182,6 +190,7 @@ export const make = Effect.gen(function* () {
   const serverSettings = yield* ServerSettings.ServerSettingsService;
   const registry = yield* ProviderInstanceRegistry.ProviderInstanceRegistry;
   const threads = yield* ThreadManagementService.ThreadManagementService;
+  const runner = yield* ProcessRunner.ProcessRunner;
   const scope = yield* Effect.scope;
 
   const storePath = path.join(stateDir, "jira.json");
@@ -211,6 +220,7 @@ export const make = Effect.gen(function* () {
   const changes = yield* PubSub.sliding<void>(1);
   const writeLock = yield* Semaphore.make(1);
   const syncLock = yield* Semaphore.make(1);
+  const signInLock = yield* Semaphore.make(1);
 
   const persist = writeLock.withPermits(1)(
     Effect.gen(function* () {
@@ -246,7 +256,17 @@ export const make = Effect.gen(function* () {
     Effect.orElseSucceed(() => null),
   );
 
-  const snapshotOf = (current: StoreFile, settings: ServerSettingsValue | null): JiraSnapshot => {
+  /**
+   * Whether the Atlassian CLI (`acli`) runs Jira calls. Found once, then kept: "missing" falls
+   * back to the claude.ai connector, and "signed-out" waits for a sign-in.
+   */
+  const cli = yield* Ref.make<"unknown" | "ready" | "missing" | "signed-out">("unknown");
+
+  const snapshotOf = (
+    current: StoreFile,
+    settings: ServerSettingsValue | null,
+    cliFound: boolean,
+  ): JiraSnapshot => {
     const enabled = settings?.jiraModelSelection != null;
     return {
       enabled,
@@ -260,12 +280,18 @@ export const make = Effect.gen(function* () {
       notices: current.notices,
       details: current.details ?? {},
       sprints: current.sprints ?? [],
+      signIn: cliFound ? "cli" : "connector",
     };
   };
 
   const currentSnapshot = Effect.gen(function* () {
     const settings = yield* serverSettings.getSettings.pipe(Effect.orElseSucceed(() => null));
-    return snapshotOf(yield* Ref.get(store), settings);
+    const cliState = yield* Ref.get(cli);
+    return snapshotOf(
+      yield* Ref.get(store),
+      settings,
+      cliState !== "missing" && cliState !== "unknown",
+    );
   });
 
   const subscribe = () =>
@@ -338,52 +364,107 @@ export const make = Effect.gen(function* () {
   };
 
   /** One connector tool call. The model only places the call; its reply is read here, raw. */
-  const callTool = Effect.fn("JiraService.callTool")(
-    function* (operation: string, tool: string, args: Record<string, unknown>) {
-      const result = yield* runAgent({
-        operation,
-        toolPrefixes: ATLASSIAN_TOOL_PREFIXES,
-        prompt: [
-          `Call the Atlassian tool ${tool} exactly once with exactly these arguments, then reply with the single word done.`,
-          "Do not call any other tool and do not summarize the result.",
-          "",
-          encodeJson(args),
-        ].join("\n"),
+  const callConnector = Effect.fn("JiraService.callConnector")(function* (
+    operation: string,
+    tool: string,
+    args: Record<string, unknown>,
+  ) {
+    const result = yield* runAgent({
+      operation,
+      toolPrefixes: ATLASSIAN_TOOL_PREFIXES,
+      prompt: [
+        `Call the Atlassian tool ${tool} exactly once with exactly these arguments, then reply with the single word done.`,
+        "Do not call any other tool and do not summarize the result.",
+        "",
+        encodeJson(args),
+      ].join("\n"),
+    });
+    const problem = connectorProblem(result);
+    if (problem !== undefined) return yield* problem;
+    const reply = result.toolResults.findLast((entry) => entry.tool.endsWith(`__${tool}`));
+    if (reply === undefined) {
+      return yield* new JiraCallError({
+        kind: "failed",
+        message: `The agent did not call ${tool}.`,
       });
-      const problem = connectorProblem(result);
-      if (problem !== undefined) return yield* problem;
-      const reply = result.toolResults.findLast((entry) => entry.tool.endsWith(`__${tool}`));
-      if (reply === undefined) {
-        return yield* new JiraCallError({
-          kind: "failed",
-          message: `The agent did not call ${tool}.`,
-        });
-      }
-      if (reply.isError) {
-        return yield* new JiraCallError({
-          kind: looksSignedOut(reply.text) ? "signed-out" : "failed",
-          message: reply.text.slice(0, 500),
-        });
-      }
-      return reply.text;
-    },
-    (effect) =>
-      effect.pipe(
-        // Any call can find the login gone, not only a sync, and any call that works proves it back.
-        Effect.tapError((error) =>
-          error.kind === "signed-out"
-            ? setSync({ status: "signed-out", message: error.message })
-            : Effect.void,
-        ),
-        Effect.tap(() =>
-          Effect.gen(function* () {
-            const { sync } = yield* Ref.get(store);
-            if (sync.status !== "signed-out") return;
-            yield* setSync({ status: sync.lastSyncedAt === null ? "never" : "ok", message: null });
-          }),
-        ),
+    }
+    if (reply.isError) {
+      return yield* new JiraCallError({
+        kind: looksSignedOut(reply.text) ? "signed-out" : "failed",
+        message: reply.text.slice(0, 500),
+      });
+    }
+    return reply.text;
+  });
+
+  const callTool = (operation: string, tool: string, args: Record<string, unknown>) =>
+    trackLogin(callConnector(operation, tool, args));
+
+  /** Asks `acli` whether its login works, and notes the site it is signed in to. */
+  const checkCli = Effect.gen(function* () {
+    const result = yield* runner
+      .run({ command: "acli", args: ["jira", "auth", "status"], timeout: "20 seconds" })
+      .pipe(Effect.result);
+    if (result._tag === "Failure") {
+      const state = result.failure._tag === "ProcessSpawnError" ? "missing" : "signed-out";
+      yield* Ref.set(cli, state);
+      return state;
+    }
+    const output = `${result.success.stdout}\n${result.success.stderr}`;
+    const state =
+      result.success.code === 0 && /✓\s*Authenticated/.test(output) ? "ready" : "signed-out";
+    yield* Ref.set(cli, state);
+    const site = /Site:\s*(\S+)/.exec(output)?.[1];
+    if (state === "ready" && site !== undefined && (yield* Ref.get(store)).siteUrl === null) {
+      yield* update((current) => ({ ...current, siteUrl: `https://${site}` }));
+    }
+    yield* PubSub.publish(changes, undefined);
+    return state;
+  });
+
+  /** True when Jira calls go through `acli`; it is looked for once. */
+  const usesCli = Effect.gen(function* () {
+    const state = yield* Ref.get(cli);
+    return (state === "unknown" ? yield* checkCli : state) !== "missing";
+  });
+
+  /** Keeps the sync status's "signed out" in step with what each call finds. */
+  const trackLogin = <A>(effect: Effect.Effect<A, JiraCallError>) =>
+    effect.pipe(
+      // Any call can find the login gone, not only a sync, and any call that works proves it back.
+      Effect.tapError((error) =>
+        error.kind === "signed-out"
+          ? setSync({ status: "signed-out", message: error.message })
+          : Effect.void,
       ),
-  );
+      Effect.tap(() =>
+        Effect.gen(function* () {
+          const { sync } = yield* Ref.get(store);
+          if (sync.status !== "signed-out") return;
+          yield* setSync({ status: sync.lastSyncedAt === null ? "never" : "ok", message: null });
+        }),
+      ),
+    );
+
+  /** One `acli` call; its stdout comes back as is. A failure checks the login to say why. */
+  const runCli = Effect.fn("JiraService.runCli")(function* (args: ReadonlyArray<string>) {
+    const result = yield* runner
+      .run({ command: "acli", args, timeout: "90 seconds" })
+      .pipe(Effect.result);
+    if (result._tag === "Success" && result.success.code === 0) {
+      yield* Ref.set(cli, "ready");
+      return result.success.stdout;
+    }
+    const message =
+      result._tag === "Failure"
+        ? result.failure.message
+        : (result.success.stderr.trim() || result.success.stdout.trim()).slice(0, 500);
+    const state = yield* checkCli;
+    return yield* new JiraCallError({
+      kind: state === "signed-out" ? "signed-out" : state === "missing" ? "unavailable" : "failed",
+      message: state === "signed-out" ? CLI_SIGNED_OUT_MESSAGE : message.replace(/^✗\s*/, ""),
+    });
+  }, trackLogin);
 
   const ensureSite = Effect.gen(function* () {
     const settings = yield* serverSettings.getSettings.pipe(Effect.orElseSucceed(() => null));
@@ -421,17 +502,57 @@ export const make = Effect.gen(function* () {
     return accountId;
   });
 
-  const search = Effect.fn("JiraService.search")(function* (
-    cloudId: string,
-    jql: string,
-    mine: boolean,
-  ) {
-    const reply = yield* callTool("jira.search", "searchJiraIssuesUsingJql", {
-      cloudId,
+  /**
+   * `acli` search only returns a few fields, never the parent, so it finds the keys and each
+   * ticket is read on its own. The result is shaped like the connector's search reply.
+   */
+  const cliSearch = Effect.fn("JiraService.cliSearch")(function* (jql: string) {
+    const reply = yield* runCli([
+      "jira",
+      "workitem",
+      "search",
+      "--jql",
       jql,
-      fields: JIRA_SEARCH_FIELDS,
-      maxResults: MAX_SEARCH_RESULTS,
-    });
+      // `key` alone comes back as nulls.
+      "--fields",
+      "summary",
+      "--limit",
+      String(MAX_SEARCH_RESULTS),
+      "--json",
+    ]);
+    const keys = parseCliSearchKeys(reply);
+    if (keys === undefined) {
+      return yield* new JiraCallError({
+        kind: "failed",
+        message: `Jira's search reply could not be read: ${reply.slice(0, 200)}`,
+      });
+    }
+    const issues = yield* Effect.forEach(
+      keys,
+      (key) =>
+        runCli([
+          "jira",
+          "workitem",
+          "view",
+          key,
+          "--fields",
+          JIRA_SEARCH_FIELDS.join(","),
+          "--json",
+        ]),
+      { concurrency: CLI_CONCURRENCY },
+    );
+    return `{"issues":[${issues.join(",")}]}`;
+  });
+
+  const search = Effect.fn("JiraService.search")(function* (jql: string, mine: boolean) {
+    const reply = (yield* usesCli)
+      ? yield* cliSearch(jql)
+      : yield* callTool("jira.search", "searchJiraIssuesUsingJql", {
+          cloudId: yield* ensureSite,
+          jql,
+          fields: JIRA_SEARCH_FIELDS,
+          maxResults: MAX_SEARCH_RESULTS,
+        });
     const siteUrl = (yield* Ref.get(store)).siteUrl;
     const parsed = parseIssueSearch(reply, mine, siteUrl);
     if (parsed === undefined) {
@@ -446,6 +567,45 @@ export const make = Effect.gen(function* () {
     return parsed;
   });
 
+  /** `acli` lists each project board's sprints; no connector tool does, so it reads tickets. */
+  const openSprints = Effect.fn("JiraService.openSprints")(function* (
+    projects: ReadonlyArray<string>,
+  ) {
+    if (yield* usesCli) {
+      const boards = yield* Effect.forEach(
+        projects,
+        (project) =>
+          runCli(["jira", "board", "search", "--project", project, "--json"]).pipe(
+            Effect.map(parseBoardIds),
+          ),
+        { concurrency: CLI_CONCURRENCY },
+      );
+      const replies = yield* Effect.forEach(
+        [...new Set(boards.flat())],
+        (boardId) =>
+          runCli([
+            "jira",
+            "board",
+            "list-sprints",
+            "--id",
+            String(boardId),
+            "--state",
+            "active,future",
+            "--json",
+          ]).pipe(Effect.map((reply) => ({ boardId, reply }))),
+        { concurrency: CLI_CONCURRENCY },
+      );
+      return parseBoardSprints(replies);
+    }
+    const reply = yield* callTool("jira.sprints", "searchJiraIssuesUsingJql", {
+      cloudId: yield* ensureSite,
+      jql: `project in (${projects.join(",")}) AND sprint in openSprints()`,
+      fields: ["customfield_10020"],
+      maxResults: MAX_SEARCH_RESULTS,
+    });
+    return parseOpenSprints(reply);
+  });
+
   const setSync = (patch: Partial<StoreFile["sync"]>) =>
     update((state) => ({ ...state, sync: { ...state.sync, ...patch } }));
 
@@ -453,7 +613,10 @@ export const make = Effect.gen(function* () {
     function* (full: boolean) {
       const startedAt = yield* nowIso;
       yield* setSync({ status: "syncing", lastAttemptAt: startedAt, message: null });
-      const cloudId = yield* ensureSite;
+      // A sync is the moment to notice `acli` was installed, or signed in, since the last one.
+      if ((yield* Ref.get(cli)) !== "ready" && (yield* checkCli) === "signed-out") {
+        return yield* new JiraCallError({ kind: "signed-out", message: CLI_SIGNED_OUT_MESSAGE });
+      }
       const before = yield* Ref.get(store);
       const fullSync =
         full ||
@@ -467,7 +630,7 @@ export const make = Effect.gen(function* () {
       const jql = fullSync
         ? "assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC"
         : `assignee = currentUser() AND updated >= -${minutes}m ORDER BY updated DESC`;
-      const own = yield* search(cloudId, jql, true);
+      const own = yield* search(jql, true);
 
       const mergeInto = (
         state: StoreFile,
@@ -497,23 +660,16 @@ export const make = Effect.gen(function* () {
       };
       yield* update((state) => mergeInto(state, own.issues, own.parents, fullSync));
 
-      // No connector tool lists a board's sprints, so they're read off the open sprints' tickets.
       if (fullSync || before.sprints === undefined) {
         const projects = [
           ...new Set(
             (yield* Ref.get(store)).issues
               .filter((issue) => issue.assignedToMe)
-              .map((issue) => issue.key.split("-")[0]),
+              .flatMap((issue) => issue.key.split("-").slice(0, 1)),
           ),
         ];
         if (projects.length > 0) {
-          const reply = yield* callTool("jira.sprints", "searchJiraIssuesUsingJql", {
-            cloudId,
-            jql: `project in (${projects.join(",")}) AND sprint in openSprints()`,
-            fields: ["customfield_10020"],
-            maxResults: MAX_SEARCH_RESULTS,
-          });
-          const sprints = parseOpenSprints(reply);
+          const sprints = yield* openSprints(projects);
           if (sprints !== undefined) yield* update((state) => ({ ...state, sprints }));
         }
       }
@@ -533,7 +689,7 @@ export const make = Effect.gen(function* () {
           .slice(0, 50);
         if (wanted.length === 0) break;
         for (const key of wanted) asked.add(key);
-        const fetched = yield* search(cloudId, `key in (${wanted.join(",")})`, false);
+        const fetched = yield* search(`key in (${wanted.join(",")})`, false);
         yield* update((state) => mergeInto(state, fetched.issues, fetched.parents, false));
         if (fetched.issues.length === 0) break;
       }
@@ -709,6 +865,20 @@ export const make = Effect.gen(function* () {
     },
   );
 
+  const noteSprintFailure = Effect.fn("JiraService.noteSprintFailure")(function* (
+    key: string,
+    message: string,
+  ) {
+    const at = yield* nowIso;
+    yield* update((state) => ({
+      ...state,
+      notices: [
+        ...state.notices.filter((notice) => notice.key !== key),
+        { key, at, summary: `Created ${key}, but it could not join the sprint: ${message}` },
+      ],
+    }));
+  });
+
   const createTicket: JiraService["Service"]["createTicket"] = Effect.fn(
     "JiraService.createTicket",
   )(function* (input) {
@@ -723,21 +893,43 @@ export const make = Effect.gen(function* () {
     };
     yield* putSuggestion({ ...base, draft: input.draft, state: "creating", message: null });
     const work = Effect.gen(function* () {
-      const cloudId = yield* ensureSite;
-      const accountId = yield* ensureAccountId.pipe(Effect.orElseSucceed(() => null));
       const projectKey = input.draft.parentKey.split("-")[0] ?? input.draft.parentKey;
-      const reply = yield* callTool("jira.createIssue", "createJiraIssue", {
-        cloudId,
-        projectKey,
-        issueTypeName: input.draft.type,
-        summary: input.draft.summary,
-        description: input.draft.description,
-        parent: input.draft.parentKey,
-        ...(accountId === null ? {} : { assignee_account_id: accountId }),
-        ...(input.draft.sprintId == null
-          ? {}
-          : { additional_fields: { customfield_10020: input.draft.sprintId } }),
-      });
+      const viaCli = yield* usesCli;
+      const reply = viaCli
+        ? yield* runCli([
+            "jira",
+            "workitem",
+            "create",
+            "--project",
+            projectKey,
+            "--type",
+            input.draft.type,
+            "--summary",
+            input.draft.summary,
+            "--description",
+            input.draft.description,
+            "--parent",
+            input.draft.parentKey,
+            "--assignee",
+            "@me",
+            "--json",
+          ])
+        : yield* Effect.gen(function* () {
+            const cloudId = yield* ensureSite;
+            const accountId = yield* ensureAccountId.pipe(Effect.orElseSucceed(() => null));
+            return yield* callTool("jira.createIssue", "createJiraIssue", {
+              cloudId,
+              projectKey,
+              issueTypeName: input.draft.type,
+              summary: input.draft.summary,
+              description: input.draft.description,
+              parent: input.draft.parentKey,
+              ...(accountId === null ? {} : { assignee_account_id: accountId }),
+              ...(input.draft.sprintId == null
+                ? {}
+                : { additional_fields: { customfield_10020: input.draft.sprintId } }),
+            });
+          });
       const key = /"key"\s*:\s*"([A-Z][A-Z0-9]+-\d+)"/.exec(reply)?.[1];
       if (key === undefined) {
         return yield* new JiraCallError({
@@ -773,6 +965,13 @@ export const make = Effect.gen(function* () {
             : candidate,
         ),
       }));
+      // `acli` cannot set a sprint, so the connector does it once the ticket exists.
+      const sprintId = input.draft.sprintId;
+      if (viaCli && sprintId != null) {
+        yield* moveToSprint(key, sprintId).pipe(
+          Effect.catchTags({ JiraCallError: (error) => noteSprintFailure(key, error.message) }),
+        );
+      }
     }).pipe(
       Effect.catchTags({
         JiraCallError: (error) =>
@@ -834,15 +1033,29 @@ export const make = Effect.gen(function* () {
     key: string,
     reason: string,
   ) {
-    const cloudId = yield* ensureSite.pipe(Effect.mapError((error) => jiraError(error.message)));
+    const viaCli = yield* usesCli;
+    // With `acli` the ticket is read here; the connector has the model read it.
+    const fetch = viaCli
+      ? yield* runCli(["jira", "workitem", "view", key, "--fields", "description", "--json"]).pipe(
+          Effect.map((reply) => {
+            const description = parseIssueDetails(reply, "")?.description ?? "";
+            return `The ticket's current description:\n${description.length === 0 ? "(empty)" : description}`;
+          }),
+          Effect.mapError((error) => jiraError(error.message)),
+        )
+      : `First call the Atlassian tool getJiraIssue once with ${encodeJson({
+          cloudId: yield* ensureSite.pipe(Effect.mapError((error) => jiraError(error.message))),
+          issueIdOrKey: key,
+          fields: ["summary", "status", "description"],
+        })}. Call no other tool.`;
     const context = yield* threadContext(threadId);
     const issue = (yield* Ref.get(store)).issues.find((candidate) => candidate.key === key);
     const result = yield* runAgent({
       operation: "jira.draftChanges",
-      toolPrefixes: ATLASSIAN_TOOL_PREFIXES,
+      toolPrefixes: viaCli ? [] : ATLASSIAN_TOOL_PREFIXES,
       outputSchema: CHANGES_OUTPUT_SCHEMA,
       prompt: [
-        `First call the Atlassian tool getJiraIssue once with ${encodeJson({ cloudId, issueIdOrKey: key, fields: ["summary", "status", "description"] })}. Call no other tool.`,
+        fetch,
         "Then draft updates to that ticket from the developer's chat below. Nothing is sent; the developer reviews every change.",
         `- status: one of ${JIRA_STATUSES.join(", ")}, only when the work clearly moved it; otherwise null.`,
         "- comment: 1-3 plain sentences on what changed, with pull request links when there are any; null if there is nothing new.",
@@ -916,10 +1129,27 @@ export const make = Effect.gen(function* () {
     }
   };
 
+  const cliArgsFor = (key: string, change: JiraChange): ReadonlyArray<string> => {
+    switch (change.kind) {
+      case "status":
+        return ["jira", "workitem", "transition", "--key", key, "--status", change.to, "--yes"];
+      case "comment":
+        return ["jira", "workitem", "comment", "create", "--key", key, "--body", change.body];
+      case "description":
+        return ["jira", "workitem", "edit", "--key", key, "--description", change.to, "--yes"];
+    }
+  };
+
   const applyChanges = Effect.fn("JiraService.applyChanges")(function* (
     key: string,
     changesToApply: ReadonlyArray<JiraChange>,
   ) {
+    if (yield* usesCli) {
+      for (const change of changesToApply) {
+        yield* runCli(cliArgsFor(key, change));
+      }
+      return;
+    }
     const cloudId = yield* ensureSite;
     const result = yield* runAgent({
       operation: "jira.applyChanges",
@@ -998,16 +1228,39 @@ export const make = Effect.gen(function* () {
     if ((yield* selection) === null) return yield* jiraError("Jira is off.");
     const key = input.key.toUpperCase();
     const details = yield* Effect.gen(function* () {
-      const cloudId = yield* ensureSite;
-      const reply = yield* callTool("jira.issueDetails", "getJiraIssue", {
-        cloudId,
-        issueIdOrKey: key,
-        fields: [...JIRA_DETAIL_FIELDS],
-      });
+      const reply = (yield* usesCli)
+        ? yield* runCli([
+            "jira",
+            "workitem",
+            "view",
+            key,
+            "--fields",
+            JIRA_DETAIL_FIELDS.join(","),
+            "--json",
+          ])
+        : yield* callTool("jira.issueDetails", "getJiraIssue", {
+            cloudId: yield* ensureSite,
+            issueIdOrKey: key,
+            fields: [...JIRA_DETAIL_FIELDS],
+          });
       return parseIssueDetails(reply, yield* nowIso);
     }).pipe(Effect.mapError((error) => jiraError(error.message)));
     if (details === undefined) return yield* jiraError(`Could not read ${key} from Jira.`);
     yield* update((state) => ({ ...state, details: { ...state.details, [key]: details } }));
+  });
+
+  /** Only the connector can move a ticket between sprints; `acli` has no way to. */
+  const moveToSprint = Effect.fn("JiraService.moveToSprint")(function* (
+    key: string,
+    sprintId: number | null,
+  ) {
+    // Its login is not the one the sign-in notice fixes when `acli` runs the rest.
+    const call = (yield* usesCli) ? callConnector : callTool;
+    yield* call("jira.setSprint", "editJiraIssue", {
+      cloudId: yield* ensureSite,
+      issueIdOrKey: key,
+      fields: { customfield_10020: sprintId },
+    });
   });
 
   const setSprint = Effect.fn("JiraService.setSprint")(function* (input: {
@@ -1016,15 +1269,43 @@ export const make = Effect.gen(function* () {
   }) {
     if ((yield* selection) === null) return yield* jiraError("Jira is off.");
     const key = input.key.toUpperCase();
-    yield* Effect.gen(function* () {
-      const cloudId = yield* ensureSite;
-      yield* callTool("jira.setSprint", "editJiraIssue", {
-        cloudId,
-        issueIdOrKey: key,
-        fields: { customfield_10020: input.sprintId },
-      });
-    }).pipe(Effect.mapError((error) => jiraError(error.message)));
+    yield* moveToSprint(key, input.sprintId).pipe(
+      Effect.mapError((error) => jiraError(error.message)),
+    );
     yield* loadDetails({ key });
+  });
+
+  /**
+   * Runs `acli`'s browser login. Its token is saved as soon as the browser approves, but it can
+   * then wait on a site picker, so the login is stopped once `acli` reports it works.
+   */
+  const signIn = Effect.fn("JiraService.signIn")(function* () {
+    if ((yield* selection) === null) return yield* jiraError("Jira is off.");
+    if (!(yield* usesCli)) {
+      return yield* jiraError("Reconnect Atlassian in your claude.ai connector settings.");
+    }
+    const login = runner
+      .run({ command: "acli", args: ["jira", "auth", "login", "--web"], timeout: "5 minutes" })
+      .pipe(Effect.ignore);
+    const signedIn = checkCli.pipe(
+      Effect.repeat({
+        schedule: Schedule.spaced(Duration.seconds(3)),
+        until: (state) => state === "ready",
+      }),
+      Effect.delay(Duration.seconds(3)),
+    );
+    yield* fork(
+      Effect.raceFirst(login, signedIn).pipe(
+        Effect.andThen(checkCli),
+        Effect.flatMap((state) =>
+          state === "ready"
+            ? sync({})
+            : setSync({ status: "signed-out", message: CLI_SIGNED_OUT_MESSAGE }),
+        ),
+        // A second click while the browser is open would start a second login.
+        signInLock.withPermitsIfAvailable(1),
+      ),
+    );
   });
 
   const setTicketUpdates: JiraService["Service"]["setTicketUpdates"] = (input) =>
@@ -1089,6 +1370,9 @@ export const make = Effect.gen(function* () {
     ),
   );
 
+  // Found at start, so the snapshot says how to sign in before the first call needs it.
+  yield* fork(checkCli);
+
   yield* tick.pipe(
     Effect.repeat(Schedule.spaced(TICK_INTERVAL)),
     Effect.delay(Duration.seconds(20)),
@@ -1140,6 +1424,8 @@ export const make = Effect.gen(function* () {
         return done(loadDetails(input));
       case "setSprint":
         return done(setSprint(input));
+      case "signIn":
+        return done(signIn());
     }
   };
 

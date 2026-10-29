@@ -14,6 +14,7 @@ import * as Stream from "effect/Stream";
 
 import * as ServerConfig from "../config.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
+import * as ProcessRunner from "../processRunner.ts";
 import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as JiraService from "./JiraService.ts";
@@ -123,10 +124,47 @@ const makeFakeAgent = (calls: Ref.Ref<ReadonlyArray<ConnectorAgentRun>>) => ({
     }),
 });
 
-const makeLayer = (calls: Ref.Ref<ReadonlyArray<ConnectorAgentRun>>) =>
+/** A fake `acli`: answers each argument list, or fails to start as if it isn't installed. */
+type FakeCli = (args: ReadonlyArray<string>) => { readonly stdout: string; readonly code: number };
+
+const missingCli = Layer.mock(ProcessRunner.ProcessRunner)({
+  run: (input) =>
+    Effect.fail(
+      new ProcessRunner.ProcessSpawnError({
+        command: input.command,
+        argumentCount: input.args.length,
+        cause: new Error("ENOENT"),
+      }),
+    ),
+});
+
+const fakeCli = (answer: FakeCli, ran: Array<ReadonlyArray<string>>) =>
+  Layer.mock(ProcessRunner.ProcessRunner)({
+    run: (input) =>
+      Effect.sync(() => {
+        ran.push(input.args);
+        const { stdout, code } = answer(input.args);
+        return {
+          stdout,
+          stderr: code === 0 ? "" : stdout,
+          code: code as never,
+          timedOut: false,
+          stdoutTruncated: false,
+          stderrTruncated: false,
+          stdoutInvalidUtf8: false,
+          stderrInvalidUtf8: false,
+        };
+      }),
+  });
+
+const makeLayer = (
+  calls: Ref.Ref<ReadonlyArray<ConnectorAgentRun>>,
+  cli: Layer.Layer<ProcessRunner.ProcessRunner> = missingCli,
+) =>
   JiraService.layer.pipe(
     Layer.provide(
       Layer.mergeAll(
+        cli,
         ServerSettings.ServerSettingsService.layerTest({
           jiraModelSelection: {
             instanceId: ProviderInstanceId.make("claudeAgent"),
@@ -166,7 +204,113 @@ const waitFor = (
     ),
   );
 
+const SIGNED_IN = "✓ Authenticated\n  Site: example.atlassian.net\n";
+
+/** Answers `acli` like Jira would for the same tree the fake connector holds. */
+const cliJira =
+  (signedIn: { value: boolean }): FakeCli =>
+  (args) => {
+    const [, group, action] = args;
+    if (group === "auth") {
+      return signedIn.value
+        ? { stdout: SIGNED_IN, code: 0 }
+        : { stdout: "✗ Not authenticated", code: 1 };
+    }
+    if (!signedIn.value) return { stdout: "✗ Error: unauthorized", code: 1 };
+    const tree = {
+      "AIPR-1309": node("AIPR-1309", "Board agent buttons", "Task", 0, "AIPR-1177"),
+      "AIPR-1177": node("AIPR-1177", "Board agent", "Epic", 1, "AIPR-1057"),
+      "AIPR-1057": node("AIPR-1057", "GAINS", "Initiative", 2),
+    };
+    if (group === "workitem" && action === "search") {
+      const jql = args[args.indexOf("--jql") + 1] ?? "";
+      const keys = jql.startsWith("key in")
+        ? Object.keys(tree).filter((key) => jql.includes(key))
+        : ["AIPR-1309"];
+      return { stdout: encodeJson(keys.map((key) => ({ key, fields: {} }))), code: 0 };
+    }
+    if (group === "workitem" && action === "view") {
+      const key = args[3] as keyof typeof tree;
+      return { stdout: encodeJson(tree[key]), code: 0 };
+    }
+    if (group === "board" && action === "search") {
+      return { stdout: encodeJson({ values: [{ id: 430, type: "scrum" }] }), code: 0 };
+    }
+    if (group === "board" && action === "list-sprints") {
+      return {
+        stdout: encodeJson({ sprints: [{ id: 5851, name: "Sprint 22", state: "active" }] }),
+        code: 0,
+      };
+    }
+    if (group === "workitem" && action === "create") {
+      return { stdout: encodeJson({ key: "AIPR-1400" }), code: 0 };
+    }
+    return { stdout: `unexpected ${args.join(" ")}`, code: 1 };
+  };
+
 describe("JiraService", () => {
+  it.effect("syncs through acli when it is installed, without the connector", () =>
+    Effect.gen(function* () {
+      const calls = yield* Ref.make<ReadonlyArray<ConnectorAgentRun>>([]);
+      const ran: Array<ReadonlyArray<string>> = [];
+      yield* Effect.gen(function* () {
+        const jira = yield* JiraService.JiraService;
+        yield* jira.command({ type: "sync" });
+        const synced = yield* waitFor(jira, (snapshot) => snapshot.sync.status === "ok");
+        expect(synced.signIn).toBe("cli");
+        expect(synced.siteUrl).toBe("https://example.atlassian.net");
+        expect(synced.issues.map((issue) => [issue.key, issue.parentKey])).toEqual(
+          expect.arrayContaining([
+            ["AIPR-1309", "AIPR-1177"],
+            ["AIPR-1177", "AIPR-1057"],
+            ["AIPR-1057", null],
+          ]),
+        );
+        expect(synced.sprints).toEqual([
+          { id: 5851, name: "Sprint 22", state: "active", boardId: 430 },
+        ]);
+        expect(yield* Ref.get(calls)).toEqual([]);
+
+        yield* jira.command({
+          type: "createTicket",
+          threadId,
+          draft: {
+            parentKey: "AIPR-1309",
+            type: "Sub-task",
+            summary: "Dark mode toggle",
+            description: "Add a theme toggle.",
+          },
+        });
+        yield* waitFor(jira, (snapshot) =>
+          snapshot.links.some((entry) => entry.key === "AIPR-1400"),
+        );
+        const create = ran.find((args) => args[2] === "create");
+        expect(create).toEqual(
+          expect.arrayContaining(["--project", "AIPR", "--parent", "AIPR-1309", "@me"]),
+        );
+      }).pipe(Effect.provide(makeLayer(calls, fakeCli(cliJira({ value: true }), ran))));
+    }),
+  );
+
+  it.effect("marks Jira signed out when acli loses its login", () =>
+    Effect.gen(function* () {
+      const calls = yield* Ref.make<ReadonlyArray<ConnectorAgentRun>>([]);
+      const signedIn = { value: true };
+      yield* Effect.gen(function* () {
+        const jira = yield* JiraService.JiraService;
+        yield* jira.command({ type: "sync" });
+        yield* waitFor(jira, (snapshot) => snapshot.sync.status === "ok");
+        signedIn.value = false;
+        const failed = yield* jira
+          .command({ type: "loadDetails", key: "AIPR-1309" })
+          .pipe(Effect.flip);
+        expect(failed.message).toContain("acli jira auth login");
+        const signedOut = yield* waitFor(jira, (snapshot) => snapshot.sync.status === "signed-out");
+        expect(signedOut.signIn).toBe("cli");
+      }).pipe(Effect.provide(makeLayer(calls, fakeCli(cliJira(signedIn), []))));
+    }),
+  );
+
   it.effect("syncs the tree up to the initiative, then suggests and links a ticket", () =>
     Effect.gen(function* () {
       const calls = yield* Ref.make<ReadonlyArray<ConnectorAgentRun>>([]);

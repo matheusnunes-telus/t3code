@@ -10,6 +10,9 @@ import {
   mergeSync,
   missingAncestors,
   parseAccessibleSite,
+  parseBoardIds,
+  parseBoardSprints,
+  parseCliSearchKeys,
   parseIssueDetails,
   parseIssueSearch,
   parseOpenSprints,
@@ -410,5 +413,46 @@ describe("parseOpenSprints", () => {
     );
     expect(sprints?.map((entry) => entry.name)).toEqual(["Sprint 22 - GAINS", "Sprint 23 - GAINS"]);
     expect(parseOpenSprints("not json")).toBeUndefined();
+  });
+});
+
+describe("Atlassian CLI replies", () => {
+  it("reads search keys, scrum boards and open sprints", () => {
+    expect(parseCliSearchKeys(encodeJson([{ key: "AIPR-1" }, null, { key: "AIPR-2" }]))).toEqual([
+      "AIPR-1",
+      "AIPR-2",
+    ]);
+    expect(parseCliSearchKeys("✗ Error: unauthorized")).toBeUndefined();
+    expect(
+      parseBoardIds(
+        encodeJson({
+          values: [
+            { id: 430, type: "scrum" },
+            { id: 431, type: "kanban" },
+          ],
+        }),
+      ),
+    ).toEqual([430]);
+    const sprints = parseBoardSprints([
+      {
+        boardId: 430,
+        reply: encodeJson({
+          sprints: [
+            { id: 5852, name: "Sprint 23 - GAINS", state: "future" },
+            { id: 5851, name: "Sprint 22 - GAINS", state: "active" },
+            { id: 5841, name: "Sprint 21", state: "closed" },
+          ],
+        }),
+      },
+      { boardId: 431, reply: "not json" },
+    ]);
+    expect(sprints).toEqual([
+      { id: 5851, name: "Sprint 22 - GAINS", state: "active", boardId: 430 },
+      { id: 5852, name: "Sprint 23 - GAINS", state: "future", boardId: 430 },
+    ]);
+  });
+
+  it("counts acli's sign-out wording as signed out", () => {
+    expect(looksSignedOut("✗ Not authenticated")).toBe(true);
   });
 });

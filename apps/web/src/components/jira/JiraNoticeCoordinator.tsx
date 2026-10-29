@@ -1,4 +1,4 @@
-import type { EnvironmentId, JiraSyncStatus } from "@t3tools/contracts";
+import type { EnvironmentId, JiraSnapshot, JiraSyncStatus } from "@t3tools/contracts";
 import { useEffect, useRef } from "react";
 
 import { readLocalApi } from "~/localApi";
@@ -17,16 +17,19 @@ const openConnectorSettings = () => {
 };
 
 /**
- * Raises one lasting toast when Jira loses its Atlassian login, with a link to reconnect it.
- * After the link is used, coming back to the window checks again, and the toast closes once
- * a call works.
+ * Raises one lasting toast when Jira loses its Atlassian login. With the Atlassian CLI, its
+ * button opens the CLI's browser login and the server syncs once it works. With the claude.ai
+ * connector it links to the connector settings, and coming back to the window checks again.
+ * The toast closes once a call works.
  */
 function JiraSignInToast({
   environmentId,
   status,
+  signIn,
 }: {
   environmentId: EnvironmentId;
   status: JiraSyncStatus | null;
+  signIn: JiraSnapshot["signIn"];
 }) {
   const command = useJiraCommand(environmentId);
   const toastId = useRef<ReturnType<typeof toastManager.add> | null>(null);
@@ -54,21 +57,24 @@ function JiraSignInToast({
       type: "warning",
       title: "Jira signed you out",
       description:
-        "Reconnect Atlassian in your claude.ai connector settings. T3 checks again when you come back.",
+        signIn === "cli"
+          ? "Sign in to Atlassian in the browser. T3 syncs as soon as it works."
+          : "Reconnect Atlassian in your claude.ai connector settings. T3 checks again when you come back.",
       timeout: 0,
       actionProps: {
-        children: "Reconnect",
+        children: signIn === "cli" ? "Sign in" : "Reconnect",
         onClick: () => {
           reconnecting.current = true;
-          openConnectorSettings();
+          if (signIn === "cli") void command({ type: "signIn" });
+          else openConnectorSettings();
         },
       },
     });
-  }, [status]);
+  }, [status, signIn, command]);
 
   // oxlint-disable-next-line t3code/react-effect-budget -- returning from the browser is a window event; it rechecks the login only after Reconnect was used.
   useEffect(() => {
-    if (!signedOut) return;
+    if (!signedOut || signIn === "cli") return;
     const recheck = () => {
       if (!reconnecting.current || Date.now() - lastCheck.current < RECHECK_GAP_MS) return;
       lastCheck.current = Date.now();
@@ -76,7 +82,7 @@ function JiraSignInToast({
     };
     window.addEventListener("focus", recheck);
     return () => window.removeEventListener("focus", recheck);
-  }, [signedOut, command]);
+  }, [signedOut, signIn, command]);
 
   return null;
 }
@@ -106,6 +112,7 @@ export function JiraNoticeCoordinator() {
     <JiraSignInToast
       environmentId={environmentId}
       status={snapshot?.enabled === true ? snapshot.sync.status : null}
+      signIn={snapshot?.signIn ?? "connector"}
     />
   );
 }
