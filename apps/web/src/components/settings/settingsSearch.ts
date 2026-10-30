@@ -646,6 +646,14 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["atlassian cloud id site url"],
   },
   {
+    id: "jira-suggest",
+    title: "Suggest tickets for new chats",
+    to: "/settings/threads",
+    targetId: "jira",
+    scope: "environment-defaults",
+    searchTerms: ["jira ticket match suggest ask automatic new chat first message"],
+  },
+  {
     id: "google-cloud",
     title: "Google Cloud",
     to: "/settings/threads",

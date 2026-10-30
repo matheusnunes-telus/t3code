@@ -1249,6 +1249,10 @@ export const ServerSettings = Schema.Struct({
   ),
   /** The Atlassian site or cloud id; empty picks the first site the connector can reach. */
   jiraSite: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+  /** Whether a new chat's first message looks for its Jira ticket: after asking, always, or never. */
+  jiraSuggest: Schema.Literals(["ask", "always", "off"]).pipe(
+    Schema.withDecodingDefault(Effect.succeed("ask" as const)),
+  ),
 
   /** Watches the gcloud login and shows linked Google Cloud projects; it stays idle without gcloud. */
   googleCloudEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
@@ -1565,6 +1569,7 @@ export const ServerSettingsPatch = Schema.Struct({
   reviewGuideModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
   jiraModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
   jiraSite: Schema.optionalKey(TrimmedString),
+  jiraSuggest: Schema.optionalKey(Schema.Literals(["ask", "always", "off"])),
   googleCloudEnabled: Schema.optionalKey(Schema.Boolean),
   gcloudPath: Schema.optionalKey(TrimmedString),
   reviewGuideInstructions: Schema.optionalKey(TrimmedString),

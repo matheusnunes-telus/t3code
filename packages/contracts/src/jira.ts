@@ -118,6 +118,8 @@ export const JiraTicketDraft = Schema.Struct({
 export type JiraTicketDraft = typeof JiraTicketDraft.Type;
 
 export const JiraSuggestionState = Schema.Literals([
+  /** Asked whether to look for a ticket; nothing has run yet. */
+  "offered",
   "matching",
   "ready",
   "creating",

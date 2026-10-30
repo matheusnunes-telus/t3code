@@ -333,7 +333,15 @@ describe("JiraService", () => {
           searches.every((call) => call.toolPrefixes.includes("mcp__claude_ai_Atlassian")),
         ).toBe(true);
 
+        // By default the first message only offers to look; nothing runs until asked.
         yield* jira.onFirstMessage({ threadId, message: "tweak the board agent buttons" });
+        const offered = yield* waitFor(jira, (snapshot) =>
+          snapshot.suggestions.some((entry) => entry.state === "offered"),
+        );
+        expect(offered.suggestions[0]?.matches).toEqual([]);
+        expect((yield* Ref.get(calls)).some((call) => call.operation === "jira.match")).toBe(false);
+
+        yield* jira.command({ type: "suggestion", threadId, action: "rematch" });
         const suggested = yield* waitFor(jira, (snapshot) =>
           snapshot.suggestions.some((entry) => entry.state === "ready"),
         );
@@ -421,6 +429,26 @@ describe("JiraService", () => {
         );
         expect(create?.prompt).toContain('"assignee_account_id":"me-1"');
         expect(create?.prompt).toContain('"projectKey":"AIPR"');
+      }).pipe(Effect.provide(makeLayer(calls)));
+    }),
+  );
+
+  it.effect("links a ticket key typed in the first message without asking or a model", () =>
+    Effect.gen(function* () {
+      const calls = yield* Ref.make<ReadonlyArray<ConnectorAgentRun>>([]);
+      yield* Effect.gen(function* () {
+        const jira = yield* JiraService.JiraService;
+        yield* jira.command({ type: "sync" });
+        yield* waitFor(jira, (snapshot) => snapshot.sync.status === "ok");
+        yield* jira.onFirstMessage({ threadId, message: "fix AIPR-1309 buttons" });
+        const ready = yield* waitFor(jira, (snapshot) =>
+          snapshot.suggestions.some((entry) => entry.state === "ready"),
+        );
+        expect(ready.suggestions[0]?.matches[0]).toMatchObject({
+          key: "AIPR-1309",
+          confidence: "high",
+        });
+        expect((yield* Ref.get(calls)).some((call) => call.operation === "jira.match")).toBe(false);
       }).pipe(Effect.provide(makeLayer(calls)));
     }),
   );

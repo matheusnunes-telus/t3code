@@ -795,6 +795,11 @@ export const make = Effect.gen(function* () {
     "JiraService.onFirstMessage",
   )(function* (input) {
     if ((yield* selection) === null || input.message.trim().length === 0) return;
+    const mode = yield* serverSettings.getSettings.pipe(
+      Effect.map((settings) => settings.jiraSuggest),
+      Effect.orElseSucceed(() => "ask" as const),
+    );
+    if (mode === "off") return;
     const current = yield* Ref.get(store);
     if (current.issues.length === 0) return;
     if (
@@ -803,7 +808,18 @@ export const make = Effect.gen(function* () {
     ) {
       return;
     }
-    yield* fork(runMatch(input.threadId, input.message));
+    // A key typed in the message is a sure match and costs no model call, so it never waits.
+    if (mode === "always" || keysMentioned(input.message, current.issues).length > 0) {
+      return yield* fork(runMatch(input.threadId, input.message));
+    }
+    yield* putSuggestion({
+      threadId: input.threadId,
+      createdAt: yield* nowIso,
+      state: "offered",
+      matches: [],
+      draft: null,
+      message: null,
+    });
   });
 
   const link: JiraService["Service"]["link"] = Effect.fn("JiraService.link")(function* (input) {

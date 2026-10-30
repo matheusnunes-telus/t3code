@@ -177,6 +177,27 @@ function suggestionBanner(input: {
   switch (suggestion.state) {
     case "dismissed":
       return null;
+    case "offered":
+      return {
+        id,
+        variant: "default",
+        icon: <TicketIcon />,
+        title: "Look for a Jira ticket for this chat?",
+        description: "Matching reads your ticket tree with the Jira model.",
+        actions: (
+          <>
+            <Button
+              size="xs"
+              onClick={() => void command({ type: "suggestion", threadId, action: "rematch" })}
+            >
+              Find ticket
+            </Button>
+            <Button size="xs" variant="ghost" onClick={dismiss}>
+              Not needed
+            </Button>
+          </>
+        ),
+      };
     case "matching":
       return {
         id,

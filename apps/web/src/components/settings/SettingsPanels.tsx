@@ -1984,6 +1984,47 @@ export function ThreadsSettingsPanel() {
             }
           />
         ) : null}
+        {settings.jiraModelSelection !== null ? (
+          <SettingsRow
+            serverScoped
+            settingKeys={["jiraSuggest"]}
+            {...searchableSetting("jira-suggest")}
+            description="What a new chat's first message does about Jira. Ask first shows a Find ticket button above the message box; a ticket key typed in the message links right away either way."
+            control={
+              <Select
+                value={settings.jiraSuggest}
+                onValueChange={(value) =>
+                  updateSettings({ jiraSuggest: (value ?? "ask") as typeof settings.jiraSuggest })
+                }
+              >
+                <SelectTrigger
+                  size="sm"
+                  className="w-40"
+                  aria-label="Suggest tickets for new chats"
+                >
+                  <SelectValue>
+                    {settings.jiraSuggest === "always"
+                      ? "Always"
+                      : settings.jiraSuggest === "off"
+                        ? "Never"
+                        : "Ask first"}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectPopup align="end" alignItemWithTrigger={false}>
+                  <SelectItem hideIndicator value="ask">
+                    Ask first
+                  </SelectItem>
+                  <SelectItem hideIndicator value="always">
+                    Always
+                  </SelectItem>
+                  <SelectItem hideIndicator value="off">
+                    Never
+                  </SelectItem>
+                </SelectPopup>
+              </Select>
+            }
+          />
+        ) : null}
       </SettingsSection>
 
       <SettingsSection id="google-cloud-section" title="Google Cloud">
