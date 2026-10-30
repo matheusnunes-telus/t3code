@@ -374,7 +374,7 @@ import {
   JiraSnapshot,
   JiraSubscribeInput,
 } from "./jira.ts";
-import { GcpCommand, GcpError, GcpSnapshot, GcpSubscribeInput } from "./gcp.ts";
+import { GcpCommand, GcpCommandResult, GcpError, GcpSnapshot, GcpSubscribeInput } from "./gcp.ts";
 import {
   ProjectCloneActionInput,
   ProjectCloneActionResult,
@@ -1858,6 +1858,7 @@ const WsGcpSubscribeRpc = Rpc.make(WS_METHODS.gcpSubscribe, {
 });
 const WsGcpCommandRpc = Rpc.make(WS_METHODS.gcpCommand, {
   payload: GcpCommand,
+  success: GcpCommandResult,
   error: GcpRpcError,
 });
 

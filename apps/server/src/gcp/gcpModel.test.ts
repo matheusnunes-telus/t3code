@@ -1,6 +1,14 @@
 import { describe, expect, it } from "@effect/vitest";
 
-import { classifyLogin, gcloudCandidates } from "./gcpModel.ts";
+import {
+  classifyLogin,
+  environmentNameOf,
+  gcloudCandidates,
+  isTerraformCandidate,
+  matchCloudProjects,
+  nameTokens,
+  suggestEnvironments,
+} from "./gcpModel.ts";
 
 describe("gcloudCandidates", () => {
   it("tries the configured path, then PATH, then the usual install folders, once each", () => {
@@ -73,5 +81,84 @@ describe("classifyLogin", () => {
           "ERROR: (gcloud.auth.print-access-token) There was a problem refreshing your current auth tokens: ('Connection aborted.', RemoteDisconnected())",
       }).status,
     ).toBe("error");
+  });
+});
+
+describe("link suggestions", () => {
+  const projects = [
+    { projectId: "acme-billing-pr-9f8e7d", name: "acme-billing-pr" },
+    { projectId: "acme-billing-np-1a2b3c", name: "acme-billing-np" },
+    { projectId: "acme-search-np-4d5e6f", name: "acme-search-np" },
+  ];
+
+  it("matches the account's projects by distinctive name words, non-prod first", () => {
+    const tokens = nameTokens("billing", "billing-service");
+    expect(tokens).toEqual(["billing"]);
+    expect(matchCloudProjects(tokens, projects).map((project) => project.projectId)).toEqual([
+      "acme-billing-np-1a2b3c",
+      "acme-billing-pr-9f8e7d",
+    ]);
+    expect(matchCloudProjects(nameTokens("web app"), projects)).toEqual([]);
+  });
+
+  it("names environments from common markers and keeps the id otherwise", () => {
+    expect(environmentNameOf("acme-billing-np-1a2b3c").name).toBe("NP");
+    expect(environmentNameOf("acme-billing-prod").name).toBe("Prod");
+    expect(environmentNameOf("acme-billing-staging").name).toBe("Staging");
+    expect(environmentNameOf("acme-billing").name).toBe("acme-billing");
+  });
+
+  it("pairs each environment with the deploy workflow that names it, or by file name", () => {
+    const environments = suggestEnvironments({
+      projects: [projects[1]!, projects[0]!],
+      workflows: [
+        { path: ".github/workflows/ci.yml", content: "runs tests" },
+        {
+          path: ".github/workflows/deploy-np.yml",
+          content:
+            "env:\n  PROJECT_ID: acme-billing-np-1a2b3c\n  REGION: europe-west1\nuses: google-github-actions/deploy-cloudrun@v2",
+        },
+        {
+          path: ".github/workflows/deploy-prod.yml",
+          content: "project: ${{ vars.PROJECT }}\nrun: kubectl apply -f k8s/",
+        },
+      ],
+    });
+    expect(environments).toEqual([
+      {
+        name: "NP",
+        projectId: "acme-billing-np-1a2b3c",
+        region: "europe-west1",
+        runtime: "cloud-run",
+        deployWorkflow: ".github/workflows/deploy-np.yml",
+      },
+      {
+        name: "Prod",
+        projectId: "acme-billing-pr-9f8e7d",
+        region: null,
+        runtime: "gke",
+        deployWorkflow: ".github/workflows/deploy-prod.yml",
+      },
+    ]);
+  });
+
+  it("only offers folders with Terraform files that share a name word", () => {
+    const tokens = ["billing"];
+    expect(
+      isTerraformCandidate({ folderName: "tf-infra-billing", tokens, hasTerraformFiles: true }),
+    ).toBe(true);
+    expect(
+      isTerraformCandidate({ folderName: "tf-infra-billing", tokens, hasTerraformFiles: false }),
+    ).toBe(false);
+    expect(
+      isTerraformCandidate({
+        folderName: "tf-infra-billing.worktrees",
+        tokens,
+        hasTerraformFiles: true,
+      }),
+    ).toBe(false);
+    expect(
+      isTerraformCandidate({ folderName: "tf-infra-search", tokens, hasTerraformFiles: true }),
+    ).toBe(false);
   });
 });

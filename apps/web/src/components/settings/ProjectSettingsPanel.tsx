@@ -40,6 +40,7 @@ import {
   SettingsRow,
   SettingsSection,
 } from "./settingsLayout";
+import { GcpProjectSection } from "../gcp/GcpProjectSection";
 import {
   canPickExternalProjectFavicon,
   ProjectFaviconPickerDialog,
@@ -563,6 +564,15 @@ function ProjectDetail({
         <ProjectDefaultsSettings category="project" />
         <ProjectActionsSettings />
         {hasMultipleCheckouts ? checkoutChoices : null}
+        <GcpProjectSection
+          environmentId={representative.environmentId}
+          target={{
+            key: group.projectKey,
+            title: group.displayName,
+            projectIds: group.memberProjects.map((member) => member.id),
+            workspaceRoot: representative.workspaceRoot,
+          }}
+        />
         <SettingsSection title="Danger">
           <SettingsRow
             title={
