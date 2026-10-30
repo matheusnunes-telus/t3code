@@ -1,4 +1,5 @@
 import { NotificationSettings } from "./NotificationSettings";
+import { useGcpSnapshot } from "~/state/gcp";
 import { PRIVACY_POLICY_URL } from "../../legalLinks";
 import { CheckIcon } from "lucide-react";
 import { Link, useNavigate } from "@tanstack/react-router";
@@ -1516,6 +1517,7 @@ export function ThreadsSettingsPanel() {
   const navigate = useNavigate();
   const { environment, connectedEnvironments, target } = useSettingsScope();
   const environmentId = environment?.environmentId ?? null;
+  const gcpSnapshot = useGcpSnapshot(environmentId);
   const hasServerTargets = connectedEnvironments.length > 0;
   const mixedResponseStreamingMode = useScopedSettingsMixed(["responseStreamingMode"]);
   const providersByEnvironment = useEnvironmentProviders();
@@ -1977,6 +1979,48 @@ export function ThreadsSettingsPanel() {
                 onBlur={(event) => {
                   const next = event.currentTarget.value.trim();
                   if (next !== settings.jiraSite) updateSettings({ jiraSite: next });
+                }}
+              />
+            }
+          />
+        ) : null}
+      </SettingsSection>
+
+      <SettingsSection id="google-cloud-section" title="Google Cloud">
+        <SettingsRow
+          serverScoped
+          settingKeys={["googleCloudEnabled"]}
+          {...searchableSetting("google-cloud")}
+          description="Watches your gcloud login and tells you when it expires, with a button to sign in again. Stays hidden on machines without gcloud."
+          control={
+            <Switch
+              checked={settings.googleCloudEnabled}
+              onCheckedChange={(checked) =>
+                updateSettings({ googleCloudEnabled: Boolean(checked) })
+              }
+              aria-label="Google Cloud"
+            />
+          }
+        />
+        {settings.googleCloudEnabled ? (
+          <SettingsRow
+            serverScoped
+            settingKeys={["gcloudPath"]}
+            {...searchableSetting("gcloud-path")}
+            description={
+              gcpSnapshot?.auth.gcloudPath
+                ? `Using ${gcpSnapshot.auth.gcloudPath}. Set a path only to use another gcloud.`
+                : "Leave it empty to look on your PATH and in the usual install folders."
+            }
+            control={
+              <Input
+                size="sm"
+                className="w-64"
+                placeholder="Found automatically"
+                defaultValue={settings.gcloudPath}
+                onBlur={(event) => {
+                  const next = event.currentTarget.value.trim();
+                  if (next !== settings.gcloudPath) updateSettings({ gcloudPath: next });
                 }}
               />
             }

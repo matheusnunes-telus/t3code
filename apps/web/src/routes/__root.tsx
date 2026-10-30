@@ -29,6 +29,7 @@ import { DesktopAppActivationCoordinator } from "../components/desktop/DesktopAp
 import { DesktopWebLinkCoordinator } from "../components/desktop/DesktopWebLinkCoordinator";
 import { RunningThreadKeepAlive } from "../components/desktop/RunningThreadKeepAlive";
 import { JiraNoticeCoordinator } from "../components/jira/JiraNoticeCoordinator";
+import { GcpNoticeCoordinator } from "../components/gcp/GcpNoticeCoordinator";
 import { ReopenClosedViewShortcut } from "../components/ReopenClosedViewShortcut";
 import { ProjectCloneToastCoordinator } from "../components/ProjectCloneToastCoordinator";
 import { ChatGptWelcomeCoordinator } from "../components/settings/ChatGptWelcomeCoordinator";
@@ -203,6 +204,7 @@ function RootRouteBranch() {
         <SshPasswordPromptDialog />
         <SnapShotCoordinator />
         {primaryEnvironmentAuthenticated ? <JiraNoticeCoordinator /> : null}
+        {primaryEnvironmentAuthenticated ? <GcpNoticeCoordinator /> : null}
         <ReopenClosedViewShortcut />
         <ConfirmDialogHost />
         <CustomSnoozeDialogHost />

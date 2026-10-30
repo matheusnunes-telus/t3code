@@ -5,7 +5,8 @@ import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 
 import { useEnvironmentIdentificationMode } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
-import { usePullRequestsSupported } from "../../state/environments";
+import { usePrimaryEnvironmentId, usePullRequestsSupported } from "../../state/environments";
+import { GcpLoginStatus } from "../gcp/GcpLoginStatus";
 import { T3Wordmark } from "../T3Wordmark";
 import {
   resolveEnvironmentIdentificationPillLabel,
@@ -233,9 +234,13 @@ export const SidebarChromeFooter = memo(function SidebarChromeFooter({
 }: {
   showUndoNotice?: boolean;
 }) {
+  const primaryEnvironmentId = usePrimaryEnvironmentId();
   return (
     <SidebarFooter>
       {showUndoNotice ? <SidebarThreadUndoNotice /> : null}
+      {primaryEnvironmentId !== null ? (
+        <GcpLoginStatus environmentId={primaryEnvironmentId} className="px-2" />
+      ) : null}
       <SidebarProviderUpdatePill />
       <SidebarUpdateArchitectureWarning />
       <SidebarUtilityMenu />

@@ -1270,6 +1270,10 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:server:jira:live",
       tag: WS_METHODS.jiraSubscribe,
     }),
+    gcpLive: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
+      label: "environment-data:server:gcp:live",
+      tag: WS_METHODS.gcpSubscribe,
+    }),
     // A cold transcript scan is measured in seconds, so keep the result around
     // long enough that switching windows or re-rendering does not rescan.
     usageSummary: createEnvironmentRpcQueryAtomFamily(runtime, {
@@ -1517,6 +1521,10 @@ export function createServerEnvironmentAtoms<R, E>(
     jiraCommand: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:jira:command",
       tag: WS_METHODS.jiraCommand,
+    }),
+    gcpCommand: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:gcp:command",
+      tag: WS_METHODS.gcpCommand,
     }),
     rotateScheduledTaskWebhookToken: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:scheduled-task:rotate-webhook-token",

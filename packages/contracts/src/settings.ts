@@ -1250,6 +1250,11 @@ export const ServerSettings = Schema.Struct({
   /** The Atlassian site or cloud id; empty picks the first site the connector can reach. */
   jiraSite: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
 
+  /** Watches the gcloud login and shows linked Google Cloud projects; it stays idle without gcloud. */
+  googleCloudEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  /** The gcloud binary to use; empty looks on PATH and in the usual install folders. */
+  gcloudPath: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+
   pullRequestMergeMethod: Schema.NullOr(PullRequestMergeMethod).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
@@ -1560,6 +1565,8 @@ export const ServerSettingsPatch = Schema.Struct({
   reviewGuideModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
   jiraModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
   jiraSite: Schema.optionalKey(TrimmedString),
+  googleCloudEnabled: Schema.optionalKey(Schema.Boolean),
+  gcloudPath: Schema.optionalKey(TrimmedString),
   reviewGuideInstructions: Schema.optionalKey(TrimmedString),
   pullRequestMergeMethod: Schema.optionalKey(Schema.NullOr(PullRequestMergeMethod)),
   observability: Schema.optionalKey(

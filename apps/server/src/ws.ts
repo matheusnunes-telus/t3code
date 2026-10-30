@@ -122,6 +122,7 @@ import * as DocumentText from "./provider/DocumentText.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as ScheduledTasks from "./scheduledTasks/ScheduledTaskService.ts";
 import * as Jira from "./jira/JiraService.ts";
+import * as Gcp from "./gcp/GcpService.ts";
 import * as SecretRequests from "./secrets/SecretRequests.ts";
 import * as GuestShareService from "./guest/GuestShareService.ts";
 import {
@@ -1283,6 +1284,7 @@ export const layerWsRpc = (
       const providerSessionManager = yield* ProviderSessionManager.ProviderSessionManagerV2;
       const scheduledTasks = yield* ScheduledTasks.ScheduledTaskService;
       const jira = yield* Jira.JiraService;
+      const gcp = yield* Gcp.GcpService;
       const secretRequests = yield* SecretRequests.SecretRequests;
       const guestShares = yield* GuestShareService.GuestShareService;
       const pullRequests = yield* PullRequestService.PullRequestService;
@@ -2186,6 +2188,8 @@ export const layerWsRpc = (
         [WS_METHODS.scheduledTasksUpsert]: (input) => scheduledTasks.upsert(input),
         [WS_METHODS.jiraSubscribe]: (_input) => jira.subscribe(),
         [WS_METHODS.jiraCommand]: (input) => jira.command(input),
+        [WS_METHODS.gcpSubscribe]: (_input) => gcp.subscribe(),
+        [WS_METHODS.gcpCommand]: (input) => gcp.command(input),
         [WS_METHODS.scheduledTasksSetEnabled]: (input) =>
           Effect.annotateCurrentSpan({ "scheduled_task.id": input.id }).pipe(
             Effect.andThen(scheduledTasks.setEnabled(input)),

@@ -646,6 +646,21 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["atlassian cloud id site url"],
   },
   {
+    id: "google-cloud",
+    title: "Google Cloud",
+    to: "/settings/threads",
+    scope: "environment-defaults",
+    searchTerms: ["gcp gcloud login expired sign in auth cloud run project"],
+  },
+  {
+    id: "gcloud-path",
+    title: "gcloud path",
+    to: "/settings/threads",
+    targetId: "google-cloud",
+    scope: "environment-defaults",
+    searchTerms: ["gcp gcloud sdk binary location install"],
+  },
+  {
     id: "thread-title-instructions",
     title: "Thread title instructions",
     to: "/settings/threads",

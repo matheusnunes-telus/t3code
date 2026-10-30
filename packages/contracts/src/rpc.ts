@@ -374,6 +374,7 @@ import {
   JiraSnapshot,
   JiraSubscribeInput,
 } from "./jira.ts";
+import { GcpCommand, GcpError, GcpSnapshot, GcpSubscribeInput } from "./gcp.ts";
 import {
   ProjectCloneActionInput,
   ProjectCloneActionResult,
@@ -543,6 +544,8 @@ export const WS_METHODS = {
 
   jiraSubscribe: "jira.subscribe",
   jiraCommand: "jira.command",
+  gcpSubscribe: "gcp.subscribe",
+  gcpCommand: "gcp.command",
 
   cloudGetRelayClientStatus: "cloud.getRelayClientStatus",
   cloudInstallRelayClient: "cloud.installRelayClient",
@@ -1845,6 +1848,19 @@ const WsJiraSubscribeRpc = Rpc.make(WS_METHODS.jiraSubscribe, {
   error: JiraRpcError,
   stream: true,
 });
+const GcpRpcError = Schema.Union([GcpError, EnvironmentAuthorizationError]);
+
+const WsGcpSubscribeRpc = Rpc.make(WS_METHODS.gcpSubscribe, {
+  payload: GcpSubscribeInput,
+  success: GcpSnapshot,
+  error: GcpRpcError,
+  stream: true,
+});
+const WsGcpCommandRpc = Rpc.make(WS_METHODS.gcpCommand, {
+  payload: GcpCommand,
+  error: GcpRpcError,
+});
+
 const WsJiraCommandRpc = Rpc.make(WS_METHODS.jiraCommand, {
   payload: JiraCommand,
   success: JiraCommandResult,
@@ -2018,6 +2034,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsScheduledTasksGetWebhookDeliveryRpc,
   WsJiraSubscribeRpc,
   WsJiraCommandRpc,
+  WsGcpSubscribeRpc,
+  WsGcpCommandRpc,
   WsServerReportClientActivityRpc,
   WsServerReportHostPowerStateRpc,
   WsServerGetBackgroundPolicyRpc,
