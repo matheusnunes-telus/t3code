@@ -46,8 +46,13 @@ export interface ConnectorAgentRun {
   readonly operation: string;
   readonly prompt: string;
   readonly modelSelection: ModelSelection;
-  /** Tool name prefixes it may call, such as `mcp__claude_ai_Atlassian__`; nothing else runs. */
+  /** Tool name prefixes it may call, such as `mcp__atlassian`; nothing else runs. */
   readonly toolPrefixes: ReadonlyArray<string>;
+  /**
+   * The only MCP servers the run loads, by name, as in `.mcp.json`. Each one keeps the login
+   * the account saved for that name. Left out, every server and connector the account has loads.
+   */
+  readonly mcpServers?: Readonly<Record<string, unknown>>;
   /** JSON Schema for its final answer, when the caller needs one. */
   readonly outputSchema?: unknown;
   readonly timeoutMs?: number;
@@ -71,6 +76,16 @@ export interface ConnectorAgent {
   readonly run: (
     request: ConnectorAgentRun,
   ) => Effect.Effect<ConnectorAgentResult, TextGenerationError>;
+  /**
+   * Runs the account's browser login for one MCP server, adding the server to the account
+   * first when it has none by that name. It ends once the login is saved, or fails.
+   */
+  readonly signIn?: (input: {
+    readonly name: string;
+    readonly url: string;
+    /** Called with the sign-in page, in case no browser tab opened for it. */
+    readonly onUrl: (url: string) => Effect.Effect<void>;
+  }) => Effect.Effect<void, TextGenerationError>;
 }
 
 export interface ProviderInstance {

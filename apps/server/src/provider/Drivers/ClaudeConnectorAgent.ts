@@ -22,6 +22,14 @@ import {
 import { makeClaudeEnvironment } from "./ClaudeHome.ts";
 
 const CONNECTOR_AGENT_TIMEOUT_MS = 180_000;
+const SIGN_IN_TIMEOUT_MS = 300_000;
+
+/** Runs the command after it in a pseudo-terminal and exits with its code. */
+const PTY_SCRIPT =
+  "import os, pty, sys; sys.exit(os.waitstatus_to_exitcode(pty.spawn(sys.argv[1:])))";
+
+/** The OAuth page `claude mcp login` prints; terminal link codes end it. */
+const SIGN_IN_URL = /https:\/\/[^\s\x07\x1b]*authorize[^\s\x07\x1b]*/;
 
 const decodeJsonLine = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Unknown));
 const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
@@ -195,6 +203,15 @@ export const makeClaudeConnectorAgent = Effect.fn("makeClaudeConnectorAgent")(fu
           ...(request.toolPrefixes.length > 0
             ? ["--allowedTools", request.toolPrefixes.join(",")]
             : []),
+          // Every connector's tool list is sent each turn, so naming the servers keeps runs small.
+          ...(request.mcpServers === undefined
+            ? []
+            : [
+                "--strict-mcp-config",
+                ...(Object.keys(request.mcpServers).length === 0
+                  ? []
+                  : ["--mcp-config", encodeJson({ mcpServers: request.mcpServers })]),
+              ]),
           "--disable-slash-commands",
           "--permission-mode",
           "dontAsk",
@@ -262,5 +279,124 @@ export const makeClaudeConnectorAgent = Effect.fn("makeClaudeConnectorAgent")(fu
     );
   });
 
-  return { run } satisfies ConnectorAgent;
+  /** One `claude` command, with its exit code and output, run outside any pseudo-terminal. */
+  const runClaude = Effect.fn("ClaudeConnectorAgent.runClaude")(function* (
+    operation: string,
+    args: ReadonlyArray<string>,
+  ) {
+    const spawnCommand = yield* resolveSpawnCommand(claudeSettings.binaryPath || "claude", args, {
+      env: claudeEnvironment,
+    });
+    const child = yield* commandSpawner
+      .spawn(
+        ChildProcess.make(spawnCommand.command, spawnCommand.args, {
+          env: claudeEnvironment,
+          shell: spawnCommand.shell,
+          forceKillAfter: "1 second",
+        }),
+      )
+      .pipe(
+        Effect.mapError((cause) =>
+          normalizeCliError("claude", operation, cause, "Failed to spawn Claude CLI process"),
+        ),
+      );
+    const [output, exitCode] = yield* Effect.all(
+      [
+        collect(operation, child.all),
+        child.exitCode.pipe(
+          Effect.mapError((cause) =>
+            normalizeCliError("claude", operation, cause, "Failed to read Claude CLI exit code"),
+          ),
+        ),
+      ],
+      { concurrency: "unbounded" },
+    );
+    return { output, exitCode };
+  }, Effect.scoped);
+
+  const signIn: NonNullable<ConnectorAgent["signIn"]> = Effect.fn("ClaudeConnectorAgent.signIn")(
+    function* (input) {
+      const operation = "mcp.signIn";
+      const existing = yield* runClaude(operation, ["mcp", "get", input.name]);
+      if (existing.exitCode !== 0) {
+        const added = yield* runClaude(operation, [
+          "mcp",
+          "add",
+          "--transport",
+          "http",
+          "--scope",
+          "user",
+          input.name,
+          input.url,
+        ]);
+        if (added.exitCode !== 0) {
+          return yield* new TextGenerationError({
+            operation,
+            detail: `Could not add the ${input.name} MCP server: ${added.output.trim().slice(-500)}`,
+          });
+        }
+      }
+      // `claude mcp login` wants a terminal, so Python lends it one; it opens the browser itself.
+      const login = yield* resolveSpawnCommand(claudeSettings.binaryPath || "claude", [], {
+        env: claudeEnvironment,
+      });
+      const child = yield* commandSpawner
+        .spawn(
+          ChildProcess.make(
+            "python3",
+            ["-c", PTY_SCRIPT, login.command, ...login.args, "mcp", "login", input.name],
+            { env: claudeEnvironment, forceKillAfter: "1 second" },
+          ),
+        )
+        .pipe(
+          Effect.mapError((cause) =>
+            normalizeCliError("claude", operation, cause, "Failed to start the MCP login"),
+          ),
+        );
+      let output = "";
+      let urlSent = false;
+      const [, exitCode] = yield* Effect.all(
+        [
+          child.stdout.pipe(
+            Stream.decodeText(),
+            Stream.runForEach((chunk) => {
+              output = (output + chunk).slice(-20_000);
+              const url = urlSent ? undefined : SIGN_IN_URL.exec(output)?.[0];
+              if (url === undefined) return Effect.void;
+              urlSent = true;
+              return input.onUrl(url);
+            }),
+            Effect.mapError((cause) =>
+              normalizeCliError("claude", operation, cause, "Failed to read the MCP login"),
+            ),
+          ),
+          child.exitCode.pipe(
+            Effect.mapError((cause) =>
+              normalizeCliError("claude", operation, cause, "Failed to read the MCP login"),
+            ),
+          ),
+        ],
+        { concurrency: "unbounded" },
+      );
+      if (exitCode !== 0 || !/Authenticated/i.test(output)) {
+        return yield* new TextGenerationError({
+          operation,
+          detail: `The ${input.name} sign-in did not finish.`,
+        });
+      }
+    },
+    Effect.scoped,
+    Effect.timeoutOption(SIGN_IN_TIMEOUT_MS),
+    Effect.flatMap(
+      Option.match({
+        onNone: () =>
+          Effect.fail(
+            new TextGenerationError({ operation: "mcp.signIn", detail: "The sign-in timed out." }),
+          ),
+        onSome: () => Effect.void,
+      }),
+    ),
+  );
+
+  return { run, signIn } satisfies ConnectorAgent;
 });

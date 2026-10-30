@@ -1,5 +1,10 @@
 import { NodeServices } from "@effect/platform-node";
-import { type JiraSnapshot, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
+import {
+  type JiraSnapshot,
+  ProviderInstanceId,
+  TextGenerationError,
+  ThreadId,
+} from "@t3tools/contracts";
 import type {
   ConnectorAgentRun,
   ConnectorAgentResult,
@@ -20,7 +25,7 @@ import * as ServerSettings from "../serverSettings.ts";
 import * as JiraService from "./JiraService.ts";
 
 const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
-const TOOL = (name: string) => `mcp__claude_ai_Atlassian__${name}`;
+const TOOL = (name: string) => `mcp__atlassian__${name}`;
 const threadId = ThreadId.make("thread-jira-1");
 
 const node = (key: string, summary: string, type: string, level: number, parent?: string) => ({
@@ -35,25 +40,39 @@ const node = (key: string, summary: string, type: string, level: number, parent?
   },
 });
 
-/** Plays the Atlassian connector: answers each tool the prompt names with a canned reply. */
-const makeFakeAgent = (calls: Ref.Ref<ReadonlyArray<ConnectorAgentRun>>) => ({
+/** How the fake Atlassian MCP answers: normally, with its login gone, or at a usage limit. */
+type FakeMcp = { value: "ok" | "signed-out" | "limited" };
+
+/**
+ * Plays the v2 Atlassian MCP: answers each tool the prompt names with a canned reply, wrapped
+ * in `data` like the real server.
+ */
+const makeFakeAgent = (
+  calls: Ref.Ref<ReadonlyArray<ConnectorAgentRun>>,
+  mcp: FakeMcp = { value: "ok" },
+) => ({
   run: (request: ConnectorAgentRun) =>
     Effect.gen(function* () {
       yield* Ref.update(calls, (all) => [...all, request]);
-      const reply = (tool: string, text: unknown): ConnectorAgentResult => ({
-        toolResults: [
-          {
-            tool: TOOL(tool),
-            input: {},
-            isError: false,
-            text: typeof text === "string" ? text : encodeJson(text),
-          },
-        ],
+      const reply = (tool: string, data: unknown): ConnectorAgentResult => ({
+        toolResults: [{ tool: TOOL(tool), input: {}, isError: false, text: encodeJson({ data }) }],
         output: "done",
         availableTools: [TOOL(tool)],
-        mcpServers: [{ name: "claude.ai Atlassian", status: "connected" }],
+        mcpServers: [{ name: "atlassian", status: "connected" }],
       });
       const { prompt, operation } = request;
+      if (request.toolPrefixes.length > 0 && mcp.value === "limited") {
+        return yield* new TextGenerationError({ operation, detail: "Claude usage limit reached." });
+      }
+      // The login lapsed: Claude Code reports the server but loads none of its tools.
+      if (request.toolPrefixes.length > 0 && mcp.value === "signed-out") {
+        return {
+          toolResults: [],
+          output: "done",
+          availableTools: [],
+          mcpServers: [{ name: "atlassian", status: "needs-auth" }],
+        } satisfies ConnectorAgentResult;
+      }
       if (operation === "jira.match") {
         return {
           toolResults: [],
@@ -83,21 +102,26 @@ const makeFakeAgent = (calls: Ref.Ref<ReadonlyArray<ConnectorAgentRun>>) => ({
         } satisfies ConnectorAgentResult;
       }
       if (prompt.includes("getAccessibleAtlassianResources")) {
-        return reply("getAccessibleAtlassianResources", [
-          { id: "cloud-1", url: "https://example.atlassian.net" },
-        ]);
+        return reply("getAccessibleAtlassianResources", {
+          resources: [{ cloudId: "cloud-1", url: "https://example.atlassian.net" }],
+        });
       }
       if (prompt.includes("atlassianUserInfo")) {
-        return reply("atlassianUserInfo", { account_id: "me-1" });
+        return reply("atlassianUserInfo", { accountId: "me-1" });
       }
-      // The login lapsed: Claude Code reports the connector but loads none of its tools.
       if (prompt.includes("getJiraIssue")) {
-        return {
-          toolResults: [],
-          output: "done",
-          availableTools: [],
-          mcpServers: [{ name: "claude.ai Atlassian", status: "needs-auth" }],
-        } satisfies ConnectorAgentResult;
+        return reply("getJiraIssue", {
+          key: "AIPR-1309",
+          fields: {
+            description: "Fix the buttons.",
+            customFields: {
+              Sprint: {
+                id: "customfield_10020",
+                value: [{ id: 5851, name: "Sprint 22", state: "active", boardId: 430 }],
+              },
+            },
+          },
+        });
       }
       if (prompt.includes("createJiraIssue")) {
         return reply("createJiraIssue", { id: "1", key: "AIPR-1400" });
@@ -111,14 +135,19 @@ const makeFakeAgent = (calls: Ref.Ref<ReadonlyArray<ConnectorAgentRun>>) => ({
       }
       if (prompt.includes("searchJiraIssuesUsingJql")) {
         return reply("searchJiraIssuesUsingJql", {
-          issues: { nodes: [node("AIPR-1309", "UI adjustments", "Task", 0, "AIPR-1177")] },
+          issues: [node("AIPR-1309", "UI adjustments", "Task", 0, "AIPR-1177")],
         });
       }
-      if (operation === "jira.applyChanges") {
-        return {
-          ...reply("addCommentToJiraIssue", { id: "c1" }),
-          availableTools: [TOOL("addCommentToJiraIssue")],
-        };
+      if (prompt.includes("listJiraIssueTransitions")) {
+        return reply("executeRead", {
+          transitions: [
+            { id: "21", name: "Start", to: { name: "In Progress" } },
+            { id: "31", name: "Finish", to: { name: "Done" } },
+          ],
+        });
+      }
+      if (prompt.includes("transitionJiraIssue")) {
+        return reply("transitionJiraIssue", { status: "Done" });
       }
       return yield* Effect.die(`Unexpected agent call: ${operation}`);
     }),
@@ -160,6 +189,7 @@ const fakeCli = (answer: FakeCli, ran: Array<ReadonlyArray<string>>) =>
 const makeLayer = (
   calls: Ref.Ref<ReadonlyArray<ConnectorAgentRun>>,
   cli: Layer.Layer<ProcessRunner.ProcessRunner> = missingCli,
+  mcp: FakeMcp = { value: "ok" },
 ) =>
   JiraService.layer.pipe(
     Layer.provide(
@@ -173,7 +203,9 @@ const makeLayer = (
         }),
         Layer.mock(ProviderInstanceRegistry.ProviderInstanceRegistry)({
           getInstance: () =>
-            Effect.succeed({ connectorAgent: makeFakeAgent(calls) } as unknown as ProviderInstance),
+            Effect.succeed({
+              connectorAgent: makeFakeAgent(calls, mcp),
+            } as unknown as ProviderInstance),
         }),
         Layer.mock(ThreadManagementService.ThreadManagementService)({
           getThreadRecords: (_threadId, _records, options) =>
@@ -249,7 +281,7 @@ const cliJira =
   };
 
 describe("JiraService", () => {
-  it.effect("syncs through acli when it is installed, without the connector", () =>
+  it.effect("falls back to acli while the MCP login is gone, and says so", () =>
     Effect.gen(function* () {
       const calls = yield* Ref.make<ReadonlyArray<ConnectorAgentRun>>([]);
       const ran: Array<ReadonlyArray<string>> = [];
@@ -257,7 +289,9 @@ describe("JiraService", () => {
         const jira = yield* JiraService.JiraService;
         yield* jira.command({ type: "sync" });
         const synced = yield* waitFor(jira, (snapshot) => snapshot.sync.status === "ok");
-        expect(synced.signIn).toBe("cli");
+        expect(synced.via).toBe("cli");
+        expect(synced.mcpSignedOut).toBe(true);
+        expect(synced.signIn).toBe("mcp");
         expect(synced.siteUrl).toBe("https://example.atlassian.net");
         expect(synced.issues.map((issue) => [issue.key, issue.parentKey])).toEqual(
           expect.arrayContaining([
@@ -269,7 +303,8 @@ describe("JiraService", () => {
         expect(synced.sprints).toEqual([
           { id: 5851, name: "Sprint 22", state: "active", boardId: 430 },
         ]);
-        expect(yield* Ref.get(calls)).toEqual([]);
+        // MCP was asked once, then skipped while `acli` covers.
+        expect((yield* Ref.get(calls)).length).toBe(1);
 
         yield* jira.command({
           type: "createTicket",
@@ -288,11 +323,32 @@ describe("JiraService", () => {
         expect(create).toEqual(
           expect.arrayContaining(["--project", "AIPR", "--parent", "AIPR-1309", "@me"]),
         );
-      }).pipe(Effect.provide(makeLayer(calls, fakeCli(cliJira({ value: true }), ran))));
+      }).pipe(
+        Effect.provide(
+          makeLayer(calls, fakeCli(cliJira({ value: true }), ran), { value: "signed-out" }),
+        ),
+      );
     }),
   );
 
-  it.effect("marks Jira signed out when acli loses its login", () =>
+  it.effect("falls back to acli at a usage limit, without calling MCP signed out", () =>
+    Effect.gen(function* () {
+      const calls = yield* Ref.make<ReadonlyArray<ConnectorAgentRun>>([]);
+      yield* Effect.gen(function* () {
+        const jira = yield* JiraService.JiraService;
+        yield* jira.command({ type: "sync" });
+        const synced = yield* waitFor(jira, (snapshot) => snapshot.sync.status === "ok");
+        expect(synced.via).toBe("cli");
+        expect(synced.mcpSignedOut).toBe(false);
+      }).pipe(
+        Effect.provide(
+          makeLayer(calls, fakeCli(cliJira({ value: true }), []), { value: "limited" }),
+        ),
+      );
+    }),
+  );
+
+  it.effect("offers the MCP sign-in when both logins are gone", () =>
     Effect.gen(function* () {
       const calls = yield* Ref.make<ReadonlyArray<ConnectorAgentRun>>([]);
       const signedIn = { value: true };
@@ -304,10 +360,12 @@ describe("JiraService", () => {
         const failed = yield* jira
           .command({ type: "loadDetails", key: "AIPR-1309" })
           .pipe(Effect.flip);
-        expect(failed.message).toContain("acli jira auth login");
+        expect(failed.message).toContain("claude mcp login atlassian");
         const signedOut = yield* waitFor(jira, (snapshot) => snapshot.sync.status === "signed-out");
-        expect(signedOut.signIn).toBe("cli");
-      }).pipe(Effect.provide(makeLayer(calls, fakeCli(cliJira(signedIn), []))));
+        expect(signedOut.signIn).toBe("mcp");
+      }).pipe(
+        Effect.provide(makeLayer(calls, fakeCli(cliJira(signedIn), []), { value: "signed-out" })),
+      );
     }),
   );
 
@@ -329,9 +387,12 @@ describe("JiraService", () => {
         const searches = (yield* Ref.get(calls)).filter((call) =>
           call.prompt.includes("searchJiraIssuesUsingJql"),
         );
-        expect(
-          searches.every((call) => call.toolPrefixes.includes("mcp__claude_ai_Atlassian")),
-        ).toBe(true);
+        // Only the Atlassian server loads, so runs skip every other connector's tool list.
+        expect(searches.every((call) => call.toolPrefixes.includes("mcp__atlassian"))).toBe(true);
+        expect(searches[0]?.mcpServers).toEqual({
+          atlassian: { type: "http", url: "https://mcp.atlassian.com/v2/mcp" },
+        });
+        expect(synced.via).toBe("mcp");
 
         // By default the first message only offers to look; nothing runs until asked.
         yield* jira.onFirstMessage({ threadId, message: "tweak the board agent buttons" });
@@ -348,10 +409,10 @@ describe("JiraService", () => {
         expect(suggested.suggestions[0]?.matches).toEqual([
           { key: "AIPR-1309", confidence: "high", reason: "same screen" },
         ]);
-        // The matcher gets no tools; it only reads the stored tree.
-        expect(
-          (yield* Ref.get(calls)).find((call) => call.operation === "jira.match")?.toolPrefixes,
-        ).toEqual([]);
+        // The matcher gets no tools or servers; it only reads the stored tree.
+        const match = (yield* Ref.get(calls)).find((call) => call.operation === "jira.match");
+        expect(match?.toolPrefixes).toEqual([]);
+        expect(match?.mcpServers).toEqual({});
 
         yield* jira.command({ type: "link", threadId, key: "AIPR-1309", linked: true });
         const linked = yield* waitFor(jira, (snapshot) => snapshot.links.length === 1);
@@ -364,16 +425,40 @@ describe("JiraService", () => {
   it.effect("marks Jira signed out when any call finds the login gone", () =>
     Effect.gen(function* () {
       const calls = yield* Ref.make<ReadonlyArray<ConnectorAgentRun>>([]);
+      const mcp: FakeMcp = { value: "ok" };
       yield* Effect.gen(function* () {
         const jira = yield* JiraService.JiraService;
         yield* jira.command({ type: "sync" });
         yield* waitFor(jira, (snapshot) => snapshot.sync.status === "ok");
+        yield* jira.command({ type: "loadDetails", key: "AIPR-1309" });
+        const loaded = yield* waitFor(jira, (snapshot) => "AIPR-1309" in snapshot.details);
+        // v2 keeps the sprint under its label in `customFields`.
+        expect(loaded.details["AIPR-1309"]?.sprint).toEqual({
+          id: 5851,
+          name: "Sprint 22",
+          state: "active",
+        });
+        mcp.value = "signed-out";
         const failed = yield* jira
           .command({ type: "loadDetails", key: "AIPR-1309" })
           .pipe(Effect.flip);
-        expect(failed.message).toContain("sign in again");
+        expect(failed.message).toContain("Sign in again");
         const signedOut = yield* waitFor(jira, (snapshot) => snapshot.sync.status === "signed-out");
-        expect(signedOut.sync.message).toContain("claude.ai connector settings");
+        expect(signedOut.mcpSignedOut).toBe(true);
+      }).pipe(Effect.provide(makeLayer(calls, missingCli, mcp)));
+    }),
+  );
+
+  it.effect("moves a ticket's status through the transition that leads there", () =>
+    Effect.gen(function* () {
+      const calls = yield* Ref.make<ReadonlyArray<ConnectorAgentRun>>([]);
+      yield* Effect.gen(function* () {
+        const jira = yield* JiraService.JiraService;
+        yield* jira.command({ type: "setStatus", key: "AIPR-1309", status: "Done" });
+        const transition = (yield* Ref.get(calls)).find(
+          (call) => call.operation === "jira.transition",
+        );
+        expect(transition?.prompt).toContain('"transitionId":"31"');
       }).pipe(Effect.provide(makeLayer(calls)));
     }),
   );
@@ -427,7 +512,7 @@ describe("JiraService", () => {
         const create = (yield* Ref.get(calls)).find((call) =>
           call.prompt.includes("createJiraIssue"),
         );
-        expect(create?.prompt).toContain('"assignee_account_id":"me-1"');
+        expect(create?.prompt).toContain('"assignee":"me-1"');
         expect(create?.prompt).toContain('"projectKey":"AIPR"');
       }).pipe(Effect.provide(makeLayer(calls)));
     }),

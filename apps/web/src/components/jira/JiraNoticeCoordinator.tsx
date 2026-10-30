@@ -1,41 +1,31 @@
 import type { EnvironmentId, JiraSnapshot, JiraSyncStatus } from "@t3tools/contracts";
 import { useEffect, useRef } from "react";
 
-import { readLocalApi } from "~/localApi";
 import { usePrimaryEnvironmentId } from "~/state/environments";
 import { useJiraCommand, useJiraSnapshot } from "~/state/jira";
 import { toastManager } from "../ui/toast";
-import { CLAUDE_CONNECTOR_SETTINGS_URL } from "./JiraSyncStatus";
-
-/** A returning window checks the login again, but not more often than this. */
-const RECHECK_GAP_MS = 30_000;
-
-const openConnectorSettings = () => {
-  const api = readLocalApi();
-  if (api) void api.shell.openExternal(CLAUDE_CONNECTOR_SETTINGS_URL);
-  else window.open(CLAUDE_CONNECTOR_SETTINGS_URL, "_blank", "noreferrer");
-};
+import { openExternalUrl } from "./JiraSyncStatus";
 
 /**
- * Raises one lasting toast when Jira loses its Atlassian login. With the Atlassian CLI, its
- * button opens the CLI's browser login and the server syncs once it works. With the claude.ai
- * connector it links to the connector settings, and coming back to the window checks again.
+ * Raises one lasting toast when Jira loses its Atlassian login. Its button runs the browser
+ * login for the Atlassian MCP server (or the CLI, when MCP cannot run), and the server syncs once
+ * it works. If the login prints its page, the toast offers to open it, in case no tab opened.
  * The toast closes once a call works.
  */
 function JiraSignInToast({
   environmentId,
   status,
   signIn,
+  signInUrl,
 }: {
   environmentId: EnvironmentId;
   status: JiraSyncStatus | null;
   signIn: JiraSnapshot["signIn"];
+  signInUrl: string | null;
 }) {
   const command = useJiraCommand(environmentId);
   const toastId = useRef<ReturnType<typeof toastManager.add> | null>(null);
   const reconnecting = useRef(false);
-  const lastCheck = useRef(0);
-  const signedOut = status === "signed-out";
 
   // oxlint-disable-next-line t3code/react-effect-budget -- the toast lives outside React and follows the server's sync status, which no handler here sets.
   useEffect(() => {
@@ -51,38 +41,35 @@ function JiraSignInToast({
       reconnecting.current = false;
       return;
     }
-    // Shown once per sign-out; a dismissed toast stays dismissed until the login comes back.
-    if (toastId.current !== null) return;
-    toastId.current = toastManager.add({
-      type: "warning",
+    const options = {
+      type: "warning" as const,
       title: "Jira signed you out",
       description:
-        signIn === "cli"
-          ? "Sign in to Atlassian in the browser. T3 syncs as soon as it works."
-          : "Reconnect Atlassian in your claude.ai connector settings. T3 checks again when you come back.",
+        signIn === "none"
+          ? "Add the Atlassian MCP server with claude mcp add, or install the Atlassian CLI."
+          : signInUrl !== null
+            ? "Finish signing in to Atlassian in the browser. T3 syncs as soon as it works."
+            : "Sign in to Atlassian in the browser. T3 syncs as soon as it works.",
       timeout: 0,
-      actionProps: {
-        children: signIn === "cli" ? "Sign in" : "Reconnect",
-        onClick: () => {
-          reconnecting.current = true;
-          if (signIn === "cli") void command({ type: "signIn" });
-          else openConnectorSettings();
-        },
-      },
-    });
-  }, [status, signIn, command]);
-
-  // oxlint-disable-next-line t3code/react-effect-budget -- returning from the browser is a window event; it rechecks the login only after Reconnect was used.
-  useEffect(() => {
-    if (!signedOut || signIn === "cli") return;
-    const recheck = () => {
-      if (!reconnecting.current || Date.now() - lastCheck.current < RECHECK_GAP_MS) return;
-      lastCheck.current = Date.now();
-      void command({ type: "sync" });
+      ...(signIn === "none"
+        ? {}
+        : {
+            actionProps:
+              signInUrl !== null
+                ? { children: "Open sign-in page", onClick: () => openExternalUrl(signInUrl) }
+                : {
+                    children: "Sign in",
+                    onClick: () => {
+                      reconnecting.current = true;
+                      void command({ type: "signIn" });
+                    },
+                  },
+          }),
     };
-    window.addEventListener("focus", recheck);
-    return () => window.removeEventListener("focus", recheck);
-  }, [signedOut, signIn, command]);
+    // Shown once per sign-out; a dismissed toast stays dismissed until the login comes back.
+    if (toastId.current === null) toastId.current = toastManager.add(options);
+    else toastManager.update(toastId.current, options);
+  }, [status, signIn, signInUrl, command]);
 
   return null;
 }
@@ -112,7 +99,8 @@ export function JiraNoticeCoordinator() {
     <JiraSignInToast
       environmentId={environmentId}
       status={snapshot?.enabled === true ? snapshot.sync.status : null}
-      signIn={snapshot?.signIn ?? "connector"}
+      signIn={snapshot?.signIn ?? "none"}
+      signInUrl={snapshot?.signInUrl ?? null}
     />
   );
 }

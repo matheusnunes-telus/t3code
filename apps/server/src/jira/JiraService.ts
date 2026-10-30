@@ -63,13 +63,23 @@ import {
   parseCliSearchKeys,
   parseIssueSearch,
   parseOpenSprints,
+  transitionTo,
+  unwrapMcpReply,
   DRAFT_OUTPUT_SCHEMA,
   validateFormDraft,
   validateMatch,
 } from "./jiraModel.ts";
 
-/** Server names the claude.ai Atlassian connector has gone by; any of them may run. */
-const ATLASSIAN_TOOL_PREFIXES = ["mcp__claude_ai_Atlassian", "mcp__atlassian", "mcp__Atlassian"];
+/**
+ * Your own Atlassian MCP server, as `claude mcp add` saves it. Runs load only this server, under
+ * this name, so they keep its login and skip the account's other connectors.
+ */
+const ATLASSIAN_MCP_NAME = "atlassian";
+const ATLASSIAN_MCP_URL = "https://mcp.atlassian.com/v2/mcp";
+const ATLASSIAN_MCP_SERVERS = { [ATLASSIAN_MCP_NAME]: { type: "http", url: ATLASSIAN_MCP_URL } };
+const ATLASSIAN_TOOL_PREFIXES = [`mcp__${ATLASSIAN_MCP_NAME}`];
+/** After MCP fails in a way `acli` can cover, calls skip it for a while instead of waiting on it. */
+const MCP_RETRY_AFTER = Duration.minutes(15);
 const SYNC_INTERVAL = Duration.hours(1);
 const FULL_SYNC_INTERVAL = Duration.hours(24);
 const TICK_INTERVAL = Duration.minutes(5);
@@ -78,6 +88,8 @@ const MAX_SEARCH_RESULTS = 100;
 const CLI_CONCURRENCY = 6;
 const CLI_SIGNED_OUT_MESSAGE =
   "The Atlassian CLI is signed out. Sign in again from the notification, or run acli jira auth login --web.";
+const MCP_SIGNED_OUT_MESSAGE =
+  "The Atlassian MCP login is gone. Sign in again from the notification, or run claude mcp login atlassian.";
 
 const StoreFile = Schema.Struct({
   version: Schema.Literal(1),
@@ -120,9 +132,12 @@ const decodeStore = Schema.decodeUnknownOption(Schema.fromJsonString(StoreFile))
 const encodeStore = Schema.encodeSync(Schema.fromJsonString(StoreFile));
 const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 
-/** Why a connector call failed, so sync status can say "signed out" rather than "failed". */
+/**
+ * Why a Jira call failed, so sync status can say "signed out" rather than "failed". "agent" is
+ * the model run itself failing, such as at a usage limit, which says nothing about Jira.
+ */
 class JiraCallError extends Data.TaggedError("JiraCallError")<{
-  readonly kind: "signed-out" | "unavailable" | "failed";
+  readonly kind: "signed-out" | "unavailable" | "agent" | "failed";
   readonly message: string;
 }> {}
 
@@ -257,15 +272,28 @@ export const make = Effect.gen(function* () {
   );
 
   /**
-   * Whether the Atlassian CLI (`acli`) runs Jira calls. Found once, then kept: "missing" falls
-   * back to the claude.ai connector, and "signed-out" waits for a sign-in.
+   * Jira calls go through the Atlassian MCP first and fall back to the Atlassian CLI (`acli`).
+   * Each one's login, as the last call found it. MCP is "unavailable" when the Jira provider
+   * cannot run it at all; `acli` is "missing" when it is not installed.
    */
+  const mcp = yield* Ref.make<"unknown" | "ready" | "signed-out" | "unavailable">("unknown");
   const cli = yield* Ref.make<"unknown" | "ready" | "missing" | "signed-out">("unknown");
+  /** When MCP may be tried again after a failure `acli` covered. */
+  const mcpSkipUntil = yield* Ref.make(0);
+  /** Which one the last call that worked went through. */
+  const via = yield* Ref.make<"mcp" | "cli" | null>(null);
+  /** The MCP sign-in page while a sign-in waits, in case no browser tab opened. */
+  const signInUrl = yield* Ref.make<string | null>(null);
 
   const snapshotOf = (
     current: StoreFile,
     settings: ServerSettingsValue | null,
-    cliFound: boolean,
+    logins: {
+      readonly signIn: JiraSnapshot["signIn"];
+      readonly via: JiraSnapshot["via"];
+      readonly mcpSignedOut: boolean;
+      readonly signInUrl: string | null;
+    },
   ): JiraSnapshot => {
     const enabled = settings?.jiraModelSelection != null;
     return {
@@ -280,18 +308,25 @@ export const make = Effect.gen(function* () {
       notices: current.notices,
       details: current.details ?? {},
       sprints: current.sprints ?? [],
-      signIn: cliFound ? "cli" : "connector",
+      ...logins,
     };
   };
 
   const currentSnapshot = Effect.gen(function* () {
     const settings = yield* serverSettings.getSettings.pipe(Effect.orElseSucceed(() => null));
+    const mcpState = yield* Ref.get(mcp);
     const cliState = yield* Ref.get(cli);
-    return snapshotOf(
-      yield* Ref.get(store),
-      settings,
-      cliState !== "missing" && cliState !== "unknown",
-    );
+    return snapshotOf(yield* Ref.get(store), settings, {
+      signIn:
+        mcpState !== "unavailable"
+          ? "mcp"
+          : cliState !== "missing" && cliState !== "unknown"
+            ? "cli"
+            : "none",
+      via: yield* Ref.get(via),
+      mcpSignedOut: mcpState === "signed-out",
+      signInUrl: yield* Ref.get(signInUrl),
+    });
   });
 
   const subscribe = () =>
@@ -318,87 +353,100 @@ export const make = Effect.gen(function* () {
     if (instance?.connectorAgent === undefined) {
       return yield* new JiraCallError({
         kind: "unavailable",
-        message:
-          "This provider cannot reach Jira. Pick a Claude provider whose account has the Atlassian connector.",
+        message: "This provider cannot reach Jira. Pick a Claude provider for Jira.",
       });
     }
     return { agent: instance.connectorAgent, modelSelection };
   });
 
   const runAgent = Effect.fn("JiraService.runAgent")(function* (
-    request: Omit<Parameters<ConnectorAgent["run"]>[0], "modelSelection">,
+    request: Omit<Parameters<ConnectorAgent["run"]>[0], "modelSelection" | "mcpServers">,
   ) {
     const { agent, modelSelection } = yield* resolveAgent;
-    return yield* agent.run({ ...request, modelSelection }).pipe(
-      Effect.mapError(
-        (error) =>
-          new JiraCallError({
-            kind: looksSignedOut(error.detail) ? "signed-out" : "failed",
-            message: error.detail,
-          }),
-      ),
-    );
+    return yield* agent
+      .run({
+        ...request,
+        modelSelection,
+        // Runs without Atlassian tools load no server at all.
+        mcpServers: request.toolPrefixes.length > 0 ? ATLASSIAN_MCP_SERVERS : {},
+      })
+      .pipe(
+        Effect.mapError(
+          (error) =>
+            new JiraCallError({
+              kind: looksSignedOut(error.detail) ? "signed-out" : "agent",
+              message: error.detail,
+            }),
+        ),
+      );
   });
 
-  /** Tells "the connector isn't there" and "it lost its login" apart from a plain failure. */
+  /** Tells "the MCP server isn't there" and "it lost its login" apart from a plain failure. */
   const connectorProblem = (result: ConnectorAgentResult) => {
     const hasTools = result.availableTools.some((tool) =>
       ATLASSIAN_TOOL_PREFIXES.some((prefix) => tool.startsWith(`${prefix}__`)),
     );
     if (hasTools) return undefined;
-    const server = result.mcpServers.find((candidate) => /atlassian/i.test(candidate.name));
-    if (server !== undefined && server.status !== "connected") {
-      return new JiraCallError({
-        kind: "signed-out",
-        message:
-          server.status === "needs-auth"
-            ? "Atlassian needs you to sign in again. Reconnect it in your claude.ai connector settings."
-            : `The Atlassian connector is ${server.status}. Reconnect it in your claude.ai connector settings.`,
-      });
+    const server = result.mcpServers.find((candidate) => candidate.name === ATLASSIAN_MCP_NAME);
+    if (server?.status === "needs-auth") {
+      return new JiraCallError({ kind: "signed-out", message: MCP_SIGNED_OUT_MESSAGE });
     }
     return new JiraCallError({
-      kind: "unavailable",
-      message:
-        "This provider's account has no Atlassian connector. Connect Atlassian in claude.ai, or pick another provider.",
+      kind: "agent",
+      message: `The Atlassian MCP server is ${server?.status ?? "missing"}.`,
     });
   };
 
-  /** One connector tool call. The model only places the call; its reply is read here, raw. */
-  const callConnector = Effect.fn("JiraService.callConnector")(function* (
-    operation: string,
-    tool: string,
-    args: Record<string, unknown>,
-  ) {
-    const result = yield* runAgent({
-      operation,
-      toolPrefixes: ATLASSIAN_TOOL_PREFIXES,
-      prompt: [
-        `Call the Atlassian tool ${tool} exactly once with exactly these arguments, then reply with the single word done.`,
-        "Do not call any other tool and do not summarize the result.",
-        "",
-        encodeJson(args),
-      ].join("\n"),
-    });
-    const problem = connectorProblem(result);
-    if (problem !== undefined) return yield* problem;
-    const reply = result.toolResults.findLast((entry) => entry.tool.endsWith(`__${tool}`));
-    if (reply === undefined) {
-      return yield* new JiraCallError({
-        kind: "failed",
-        message: `The agent did not call ${tool}.`,
-      });
-    }
-    if (reply.isError) {
-      return yield* new JiraCallError({
-        kind: looksSignedOut(reply.text) ? "signed-out" : "failed",
-        message: reply.text.slice(0, 500),
-      });
-    }
-    return reply.text;
-  });
+  const setLogin = <S>(ref: Ref.Ref<S>, state: S) =>
+    Ref.getAndSet(ref, state).pipe(
+      Effect.flatMap((previous) =>
+        previous === state ? Effect.void : PubSub.publish(changes, undefined),
+      ),
+      Effect.asVoid,
+    );
 
-  const callTool = (operation: string, tool: string, args: Record<string, unknown>) =>
-    trackLogin(callConnector(operation, tool, args));
+  /** One MCP tool call. The model only places the call; its reply is read here, raw. */
+  const callTool = Effect.fn("JiraService.callTool")(
+    function* (operation: string, tool: string, args: Record<string, unknown>) {
+      const result = yield* runAgent({
+        operation,
+        toolPrefixes: ATLASSIAN_TOOL_PREFIXES,
+        prompt: [
+          `Call the Atlassian tool ${tool} exactly once with exactly these arguments, then reply with the single word done.`,
+          "Do not call any other tool and do not summarize the result.",
+          "",
+          encodeJson(args),
+        ].join("\n"),
+      });
+      const problem = connectorProblem(result);
+      if (problem !== undefined) return yield* problem;
+      const reply = result.toolResults.findLast((entry) => entry.tool.endsWith(`__${tool}`));
+      if (reply === undefined) {
+        return yield* new JiraCallError({
+          kind: "agent",
+          message: `The agent did not call ${tool}.`,
+        });
+      }
+      if (reply.isError) {
+        return yield* new JiraCallError({
+          kind: looksSignedOut(reply.text) ? "signed-out" : "failed",
+          message: reply.text.slice(0, 500),
+        });
+      }
+      return unwrapMcpReply(reply.text);
+    },
+    (effect) =>
+      effect.pipe(
+        Effect.tap(() => setLogin(mcp, "ready")),
+        Effect.tapError((error) =>
+          error.kind === "signed-out"
+            ? setLogin(mcp, "signed-out")
+            : error.kind === "unavailable"
+              ? setLogin(mcp, "unavailable")
+              : Effect.void,
+        ),
+      ),
+  );
 
   /** Asks `acli` whether its login works, and notes the site it is signed in to. */
   const checkCli = Effect.gen(function* () {
@@ -407,25 +455,25 @@ export const make = Effect.gen(function* () {
       .pipe(Effect.result);
     if (result._tag === "Failure") {
       const state = result.failure._tag === "ProcessSpawnError" ? "missing" : "signed-out";
-      yield* Ref.set(cli, state);
+      yield* setLogin(cli, state);
       return state;
     }
     const output = `${result.success.stdout}\n${result.success.stderr}`;
     const state =
       result.success.code === 0 && /✓\s*Authenticated/.test(output) ? "ready" : "signed-out";
-    yield* Ref.set(cli, state);
+    yield* setLogin(cli, state);
     const site = /Site:\s*(\S+)/.exec(output)?.[1];
     if (state === "ready" && site !== undefined && (yield* Ref.get(store)).siteUrl === null) {
       yield* update((current) => ({ ...current, siteUrl: `https://${site}` }));
     }
-    yield* PubSub.publish(changes, undefined);
     return state;
   });
 
-  /** True when Jira calls go through `acli`; it is looked for once. */
-  const usesCli = Effect.gen(function* () {
+  /** True when `acli` can take a call now; a login it lacked is looked at again. */
+  const cliReady = Effect.gen(function* () {
     const state = yield* Ref.get(cli);
-    return (state === "unknown" ? yield* checkCli : state) !== "missing";
+    if (state === "ready") return true;
+    return state !== "missing" && (yield* checkCli) === "ready";
   });
 
   /** Keeps the sync status's "signed out" in step with what each call finds. */
@@ -452,7 +500,7 @@ export const make = Effect.gen(function* () {
       .run({ command: "acli", args, timeout: "90 seconds" })
       .pipe(Effect.result);
     if (result._tag === "Success" && result.success.code === 0) {
-      yield* Ref.set(cli, "ready");
+      yield* setLogin(cli, "ready");
       return result.success.stdout;
     }
     const message =
@@ -464,7 +512,54 @@ export const make = Effect.gen(function* () {
       kind: state === "signed-out" ? "signed-out" : state === "missing" ? "unavailable" : "failed",
       message: state === "signed-out" ? CLI_SIGNED_OUT_MESSAGE : message.replace(/^✗\s*/, ""),
     });
-  }, trackLogin);
+  });
+
+  const preferMcpSignOut = Effect.fn("JiraService.preferMcpSignOut")(function* (
+    error: JiraCallError,
+  ) {
+    if (error.kind !== "signed-out" || (yield* Ref.get(mcp)) !== "signed-out") {
+      return yield* error;
+    }
+    return yield* new JiraCallError({ kind: "signed-out", message: MCP_SIGNED_OUT_MESSAGE });
+  });
+
+  /**
+   * One Jira call: through MCP, or through `acli` when MCP is signed out or its agent cannot run,
+   * such as at a usage limit. A Jira error from MCP is final; `acli` would only repeat it. Calls
+   * `acli` has no way to make pass no fallback.
+   */
+  const viaMcp = <A>(
+    mcpCall: Effect.Effect<A, JiraCallError>,
+    cliCall?: Effect.Effect<A, JiraCallError>,
+  ) =>
+    trackLogin(
+      Effect.gen(function* () {
+        const fallback = cliCall !== undefined && (yield* cliReady) ? cliCall : undefined;
+        // With both logins gone, the MCP one is what Sign in fixes, so its message wins.
+        const viaCli = (call: Effect.Effect<A, JiraCallError>) =>
+          call.pipe(
+            Effect.tap(() => setLogin(via, "cli")),
+            Effect.catchTags({ JiraCallError: preferMcpSignOut }),
+          );
+        const now = yield* Clock.currentTimeMillis;
+        if (fallback !== undefined && now < (yield* Ref.get(mcpSkipUntil))) {
+          return yield* viaCli(fallback);
+        }
+        const result = yield* Effect.result(mcpCall);
+        if (result._tag === "Success") {
+          yield* setLogin(via, "mcp");
+          return result.success;
+        }
+        if (fallback === undefined || result.failure.kind === "failed") {
+          return yield* result.failure;
+        }
+        yield* Effect.logInfo("Jira falls back to the Atlassian CLI.").pipe(
+          Effect.annotateLogs({ reason: result.failure.message }),
+        );
+        yield* Ref.set(mcpSkipUntil, now + Duration.toMillis(MCP_RETRY_AFTER));
+        return yield* viaCli(fallback);
+      }),
+    );
 
   const ensureSite = Effect.gen(function* () {
     const settings = yield* serverSettings.getSettings.pipe(Effect.orElseSucceed(() => null));
@@ -545,14 +640,19 @@ export const make = Effect.gen(function* () {
   });
 
   const search = Effect.fn("JiraService.search")(function* (jql: string, mine: boolean) {
-    const reply = (yield* usesCli)
-      ? yield* cliSearch(jql)
-      : yield* callTool("jira.search", "searchJiraIssuesUsingJql", {
+    const reply = yield* viaMcp(
+      Effect.gen(function* () {
+        return yield* callTool("jira.search", "searchJiraIssuesUsingJql", {
           cloudId: yield* ensureSite,
           jql,
           fields: JIRA_SEARCH_FIELDS,
           maxResults: MAX_SEARCH_RESULTS,
+          // The default view drops the parent, the type's level and the status category.
+          view: "full",
         });
+      }),
+      cliSearch(jql),
+    );
     const siteUrl = (yield* Ref.get(store)).siteUrl;
     const parsed = parseIssueSearch(reply, mine, siteUrl);
     if (parsed === undefined) {
@@ -567,11 +667,14 @@ export const make = Effect.gen(function* () {
     return parsed;
   });
 
-  /** `acli` lists each project board's sprints; no connector tool does, so it reads tickets. */
+  /**
+   * MCP reads the open sprints off tickets that sit in one; `acli` lists each project board's
+   * sprints, which also holds upcoming sprints nobody has filled yet.
+   */
   const openSprints = Effect.fn("JiraService.openSprints")(function* (
     projects: ReadonlyArray<string>,
   ) {
-    if (yield* usesCli) {
+    const fromBoards = Effect.gen(function* () {
       const boards = yield* Effect.forEach(
         projects,
         (project) =>
@@ -596,15 +699,34 @@ export const make = Effect.gen(function* () {
         { concurrency: CLI_CONCURRENCY },
       );
       return parseBoardSprints(replies);
-    }
-    const reply = yield* callTool("jira.sprints", "searchJiraIssuesUsingJql", {
-      cloudId: yield* ensureSite,
-      jql: `project in (${projects.join(",")}) AND sprint in openSprints()`,
-      fields: ["customfield_10020"],
-      maxResults: MAX_SEARCH_RESULTS,
     });
-    return parseOpenSprints(reply);
+    const fromTickets = Effect.gen(function* () {
+      const reply = yield* callTool("jira.sprints", "searchJiraIssuesUsingJql", {
+        cloudId: yield* ensureSite,
+        jql: `project in (${projects.join(",")}) AND sprint in openSprints()`,
+        fields: ["customfield_10020"],
+        maxResults: MAX_SEARCH_RESULTS,
+        view: "full",
+      });
+      return parseOpenSprints(reply);
+    });
+    return yield* viaMcp(fromTickets, fromBoards);
   });
+
+  /** One ticket's fields, as a REST-shaped issue either way. */
+  const readIssue = (key: string, fields: ReadonlyArray<string>) =>
+    viaMcp(
+      Effect.gen(function* () {
+        return yield* callTool("jira.issueDetails", "getJiraIssue", {
+          cloudId: yield* ensureSite,
+          issueIdOrKey: key,
+          fields: [...fields],
+          fieldsByKeys: true,
+          view: "full",
+        });
+      }),
+      runCli(["jira", "workitem", "view", key, "--fields", fields.join(","), "--json"]),
+    );
 
   const setSync = (patch: Partial<StoreFile["sync"]>) =>
     update((state) => ({ ...state, sync: { ...state.sync, ...patch } }));
@@ -614,9 +736,7 @@ export const make = Effect.gen(function* () {
       const startedAt = yield* nowIso;
       yield* setSync({ status: "syncing", lastAttemptAt: startedAt, message: null });
       // A sync is the moment to notice `acli` was installed, or signed in, since the last one.
-      if ((yield* Ref.get(cli)) !== "ready" && (yield* checkCli) === "signed-out") {
-        return yield* new JiraCallError({ kind: "signed-out", message: CLI_SIGNED_OUT_MESSAGE });
-      }
+      if ((yield* Ref.get(cli)) !== "ready") yield* checkCli;
       const before = yield* Ref.get(store);
       const fullSync =
         full ||
@@ -910,42 +1030,43 @@ export const make = Effect.gen(function* () {
     yield* putSuggestion({ ...base, draft: input.draft, state: "creating", message: null });
     const work = Effect.gen(function* () {
       const projectKey = input.draft.parentKey.split("-")[0] ?? input.draft.parentKey;
-      const viaCli = yield* usesCli;
-      const reply = viaCli
-        ? yield* runCli([
-            "jira",
-            "workitem",
-            "create",
-            "--project",
+      const sprintId = input.draft.sprintId;
+      // MCP files the ticket in its sprint as it creates it; `acli` cannot, so that comes after.
+      const { reply, sprintLeft } = yield* viaMcp(
+        Effect.gen(function* () {
+          const cloudId = yield* ensureSite;
+          const accountId = yield* ensureAccountId.pipe(Effect.orElseSucceed(() => null));
+          const reply = yield* callTool("jira.createIssue", "createJiraIssue", {
+            cloudId,
             projectKey,
-            "--type",
-            input.draft.type,
-            "--summary",
-            input.draft.summary,
-            "--description",
-            input.draft.description,
-            "--parent",
-            input.draft.parentKey,
-            "--assignee",
-            "@me",
-            "--json",
-          ])
-        : yield* Effect.gen(function* () {
-            const cloudId = yield* ensureSite;
-            const accountId = yield* ensureAccountId.pipe(Effect.orElseSucceed(() => null));
-            return yield* callTool("jira.createIssue", "createJiraIssue", {
-              cloudId,
-              projectKey,
-              issueTypeName: input.draft.type,
-              summary: input.draft.summary,
-              description: input.draft.description,
-              parent: input.draft.parentKey,
-              ...(accountId === null ? {} : { assignee_account_id: accountId }),
-              ...(input.draft.sprintId == null
-                ? {}
-                : { additional_fields: { customfield_10020: input.draft.sprintId } }),
-            });
+            issueType: input.draft.type,
+            summary: input.draft.summary,
+            description: input.draft.description,
+            parent: input.draft.parentKey,
+            ...(accountId === null ? {} : { assignee: accountId }),
+            ...(sprintId == null ? {} : { assignToSprint: String(sprintId) }),
           });
+          return { reply, sprintLeft: /"assigned"\s*:\s*false/.test(reply) };
+        }),
+        runCli([
+          "jira",
+          "workitem",
+          "create",
+          "--project",
+          projectKey,
+          "--type",
+          input.draft.type,
+          "--summary",
+          input.draft.summary,
+          "--description",
+          input.draft.description,
+          "--parent",
+          input.draft.parentKey,
+          "--assignee",
+          "@me",
+          "--json",
+        ]).pipe(Effect.map((reply) => ({ reply, sprintLeft: sprintId != null }))),
+      );
       const key = /"key"\s*:\s*"([A-Z][A-Z0-9]+-\d+)"/.exec(reply)?.[1];
       if (key === undefined) {
         return yield* new JiraCallError({
@@ -981,9 +1102,7 @@ export const make = Effect.gen(function* () {
             : candidate,
         ),
       }));
-      // `acli` cannot set a sprint, so the connector does it once the ticket exists.
-      const sprintId = input.draft.sprintId;
-      if (viaCli && sprintId != null) {
+      if (sprintLeft && sprintId != null) {
         yield* moveToSprint(key, sprintId).pipe(
           Effect.catchTags({ JiraCallError: (error) => noteSprintFailure(key, error.message) }),
         );
@@ -1049,30 +1168,20 @@ export const make = Effect.gen(function* () {
     key: string,
     reason: string,
   ) {
-    const viaCli = yield* usesCli;
-    // With `acli` the ticket is read here; the connector has the model read it.
-    const fetch = viaCli
-      ? yield* runCli(["jira", "workitem", "view", key, "--fields", "description", "--json"]).pipe(
-          Effect.map((reply) => {
-            const description = parseIssueDetails(reply, "")?.description ?? "";
-            return `The ticket's current description:\n${description.length === 0 ? "(empty)" : description}`;
-          }),
-          Effect.mapError((error) => jiraError(error.message)),
-        )
-      : `First call the Atlassian tool getJiraIssue once with ${encodeJson({
-          cloudId: yield* ensureSite.pipe(Effect.mapError((error) => jiraError(error.message))),
-          issueIdOrKey: key,
-          fields: ["summary", "status", "description"],
-        })}. Call no other tool.`;
+    // The ticket is read here, so the model that drafts needs no tools.
+    const currentDescription = yield* readIssue(key, ["description"]).pipe(
+      Effect.map((reply) => parseIssueDetails(reply, "")?.description ?? ""),
+      Effect.mapError((error) => jiraError(error.message)),
+    );
     const context = yield* threadContext(threadId);
     const issue = (yield* Ref.get(store)).issues.find((candidate) => candidate.key === key);
     const result = yield* runAgent({
       operation: "jira.draftChanges",
-      toolPrefixes: viaCli ? [] : ATLASSIAN_TOOL_PREFIXES,
+      toolPrefixes: [],
       outputSchema: CHANGES_OUTPUT_SCHEMA,
       prompt: [
-        fetch,
-        "Then draft updates to that ticket from the developer's chat below. Nothing is sent; the developer reviews every change.",
+        `The ticket's current description:\n${currentDescription.length === 0 ? "(empty)" : currentDescription}`,
+        "Draft updates to that ticket from the developer's chat below. Nothing is sent; the developer reviews every change.",
         `- status: one of ${JIRA_STATUSES.join(", ")}, only when the work clearly moved it; otherwise null.`,
         "- comment: 1-3 plain sentences on what changed, with pull request links when there are any; null if there is nothing new.",
         "- description: a full replacement only when the scope clearly changed; otherwise null.",
@@ -1134,16 +1243,46 @@ export const make = Effect.gen(function* () {
     }));
   });
 
-  const describeChange = (change: JiraChange) => {
+  /** One change through MCP: each is its own tool call, so a failure names the one that broke. */
+  const mcpChange = Effect.fn("JiraService.mcpChange")(function* (key: string, change: JiraChange) {
+    const cloudId = yield* ensureSite;
     switch (change.kind) {
-      case "status":
-        return `Move it to the status "${change.to}": call getTransitionsForJiraIssue, then transitionJiraIssue with the transition that leads to that status.`;
+      case "status": {
+        const reply = yield* callTool("jira.transitions", "executeRead", {
+          cloudId,
+          name: "listJiraIssueTransitions",
+          inputs: { issueIdOrKey: key },
+        });
+        const transitionId = transitionTo(reply, change.to);
+        if (transitionId === undefined) {
+          return yield* new JiraCallError({
+            kind: "failed",
+            message: `${key} cannot move to ${change.to} from where it is.`,
+          });
+        }
+        yield* callTool("jira.transition", "transitionJiraIssue", {
+          cloudId,
+          issueIdOrKey: key,
+          transitionId,
+        });
+        return;
+      }
       case "comment":
-        return `Add this comment with addCommentToJiraIssue:\n${change.body}`;
+        yield* callTool("jira.comment", "addOrEditJiraIssueComment", {
+          cloudId,
+          issueIdOrKey: key,
+          commentBody: change.body,
+        });
+        return;
       case "description":
-        return `Replace its description with editJiraIssue, setting fields.description to:\n${change.to}`;
+        yield* callTool("jira.editDescription", "editJiraIssue", {
+          cloudId,
+          issueIdOrKey: key,
+          fields: { description: change.to },
+        });
+        return;
     }
-  };
+  });
 
   const cliArgsFor = (key: string, change: JiraChange): ReadonlyArray<string> => {
     switch (change.kind) {
@@ -1160,33 +1299,8 @@ export const make = Effect.gen(function* () {
     key: string,
     changesToApply: ReadonlyArray<JiraChange>,
   ) {
-    if (yield* usesCli) {
-      for (const change of changesToApply) {
-        yield* runCli(cliArgsFor(key, change));
-      }
-      return;
-    }
-    const cloudId = yield* ensureSite;
-    const result = yield* runAgent({
-      operation: "jira.applyChanges",
-      toolPrefixes: ATLASSIAN_TOOL_PREFIXES,
-      prompt: [
-        `Apply exactly these changes to Jira issue ${key} (cloudId ${cloudId}), in order, with the Atlassian tools. Do nothing else.`,
-        ...changesToApply.map((change, index) => `${index + 1}. ${describeChange(change)}`),
-        "Reply with done, or with what failed.",
-      ].join("\n\n"),
-    });
-    const problem = connectorProblem(result);
-    if (problem !== undefined) return yield* problem;
-    const failed = result.toolResults.find((entry) => entry.isError);
-    if (failed !== undefined) {
-      return yield* new JiraCallError({
-        kind: looksSignedOut(failed.text) ? "signed-out" : "failed",
-        message: failed.text.slice(0, 500),
-      });
-    }
-    if (result.toolResults.length === 0) {
-      return yield* new JiraCallError({ kind: "failed", message: "No change was made." });
+    for (const change of changesToApply) {
+      yield* viaMcp(mcpChange(key, change), runCli(cliArgsFor(key, change)).pipe(Effect.asVoid));
     }
   });
 
@@ -1243,40 +1357,28 @@ export const make = Effect.gen(function* () {
   }) {
     if ((yield* selection) === null) return yield* jiraError("Jira is off.");
     const key = input.key.toUpperCase();
-    const details = yield* Effect.gen(function* () {
-      const reply = (yield* usesCli)
-        ? yield* runCli([
-            "jira",
-            "workitem",
-            "view",
-            key,
-            "--fields",
-            JIRA_DETAIL_FIELDS.join(","),
-            "--json",
-          ])
-        : yield* callTool("jira.issueDetails", "getJiraIssue", {
-            cloudId: yield* ensureSite,
-            issueIdOrKey: key,
-            fields: [...JIRA_DETAIL_FIELDS],
-          });
-      return parseIssueDetails(reply, yield* nowIso);
-    }).pipe(Effect.mapError((error) => jiraError(error.message)));
+    const details = yield* readIssue(key, JIRA_DETAIL_FIELDS).pipe(
+      Effect.flatMap((reply) => Effect.map(nowIso, (at) => parseIssueDetails(reply, at))),
+      Effect.mapError((error) => jiraError(error.message)),
+    );
     if (details === undefined) return yield* jiraError(`Could not read ${key} from Jira.`);
     yield* update((state) => ({ ...state, details: { ...state.details, [key]: details } }));
   });
 
-  /** Only the connector can move a ticket between sprints; `acli` has no way to. */
+  /** Only MCP can move a ticket between sprints; `acli` has no way to. */
   const moveToSprint = Effect.fn("JiraService.moveToSprint")(function* (
     key: string,
     sprintId: number | null,
   ) {
-    // Its login is not the one the sign-in notice fixes when `acli` runs the rest.
-    const call = (yield* usesCli) ? callConnector : callTool;
-    yield* call("jira.setSprint", "editJiraIssue", {
-      cloudId: yield* ensureSite,
-      issueIdOrKey: key,
-      fields: { customfield_10020: sprintId },
-    });
+    yield* viaMcp(
+      Effect.gen(function* () {
+        yield* callTool("jira.setSprint", "transitionJiraIssue", {
+          cloudId: yield* ensureSite,
+          issueIdOrKey: key,
+          ...(sprintId === null ? { assignToBacklog: true } : { sprintId }),
+        });
+      }),
+    );
   });
 
   const setSprint = Effect.fn("JiraService.setSprint")(function* (input: {
@@ -1295,11 +1397,7 @@ export const make = Effect.gen(function* () {
    * Runs `acli`'s browser login. Its token is saved as soon as the browser approves, but it can
    * then wait on a site picker, so the login is stopped once `acli` reports it works.
    */
-  const signIn = Effect.fn("JiraService.signIn")(function* () {
-    if ((yield* selection) === null) return yield* jiraError("Jira is off.");
-    if (!(yield* usesCli)) {
-      return yield* jiraError("Reconnect Atlassian in your claude.ai connector settings.");
-    }
+  const cliSignIn = Effect.gen(function* () {
     const login = runner
       .run({ command: "acli", args: ["jira", "auth", "login", "--web"], timeout: "5 minutes" })
       .pipe(Effect.ignore);
@@ -1310,18 +1408,60 @@ export const make = Effect.gen(function* () {
       }),
       Effect.delay(Duration.seconds(3)),
     );
-    yield* fork(
-      Effect.raceFirst(login, signedIn).pipe(
-        Effect.andThen(checkCli),
-        Effect.flatMap((state) =>
-          state === "ready"
-            ? sync({})
-            : setSync({ status: "signed-out", message: CLI_SIGNED_OUT_MESSAGE }),
+    yield* Effect.raceFirst(login, signedIn);
+    if ((yield* checkCli) === "ready") return yield* sync({});
+    yield* setSync({ status: "signed-out", message: CLI_SIGNED_OUT_MESSAGE });
+  });
+
+  /** Runs `claude mcp login` for the Atlassian MCP server, then syncs through it. */
+  const mcpSignIn = Effect.gen(function* () {
+    const { agent } = yield* resolveAgent;
+    if (agent.signIn === undefined) {
+      return yield* new JiraCallError({
+        kind: "unavailable",
+        message: "This provider cannot sign in to MCP servers.",
+      });
+    }
+    yield* setLogin(signInUrl, null);
+    yield* agent
+      .signIn({
+        name: ATLASSIAN_MCP_NAME,
+        url: ATLASSIAN_MCP_URL,
+        onUrl: (url) => setLogin(signInUrl, url),
+      })
+      .pipe(
+        Effect.mapError(
+          (error) => new JiraCallError({ kind: "signed-out", message: error.detail }),
         ),
-        // A second click while the browser is open would start a second login.
-        signInLock.withPermitsIfAvailable(1),
-      ),
+        Effect.ensuring(setLogin(signInUrl, null)),
+      );
+    yield* setLogin(mcp, "unknown");
+    yield* Ref.set(mcpSkipUntil, 0);
+    yield* sync({});
+  });
+
+  /**
+   * Signs in to MCP, or to `acli` when the Jira provider cannot run MCP. Starting `claude mcp
+   * login` drops the login it replaces, so it only starts once a call has found that login gone.
+   */
+  const signIn = Effect.fn("JiraService.signIn")(function* () {
+    if ((yield* selection) === null) return yield* jiraError("Jira is off.");
+    const work = Effect.gen(function* () {
+      if ((yield* Ref.get(mcp)) !== "signed-out") {
+        yield* callTool("jira.whoAmI", "atlassianUserInfo", {}).pipe(Effect.ignore);
+      }
+      const state = yield* Ref.get(mcp);
+      if (state === "signed-out") return yield* mcpSignIn;
+      if (state === "unavailable" && (yield* Ref.get(cli)) !== "missing") return yield* cliSignIn;
+      yield* sync({});
+    }).pipe(
+      Effect.catchTags({
+        JiraCallError: (error) => setSync({ status: "signed-out", message: error.message }),
+      }),
+      // A second click while the browser is open would start a second login.
+      signInLock.withPermitsIfAvailable(1),
     );
+    yield* fork(work);
   });
 
   const setTicketUpdates: JiraService["Service"]["setTicketUpdates"] = (input) =>

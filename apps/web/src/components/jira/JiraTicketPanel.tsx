@@ -220,7 +220,12 @@ function TicketCard({
       />
       <p className="text-xs text-muted-foreground">
         Synced {relativeAge(snapshot.sync.lastSyncedAt, now)}
-        {snapshot.signIn === "cli" ? " with the Atlassian CLI" : " by the agent"} ·{" "}
+        {snapshot.via === "cli"
+          ? " with the Atlassian CLI"
+          : snapshot.via === "mcp"
+            ? " through Atlassian MCP"
+            : ""}{" "}
+        ·{" "}
         <button
           type="button"
           className="cursor-pointer underline underline-offset-2 hover:text-foreground"

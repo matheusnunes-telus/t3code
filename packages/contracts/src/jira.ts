@@ -190,8 +190,17 @@ export const JiraSnapshot = Schema.Struct({
   notices: Schema.Array(JiraTicketNotice),
   details: Schema.Record(Schema.String, JiraIssueDetails),
   sprints: Schema.Array(JiraSprint),
-  /** How a lost login is fixed: T3 runs the Atlassian CLI's browser login, or claude.ai's connector. */
-  signIn: Schema.Literals(["cli", "connector"]),
+  /**
+   * Which login the Sign in button runs: the Atlassian MCP server's, or the Atlassian CLI's when
+   * the Jira provider cannot run MCP. "none" when neither is there to sign in to.
+   */
+  signIn: Schema.Literals(["mcp", "cli", "none"]),
+  /** What the last Jira call that worked went through: MCP first, the CLI when MCP could not. */
+  via: Schema.NullOr(Schema.Literals(["mcp", "cli"])),
+  /** The MCP login is gone while the CLI keeps Jira working, so Sign in is still worth it. */
+  mcpSignedOut: Schema.Boolean,
+  /** The MCP sign-in page while a sign-in waits, in case no browser tab opened for it. */
+  signInUrl: Schema.NullOr(Schema.String),
 });
 export type JiraSnapshot = typeof JiraSnapshot.Type;
 
@@ -252,7 +261,7 @@ export const JiraCommand = Schema.Union([
   }),
   /** Reads the ticket's description, sprint and the rest into the snapshot's details. */
   Schema.Struct({ type: Schema.Literal("loadDetails"), key: JiraIssueKey }),
-  /** Opens the Atlassian CLI's browser login, then syncs once it works. */
+  /** Opens the browser login for the Atlassian MCP server, or the CLI, then syncs once it works. */
   Schema.Struct({ type: Schema.Literal("signIn") }),
 ]);
 export type JiraCommand = typeof JiraCommand.Type;

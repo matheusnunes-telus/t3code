@@ -1,12 +1,16 @@
 import type { EnvironmentId } from "@t3tools/contracts";
 import { useEffect, useState } from "react";
 
+import { readLocalApi } from "~/localApi";
 import { cn } from "~/lib/utils";
 import { jiraSyncHealth, relativeAge, useJiraCommand, useJiraSnapshot } from "~/state/jira";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
-/** Where a lost Atlassian login is fixed: the connector lives in the claude.ai account. */
-export const CLAUDE_CONNECTOR_SETTINGS_URL = "https://claude.ai/settings/connectors";
+export const openExternalUrl = (url: string) => {
+  const api = readLocalApi();
+  if (api) void api.shell.openExternal(url);
+  else window.open(url, "_blank", "noreferrer");
+};
 
 const DOT: Record<ReturnType<typeof jiraSyncHealth>, string> = {
   ok: "bg-success",
@@ -49,9 +53,29 @@ export function JiraSyncStatus({
       Refresh
     </button>
   );
+  const link = (text: string, onClick: () => void) => (
+    <button
+      type="button"
+      className="cursor-pointer underline underline-offset-2 hover:text-foreground"
+      onClick={onClick}
+    >
+      {text}
+    </button>
+  );
+  const signIn =
+    snapshot.signInUrl !== null
+      ? link("Open sign-in page", () => openExternalUrl(snapshot.signInUrl ?? ""))
+      : link("Sign in", () => void command({ type: "signIn" }));
   const label =
     health === "ok" ? (
-      <>Jira synced {age}</>
+      snapshot.mcpSignedOut ? (
+        // The CLI keeps it working, but sprint moves need MCP.
+        <>
+          Jira synced {age} with the CLI · MCP signed out · {signIn}
+        </>
+      ) : (
+        <>Jira synced {age}</>
+      )
     ) : health === "syncing" ? (
       <>Syncing Jira…</>
     ) : health === "stale" ? (
@@ -60,26 +84,7 @@ export function JiraSyncStatus({
       </>
     ) : health === "signed-out" ? (
       <>
-        Jira signed you out ·{" "}
-        {snapshot.signIn === "cli" ? (
-          <button
-            type="button"
-            className="cursor-pointer underline underline-offset-2 hover:text-foreground"
-            onClick={() => void command({ type: "signIn" })}
-          >
-            Sign in
-          </button>
-        ) : (
-          <a
-            href={CLAUDE_CONNECTOR_SETTINGS_URL}
-            target="_blank"
-            rel="noreferrer"
-            className="underline underline-offset-2 hover:text-foreground"
-          >
-            Reconnect
-          </a>
-        )}{" "}
-        · {refresh}
+        Jira signed you out{snapshot.signIn === "none" ? null : <> · {signIn}</>} · {refresh}
       </>
     ) : (
       <>Jira sync failed · {refresh}</>

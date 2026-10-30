@@ -15,6 +15,7 @@ import type {
 
 const decodeJson = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Unknown));
 const parseJson = (value: string): unknown => Option.getOrUndefined(decodeJson(value));
+const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 
 /** A Jira key such as AIPR-1309, as people type it in a message or a branch name. */
 export const JIRA_KEY_PATTERN = /\b([A-Z][A-Z0-9]{1,9}-\d{1,7})\b/g;
@@ -130,7 +131,8 @@ export function parseAccessibleSite(reply: string): { id: string; url: string | 
       : [];
   for (const item of list) {
     const entry = record(item);
-    const id = text(entry?.id);
+    // v1 of the Atlassian MCP calls it `id`, v2 `cloudId`.
+    const id = text(entry?.id) ?? text(entry?.cloudId);
     if (id !== undefined) return { id, url: text(entry?.url) ?? null };
   }
   return undefined;
@@ -141,6 +143,25 @@ const SIGNED_OUT =
 
 export function looksSignedOut(message: string): boolean {
   return SIGNED_OUT.test(message);
+}
+
+/** The v2 Atlassian MCP wraps every reply in `{ "data": … }`; the rest of this file reads v1's. */
+export function unwrapMcpReply(reply: string): string {
+  const data = record(parseJson(reply))?.data;
+  return data !== null && typeof data === "object" ? encodeJson(data) : reply;
+}
+
+/** The transition, in a `listJiraIssueTransitions` reply, that leads to the named status. */
+export function transitionTo(reply: string, status: string): string | undefined {
+  const transitions = record(parseJson(reply))?.transitions;
+  if (!Array.isArray(transitions)) return undefined;
+  const wanted = status.trim().toLowerCase();
+  for (const value of transitions) {
+    const transition = record(value);
+    const id = text(transition?.id);
+    if (id !== undefined && text(record(transition?.to)?.name)?.toLowerCase() === wanted) return id;
+  }
+  return undefined;
 }
 
 export interface SyncMerge {
@@ -487,11 +508,21 @@ export function adfToText(node: unknown): string {
 const nameOf = (value: unknown) =>
   text(record(value)?.displayName) ?? text(record(value)?.name) ?? null;
 
-/** The sprints in an issue's fields. The sprint field is a custom field, so any one is read. */
+/**
+ * The sprints in an issue's fields. The sprint field is a custom field, so any one is read. The
+ * v2 Atlassian MCP moves custom fields under `customFields`, by label, each with its `value`.
+ */
 function sprintsIn(fields: Record<string, unknown>): Array<JiraSprint> {
-  return Object.entries(fields)
-    .filter(([name]) => name.startsWith("customfield_"))
-    .flatMap(([, value]) => (Array.isArray(value) ? value : []))
+  const labelled = Object.values(record(fields.customFields) ?? {}).map(
+    (field) => record(field)?.value,
+  );
+  return [
+    ...Object.entries(fields)
+      .filter(([name]) => name.startsWith("customfield_"))
+      .map(([, value]) => value),
+    ...labelled,
+  ]
+    .flatMap((value) => (Array.isArray(value) ? value : []))
     .flatMap((value) => {
       const sprint = record(value);
       const name = text(sprint?.name);
@@ -509,7 +540,8 @@ function sprintsIn(fields: Record<string, unknown>): Array<JiraSprint> {
 
 /** The active and upcoming sprints named on a search reply's tickets, active first. */
 export function parseOpenSprints(reply: string): Array<JiraSprint> | undefined {
-  const nodes = record(record(parseJson(reply))?.issues)?.nodes;
+  const issues = record(parseJson(reply))?.issues;
+  const nodes = Array.isArray(issues) ? issues : record(issues)?.nodes;
   if (!Array.isArray(nodes)) return undefined;
   const byId = new Map<number, JiraSprint>();
   for (const node of nodes) {
