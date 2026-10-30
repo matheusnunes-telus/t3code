@@ -116,6 +116,30 @@ export const GcpEnvironmentResources = Schema.Struct({
 });
 export type GcpEnvironmentResources = typeof GcpEnvironmentResources.Type;
 
+/** A GitHub Actions run of an environment's deploy workflow. */
+export const GcpDeployRun = Schema.Struct({
+  /** The run's id on GitHub. */
+  id: Schema.String,
+  /** The link and environment it deploys. */
+  key: Schema.String,
+  environment: Schema.String,
+  workflow: Schema.String,
+  number: Schema.NullOr(Schema.Number),
+  /** "waiting" is a run held for an approval, like a protected environment. */
+  status: Schema.Literals(["queued", "waiting", "in_progress", "completed"]),
+  conclusion: Schema.NullOr(Schema.String),
+  url: Schema.String,
+  headSha: Schema.String,
+  title: Schema.String,
+  createdAt: Schema.String,
+  updatedAt: Schema.String,
+  /** The job running now, while it runs. */
+  currentJob: Schema.NullOr(Schema.String),
+  /** After a successful run: whether Google Cloud serves that commit; null when it can't tell. */
+  verified: Schema.NullOr(Schema.Boolean),
+});
+export type GcpDeployRun = typeof GcpDeployRun.Type;
+
 export const GcpSnapshot = Schema.Struct({
   enabled: Schema.Boolean,
   auth: GcpAuthState,
@@ -126,6 +150,10 @@ export const GcpSnapshot = Schema.Struct({
   resources: Schema.Record(Schema.String, GcpEnvironmentResources),
   /** Project ids being read right now. */
   loading: Schema.Array(Schema.String),
+  /** Recent deploy runs of the linked environments, newest first. */
+  deploys: Schema.Array(GcpDeployRun),
+  /** Runs that finished since the client last cleared them, to announce once. */
+  finishedDeploys: Schema.Array(Schema.String),
 });
 export type GcpSnapshot = typeof GcpSnapshot.Type;
 
@@ -153,6 +181,9 @@ export const GcpCommand = Schema.Union([
   Schema.Struct({ type: Schema.Literal("removeLink"), key: Schema.String }),
   /** Reads what runs in one Google Cloud project: Cloud Run services and jobs, GKE clusters. */
   Schema.Struct({ type: Schema.Literal("loadResources"), projectId: Schema.String }),
+  Schema.Struct({ type: Schema.Literal("refreshDeploys") }),
+  /** Marks finished runs as announced. */
+  Schema.Struct({ type: Schema.Literal("clearFinishedDeploys"), ids: Schema.Array(Schema.String) }),
 ]);
 export type GcpCommand = typeof GcpCommand.Type;
 

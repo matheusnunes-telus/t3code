@@ -1,5 +1,6 @@
 import type {
   GcpCloudProject,
+  GcpDeployRun,
   GcpCluster,
   GcpResourceState,
   GcpRunJob,
@@ -383,4 +384,76 @@ export function parseClusters(json: unknown): ReadonlyArray<GcpCluster> {
       },
     ];
   });
+}
+
+/** Reads `gh run list --json databaseId,number,status,conclusion,url,headSha,createdAt,updatedAt,displayTitle`. */
+export function parseWorkflowRuns(
+  json: unknown,
+  target: { readonly key: string; readonly environment: string; readonly workflow: string },
+): ReadonlyArray<GcpDeployRun> {
+  return asArray(json).flatMap((entry) => {
+    const run = asRecord(entry);
+    const id = run?.databaseId;
+    const headSha = asText(run?.headSha);
+    const url = asText(run?.url);
+    if (
+      run === undefined ||
+      (typeof id !== "number" && typeof id !== "string") ||
+      !headSha ||
+      !url
+    ) {
+      return [];
+    }
+    const status = asText(run.status);
+    return [
+      {
+        id: String(id),
+        key: target.key,
+        environment: target.environment,
+        workflow: target.workflow,
+        number: typeof run.number === "number" ? run.number : null,
+        status:
+          status === "completed"
+            ? "completed"
+            : status === "waiting"
+              ? "waiting"
+              : status === "queued" || status === "pending" || status === "requested"
+                ? "queued"
+                : "in_progress",
+        conclusion: asText(run.conclusion),
+        url,
+        headSha,
+        title: asText(run.displayTitle) ?? "",
+        createdAt: asText(run.createdAt) ?? "",
+        updatedAt: asText(run.updatedAt) ?? "",
+        currentJob: null,
+        verified: null,
+      },
+    ];
+  });
+}
+
+/** The job a run is on: the first one in progress, else the first queued. */
+export function currentJobOf(json: unknown): string | null {
+  const jobs = asArray(asRecord(json)?.jobs).map(asRecord);
+  const running =
+    jobs.find((job) => job?.status === "in_progress") ??
+    jobs.find((job) => job?.status === "queued");
+  return asText(running?.name);
+}
+
+/**
+ * Whether a deployed image carries the commit: image tags are usually the full or short sha.
+ * Null when no image says anything about commits, so the check can't tell.
+ */
+export function imagesServeCommit(
+  images: ReadonlyArray<string | null>,
+  sha: string,
+): boolean | null {
+  const tags = images.flatMap((image) => {
+    const tag = image?.split("@")[0]?.split("/").at(-1)?.split(":")[1];
+    return tag && /^[0-9a-f]{7,40}$/.test(tag) ? [tag] : [];
+  });
+  if (tags.length === 0) return null;
+  return tags.some((tag) => sha.startsWith(tag) || tag.startsWith(sha.slice(0, 7)));
 }

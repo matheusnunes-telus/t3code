@@ -82,5 +82,41 @@ export function GcpNoticeCoordinator() {
     return () => window.removeEventListener("focus", recheck);
   }, [health, command]);
 
+  // oxlint-disable-next-line t3code/react-effect-budget -- finished deploys arrive from the server's polling and become toasts outside React.
+  useEffect(() => {
+    if (snapshot === null || snapshot.finishedDeploys.length === 0) return;
+    for (const id of snapshot.finishedDeploys) {
+      const run = snapshot.deploys.find((entry) => entry.id === id);
+      if (run === undefined) continue;
+      const project = snapshot.links.find((link) => link.key === run.key)?.title ?? run.key;
+      const succeeded = run.conclusion === "success";
+      const title = succeeded
+        ? `Deployed to ${run.environment} · ${project}`
+        : `${run.environment} deploy ${run.conclusion === "cancelled" ? "cancelled" : "failed"} · ${project}`;
+      const description = `${run.headSha.slice(0, 7)} · ${run.title}`;
+      const toast = toastManager.add({
+        type: succeeded ? "success" : "error",
+        title,
+        description,
+        actionProps: {
+          children: "Open run",
+          onClick: () => {
+            toastManager.close(toast);
+            window.open(run.url, "_blank", "noreferrer");
+          },
+        },
+      });
+      if (
+        !document.hasFocus() &&
+        typeof Notification !== "undefined" &&
+        Notification.permission === "granted"
+      ) {
+        const notification = new Notification(title, { body: description });
+        notification.addEventListener("click", () => window.focus());
+      }
+    }
+    void command({ type: "clearFinishedDeploys", ids: [...snapshot.finishedDeploys] });
+  }, [snapshot, command]);
+
   return null;
 }

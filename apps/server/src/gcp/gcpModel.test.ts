@@ -2,6 +2,9 @@ import { describe, expect, it } from "@effect/vitest";
 
 import {
   classifyLogin,
+  currentJobOf,
+  imagesServeCommit,
+  parseWorkflowRuns,
   environmentNameOf,
   formatTurnContext,
   gcloudCandidates,
@@ -286,5 +289,53 @@ describe("resource parsers", () => {
         { name: "main", location: "us-central1", status: "RUNNING", currentMasterVersion: "1.30" },
       ]),
     ).toEqual([{ name: "main", location: "us-central1", state: "ready", version: "1.30" }]);
+  });
+});
+
+describe("deploy runs", () => {
+  it("reads gh run list and the job a run is on", () => {
+    const runs = parseWorkflowRuns(
+      [
+        {
+          databaseId: 41130133992,
+          number: 77,
+          status: "in_progress",
+          conclusion: "",
+          url: "https://github.com/acme/billing/actions/runs/41130133992",
+          headSha: "947f0f12ab7a79504cfa6fa74b4eac712623f154",
+          createdAt: "2026-10-30T21:19:10Z",
+          updatedAt: "2026-10-30T21:20:00Z",
+          displayTitle: "Merge pull request #129",
+        },
+        { status: "completed" },
+      ],
+      { key: "billing", environment: "NP", workflow: ".github/workflows/deploy-np.yml" },
+    );
+    expect(runs).toHaveLength(1);
+    expect(runs[0]).toMatchObject({
+      id: "41130133992",
+      number: 77,
+      status: "in_progress",
+      conclusion: null,
+      environment: "NP",
+    });
+    expect(
+      currentJobOf({
+        jobs: [
+          { name: "Detect changes", status: "completed" },
+          { name: "Deploy api (NP)", status: "in_progress" },
+        ],
+      }),
+    ).toBe("Deploy api (NP)");
+  });
+
+  it("checks deployed image tags against the run's commit, and says when it can't tell", () => {
+    const sha = "947f0f12ab7a79504cfa6fa74b4eac712623f154";
+    expect(imagesServeCommit([`registry/app/api:${sha}`, "registry/app/job:old1234"], sha)).toBe(
+      true,
+    );
+    expect(imagesServeCommit(["registry/app/api:947f0f1"], sha)).toBe(true);
+    expect(imagesServeCommit(["registry/app/api:08f06c5043"], sha)).toBe(false);
+    expect(imagesServeCommit(["registry/app/api:latest", null], sha)).toBeNull();
   });
 });

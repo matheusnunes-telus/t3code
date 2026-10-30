@@ -1,4 +1,5 @@
 import type {
+  GcpDeployRun,
   GcpEnvironment,
   GcpEnvironmentResources,
   GcpResourceState,
@@ -12,6 +13,7 @@ import { useThreadShell } from "~/state/entities";
 import { gcpLinkForProject, useGcpCommand, useGcpSnapshot } from "~/state/gcp";
 import { relativeAge } from "~/state/jira";
 import { Button } from "../ui/button";
+import { useMinuteClock } from "./useMinuteClock";
 import { ToggleGroup, ToggleGroupItem } from "../ui/toggle-group";
 
 /** A panel read older than this is read again when it is shown. */
@@ -44,16 +46,6 @@ const imageTag = (image: string | null) => {
 
 const consoleUrl = (path: string, projectId: string) =>
   `https://console.cloud.google.com/${path}?project=${encodeURIComponent(projectId)}`;
-
-function useMinuteClock() {
-  const [now, setNow] = useState(() => Date.now());
-  // oxlint-disable-next-line t3code/react-effect-budget -- relative ages tick with the wall clock, which nothing in React announces.
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 60_000);
-    return () => window.clearInterval(timer);
-  }, []);
-  return now;
-}
 
 function SectionLabel({ children }: { children: string }) {
   return (
@@ -215,6 +207,61 @@ function EnvironmentResources({
   );
 }
 
+function EnvironmentDeploys({
+  runs,
+  workflow,
+  now,
+}: {
+  runs: ReadonlyArray<GcpDeployRun>;
+  workflow: string | null;
+  now: number;
+}) {
+  if (workflow === null) return null;
+  return (
+    <div className="mt-3">
+      <SectionLabel>Deploys</SectionLabel>
+      {runs.length === 0 ? (
+        <p className="text-xs text-muted-foreground">
+          No recent runs of {workflow.split("/").at(-1)} found with gh.
+        </p>
+      ) : (
+        <ul>
+          {runs.slice(0, 5).map((run) => (
+            <Row
+              key={run.id}
+              state={
+                run.status !== "completed"
+                  ? "running"
+                  : run.conclusion === "success"
+                    ? "succeeded"
+                    : "failed"
+              }
+              name={run.title}
+              meta={relativeAge(run.createdAt, now)}
+              detail={[
+                run.number === null ? null : `#${run.number}`,
+                run.headSha.slice(0, 7),
+                run.status !== "completed"
+                  ? run.status === "waiting"
+                    ? "waiting for approval"
+                    : (run.currentJob ?? "running")
+                  : run.verified === true
+                    ? "running in Google Cloud"
+                    : run.verified === false
+                      ? "not running in Google Cloud"
+                      : (run.conclusion ?? null),
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+              links={[{ label: "run", href: run.url }]}
+            />
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 /** The right panel's Google Cloud tab: what runs in each linked environment of the thread's project. */
 export function GcpCloudPanel({ threadRef }: { threadRef: ScopedThreadRef }) {
   const environmentId = threadRef.environmentId;
@@ -285,6 +332,13 @@ export function GcpCloudPanel({ threadRef }: { threadRef: ScopedThreadRef }) {
         ) : (
           <EnvironmentResources environment={environment} resources={resources} now={now} />
         )}
+        <EnvironmentDeploys
+          runs={(snapshot?.deploys ?? []).filter(
+            (run) => run.key === link.key && run.environment === environment.name,
+          )}
+          workflow={environment.deployWorkflow}
+          now={now}
+        />
         {link.terraformRepos.length > 0 ? (
           <div className="mt-3">
             <SectionLabel>Terraform</SectionLabel>
@@ -328,7 +382,10 @@ export function GcpCloudPanel({ threadRef }: { threadRef: ScopedThreadRef }) {
           type="button"
           disabled={loading}
           className="inline-flex cursor-pointer items-center gap-1 hover:text-foreground"
-          onClick={() => void command({ type: "loadResources", projectId: environment.projectId })}
+          onClick={() => {
+            void command({ type: "loadResources", projectId: environment.projectId });
+            void command({ type: "refreshDeploys" });
+          }}
         >
           <RefreshCwIcon className="size-3" />
           Refresh

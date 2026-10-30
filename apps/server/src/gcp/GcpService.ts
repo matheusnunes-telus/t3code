@@ -3,11 +3,13 @@ import {
   GcpCloudProject,
   type GcpCommand,
   type GcpCommandResult,
+  type GcpDeployRun,
   type GcpEnvironmentResources,
   GcpError,
   GcpProjectLink,
   type GcpSnapshot,
 } from "@t3tools/contracts";
+import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
@@ -28,6 +30,9 @@ import * as ProcessRunner from "../processRunner.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import {
   classifyLogin,
+  currentJobOf,
+  imagesServeCommit,
+  parseWorkflowRuns,
   parseClusters,
   parseRunJobs,
   parseRunServices,
@@ -108,6 +113,11 @@ export const make = Effect.gen(function* () {
   // Read on demand and only kept in memory: it is a view of GCP, not something the user chose.
   const resources = yield* Ref.make<Record<string, GcpEnvironmentResources>>({});
   const loading = yield* Ref.make<ReadonlySet<string>>(new Set());
+  const deploys = yield* Ref.make<ReadonlyArray<GcpDeployRun>>([]);
+  const finishedDeploys = yield* Ref.make<ReadonlyArray<string>>([]);
+  // Runs that finished before T3 started are history, not news.
+  const startedAt = yield* nowIso;
+  const lastDeployPoll = yield* Ref.make(0);
   const changes = yield* PubSub.sliding<void>(1);
   const checkLock = yield* Semaphore.make(1);
   const signInLock = yield* Semaphore.make(1);
@@ -171,8 +181,13 @@ export const make = Effect.gen(function* () {
     return null;
   });
 
-  const run = (gcloud: string, args: ReadonlyArray<string>, timeout: Duration.Input) =>
-    runner.run({ command: gcloud, args, timeout }).pipe(
+  const run = (
+    gcloud: string,
+    args: ReadonlyArray<string>,
+    timeout: Duration.Input,
+    cwd?: string,
+  ) =>
+    runner.run({ command: gcloud, args, timeout, ...(cwd === undefined ? {} : { cwd }) }).pipe(
       Effect.map((output) => ({
         exitCode: output.code === null ? null : Number(output.code),
         stdout: output.stdout,
@@ -360,6 +375,8 @@ export const make = Effect.gen(function* () {
       links: current.links,
       cloudProjects: current.cloudProjects,
       resources: yield* Ref.get(resources),
+      deploys: yield* Ref.get(deploys),
+      finishedDeploys: yield* Ref.get(finishedDeploys),
       loading: [...(yield* Ref.get(loading))],
     } satisfies GcpSnapshot;
   });
@@ -378,6 +395,15 @@ export const make = Effect.gen(function* () {
         );
       }),
     );
+
+  yield* Effect.suspend(() => pollDeploys(false)).pipe(
+    Effect.catchCause((cause) =>
+      Effect.logWarning("Google Cloud deploy poll failed.").pipe(Effect.annotateLogs({ cause })),
+    ),
+    Effect.repeat(Schedule.spaced(Duration.seconds(30))),
+    Effect.delay(Duration.seconds(15)),
+    Effect.forkIn(scope),
+  );
 
   yield* checkLogin.pipe(
     Effect.catchCause((cause) =>
@@ -418,6 +444,15 @@ export const make = Effect.gen(function* () {
             ...current,
             links: [...current.links.filter((link) => link.key !== input.link.key), input.link],
           })),
+          null,
+        );
+      case "refreshDeploys":
+        return Effect.as(pollDeploys(true), null);
+      case "clearFinishedDeploys":
+        return Effect.as(
+          Ref.update(finishedDeploys, (current) =>
+            current.filter((id) => !input.ids.includes(id)),
+          ).pipe(Effect.andThen(PubSub.publish(changes, undefined))),
           null,
         );
       case "loadResources":
@@ -479,6 +514,135 @@ export const make = Effect.gen(function* () {
     };
     yield* Ref.update(resources, (current) => ({ ...current, [projectId]: next }));
     yield* PubSub.publish(changes, undefined);
+  });
+
+  const findGh = Effect.gen(function* () {
+    const entries = (process.env.PATH ?? "").split(process.platform === "win32" ? ";" : ":");
+    const binary = process.platform === "win32" ? "gh.exe" : "gh";
+    const candidates = [
+      ...entries.filter((entry) => entry.length > 0),
+      "/opt/homebrew/bin",
+      "/usr/local/bin",
+      "/usr/bin",
+    ].map((dir) => `${dir.replace(/[\\/]+$/, "")}/${binary}`);
+    for (const candidate of candidates) {
+      if (yield* fileSystem.exists(candidate).pipe(Effect.orElseSucceed(() => false))) {
+        return candidate;
+      }
+    }
+    return null;
+  });
+
+  /** After a successful run, checks that the environment's services or jobs run its commit. */
+  const verifyDeploy = Effect.fn("GcpService.verifyDeploy")(function* (
+    deployRun: GcpDeployRun,
+    projectId: string,
+  ) {
+    yield* loadResources(projectId).pipe(Effect.ignore);
+    const read = (yield* Ref.get(resources))[projectId];
+    if (read === undefined) return null;
+    return imagesServeCommit(
+      [...read.services.map((service) => service.image), ...read.jobs.map((job) => job.image)],
+      deployRun.headSha,
+    );
+  });
+
+  /**
+   * Follows each linked environment's deploy workflow on GitHub. Often while a run is active,
+   * rarely otherwise; a run that finishes is queued once for the client to announce.
+   */
+  const pollDeploys = Effect.fn("GcpService.pollDeploys")(function* (force: boolean) {
+    if (!(yield* settings).enabled) return;
+    const targets = (yield* Ref.get(store)).links.flatMap((link) =>
+      link.environments.flatMap((environment) =>
+        environment.deployWorkflow === null
+          ? []
+          : [
+              {
+                key: link.key,
+                environment: environment.name,
+                projectId: environment.projectId,
+                runtime: environment.runtime,
+                workflow: environment.deployWorkflow,
+                root: link.workspaceRoot,
+              },
+            ],
+      ),
+    );
+    if (targets.length === 0) return;
+    const now = yield* Clock.currentTimeMillis;
+    const active = (yield* Ref.get(deploys)).some((entry) => entry.status !== "completed");
+    if (!force && !active && now - (yield* Ref.get(lastDeployPoll)) < 120_000) return;
+    yield* Ref.set(lastDeployPoll, now);
+    const gh = yield* findGh;
+    if (gh === null) return;
+    const previous = new Map((yield* Ref.get(deploys)).map((entry) => [entry.id, entry]));
+    const next: Array<GcpDeployRun> = [];
+    const finished: Array<{
+      readonly run: GcpDeployRun;
+      readonly projectId: string;
+      readonly runtime: string;
+    }> = [];
+    for (const target of targets) {
+      const listed = yield* run(
+        gh,
+        [
+          "run",
+          "list",
+          "--workflow",
+          target.workflow.split("/").at(-1) ?? target.workflow,
+          "--limit",
+          "5",
+          "--json",
+          "databaseId,number,status,conclusion,url,headSha,createdAt,updatedAt,displayTitle",
+        ],
+        "30 seconds",
+        target.root,
+      );
+      if (listed.exitCode !== 0) continue;
+      const decoded = decodeJson(listed.stdout);
+      if (decoded._tag === "None") continue;
+      for (const entry of parseWorkflowRuns(decoded.value, target)) {
+        const before = previous.get(entry.id);
+        let currentJob: string | null = null;
+        if (entry.status !== "completed") {
+          const viewed = yield* run(
+            gh,
+            ["run", "view", entry.id, "--json", "jobs"],
+            "30 seconds",
+            target.root,
+          );
+          const jobs = viewed.exitCode === 0 ? decodeJson(viewed.stdout) : undefined;
+          currentJob = jobs !== undefined && jobs._tag === "Some" ? currentJobOf(jobs.value) : null;
+        }
+        const merged = { ...entry, currentJob, verified: before?.verified ?? null };
+        const justFinished =
+          entry.status === "completed" &&
+          (before === undefined ? entry.createdAt > startedAt : before.status !== "completed");
+        if (justFinished)
+          finished.push({ run: merged, projectId: target.projectId, runtime: target.runtime });
+        next.push(merged);
+      }
+    }
+    const recent = next.toSorted((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 30);
+    yield* Ref.set(deploys, recent);
+    if (finished.length > 0) {
+      yield* Ref.update(finishedDeploys, (current) => [
+        ...current,
+        ...finished.map((entry) => entry.run.id),
+      ]);
+    }
+    yield* PubSub.publish(changes, undefined);
+    for (const entry of finished) {
+      if (entry.run.conclusion !== "success" || entry.runtime === "gke") continue;
+      const verified = yield* verifyDeploy(entry.run, entry.projectId);
+      yield* Ref.update(deploys, (current) =>
+        current.map((candidate) =>
+          candidate.id === entry.run.id ? { ...candidate, verified } : candidate,
+        ),
+      );
+      yield* PubSub.publish(changes, undefined);
+    }
   });
 
   const turnContext = Effect.fn("GcpService.turnContext")(function* (projectId: string) {

@@ -55,6 +55,7 @@ import { useFilesTabsStore } from "../filesTabsStore";
 import { useJiraComposerBanners } from "./jira/useJiraComposerBanners";
 import { useJiraSnapshot } from "~/state/jira";
 import { gcpLinkForProject, useGcpSnapshot } from "~/state/gcp";
+import { useGcpDeployBanners } from "./gcp/useGcpDeployBanners";
 import { ArrowRightLeftIcon, FolderOpenIcon } from "lucide-react";
 import { feedbackBannerItem } from "./chat/ComposerFeedback";
 import { useUsageLimitsPanel } from "./chat/useUsageLimitsPanel";
@@ -2516,6 +2517,10 @@ export default function ChatView(props: ChatViewProps) {
   const jiraSnapshot = useJiraSnapshot(isServerThread ? environmentId : null);
   const gcpSnapshot = useGcpSnapshot(isServerThread ? environmentId : null);
   const cloudLink = gcpLinkForProject(gcpSnapshot, activeThread?.projectId);
+  const gcpDeployBannerItems = useGcpDeployBanners(
+    isServerThread ? environmentId : null,
+    activeThreadShell?.projectId,
+  );
   const jiraBannerItems = useJiraComposerBanners(
     activeThreadShell?.environmentId ?? null,
     activeThreadShell?.id ?? null,
@@ -2586,6 +2591,7 @@ export default function ChatView(props: ChatViewProps) {
         ...systemComposerBannerItems,
         ...handoffBannerItems,
         ...jiraBannerItems,
+        ...gcpDeployBannerItems,
       ];
     }
     return [
@@ -2596,6 +2602,7 @@ export default function ChatView(props: ChatViewProps) {
       ...systemComposerBannerItems,
       ...handoffBannerItems,
       ...jiraBannerItems,
+      ...gcpDeployBannerItems,
       branchMismatchBannerItem({
         mismatchKey: activeBranchMismatchKey,
         mismatch: localCheckoutBranchMismatch,
