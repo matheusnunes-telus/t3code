@@ -23,6 +23,7 @@ const RIGHT_PANEL_KINDS = [
   "pull-requests",
   "side-chat",
   "jira",
+  "cloud",
 ] as const;
 export type RightPanelKind = (typeof RIGHT_PANEL_KINDS)[number];
 
@@ -79,6 +80,8 @@ export type RightPanelSurface =
   | { id: "pull-requests"; kind: "pull-requests" }
   /** The Jira tickets linked to this thread. */
   | { id: "jira"; kind: "jira" }
+  /** The Google Cloud environments of the thread's project. */
+  | { id: "cloud"; kind: "cloud" }
   /** A /btw side chat: a read-only fork of this thread, shown here instead of in its own tab. */
   | { id: `side-chat:${string}`; kind: "side-chat"; threadId: string; title: string };
 
@@ -231,6 +234,8 @@ const singletonSurface = (
       return { id: "pull-requests", kind };
     case "jira":
       return { id: "jira", kind };
+    case "cloud":
+      return { id: "cloud", kind };
     case "device":
       return { id: "device", kind };
   }

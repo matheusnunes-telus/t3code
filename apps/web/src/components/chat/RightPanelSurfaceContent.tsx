@@ -26,6 +26,7 @@ import { PullRequestDetailGhost } from "../pullRequest/PullRequestGhosts";
 import { PullRequestsUnavailableState } from "../pullRequest/PullRequestsUnavailableState";
 import { ThreadPullRequestsPanel } from "../pullRequest/ThreadPullRequestsPanel";
 import { JiraTicketPanel } from "../jira/JiraTicketPanel";
+import { GcpCloudPanel } from "../gcp/GcpCloudPanel";
 import { useSideChatStore } from "../../sideChatStore";
 import { buildThreadRouteParams } from "../../threadRoutes";
 import { SideChatPanel } from "./SideChatPanel";
@@ -194,6 +195,8 @@ export function RightPanelSurfaceContent(props: {
       return <ThreadPullRequestsPanel threadRef={threadRef} />;
     case "jira":
       return <JiraTicketPanel threadRef={threadRef} />;
+    case "cloud":
+      return <GcpCloudPanel threadRef={threadRef} />;
     case "device":
       return (
         <Suspense fallback={null}>

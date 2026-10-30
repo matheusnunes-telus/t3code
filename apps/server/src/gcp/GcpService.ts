@@ -3,6 +3,7 @@ import {
   GcpCloudProject,
   type GcpCommand,
   type GcpCommandResult,
+  type GcpEnvironmentResources,
   GcpError,
   GcpProjectLink,
   type GcpSnapshot,
@@ -27,6 +28,9 @@ import * as ProcessRunner from "../processRunner.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import {
   classifyLogin,
+  parseClusters,
+  parseRunJobs,
+  parseRunServices,
   formatTurnContext,
   gcloudCandidates,
   isTerraformCandidate,
@@ -64,6 +68,7 @@ type StoreFile = typeof StoreFile.Type;
 const EMPTY_STORE: StoreFile = { version: 1, links: [], cloudProjects: [] };
 const decodeStore = Schema.decodeUnknownOption(Schema.fromJsonString(StoreFile));
 const encodeStore = Schema.encodeSync(Schema.fromJsonString(StoreFile));
+const decodeJson = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Unknown));
 const decodeProjects = Schema.decodeUnknownOption(
   Schema.fromJsonString(
     Schema.Array(Schema.Struct({ projectId: Schema.String, name: Schema.optional(Schema.String) })),
@@ -100,6 +105,9 @@ export const make = Effect.gen(function* () {
     ),
   );
   const writeLock = yield* Semaphore.make(1);
+  // Read on demand and only kept in memory: it is a view of GCP, not something the user chose.
+  const resources = yield* Ref.make<Record<string, GcpEnvironmentResources>>({});
+  const loading = yield* Ref.make<ReadonlySet<string>>(new Set());
   const changes = yield* PubSub.sliding<void>(1);
   const checkLock = yield* Semaphore.make(1);
   const signInLock = yield* Semaphore.make(1);
@@ -351,6 +359,8 @@ export const make = Effect.gen(function* () {
       auth: yield* Ref.get(auth),
       links: current.links,
       cloudProjects: current.cloudProjects,
+      resources: yield* Ref.get(resources),
+      loading: [...(yield* Ref.get(loading))],
     } satisfies GcpSnapshot;
   });
 
@@ -410,6 +420,8 @@ export const make = Effect.gen(function* () {
           })),
           null,
         );
+      case "loadResources":
+        return Effect.as(loadResources(input.projectId), null);
       case "removeLink":
         return Effect.as(
           updateStore((current) => ({
@@ -420,6 +432,54 @@ export const make = Effect.gen(function* () {
         );
     }
   };
+
+  const loadResources = Effect.fn("GcpService.loadResources")(function* (projectId: string) {
+    const gcloud = yield* findGcloud;
+    if (gcloud === null) {
+      return yield* new GcpError({ message: "gcloud isn't installed, or T3 can't find it." });
+    }
+    const usesGke = (yield* Ref.get(store)).links.some((link) =>
+      link.environments.some(
+        (environment) => environment.projectId === projectId && environment.runtime === "gke",
+      ),
+    );
+    const mark = (on: boolean) =>
+      Ref.update(loading, (current) => {
+        const next = new Set(current);
+        if (on) next.add(projectId);
+        else next.delete(projectId);
+        return next;
+      }).pipe(Effect.andThen(PubSub.publish(changes, undefined)));
+    yield* mark(true);
+    const list = (args: ReadonlyArray<string>) =>
+      run(gcloud, [...args, `--project=${projectId}`, "--format=json", "--quiet"], "90 seconds");
+    const [services, jobs, clusters] = yield* Effect.all(
+      [
+        list(["run", "services", "list"]),
+        list(["run", "jobs", "list"]),
+        usesGke
+          ? list(["container", "clusters", "list"])
+          : Effect.succeed({ exitCode: 0, stdout: "[]", stderr: "" }),
+      ],
+      { concurrency: "unbounded" },
+    ).pipe(Effect.ensuring(mark(false)));
+    const parsed = (output: { exitCode: number | null; stdout: string }) => {
+      if (output.exitCode !== 0) return null;
+      const decoded = decodeJson(output.stdout);
+      return decoded._tag === "Some" ? decoded.value : null;
+    };
+    const failure = [services, jobs, clusters].find((output) => output.exitCode !== 0);
+    const next: GcpEnvironmentResources = {
+      projectId,
+      fetchedAt: yield* nowIso,
+      services: parseRunServices(parsed(services)),
+      jobs: parseRunJobs(parsed(jobs)),
+      clusters: parseClusters(parsed(clusters)),
+      message: failure === undefined ? null : classifyLogin(failure).message,
+    };
+    yield* Ref.update(resources, (current) => ({ ...current, [projectId]: next }));
+    yield* PubSub.publish(changes, undefined);
+  });
 
   const turnContext = Effect.fn("GcpService.turnContext")(function* (projectId: string) {
     if (!(yield* settings).enabled) return null;

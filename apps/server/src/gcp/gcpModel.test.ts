@@ -8,6 +8,9 @@ import {
   isTerraformCandidate,
   matchCloudProjects,
   nameTokens,
+  parseClusters,
+  parseRunJobs,
+  parseRunServices,
   suggestEnvironments,
 } from "./gcpModel.ts";
 
@@ -217,5 +220,71 @@ describe("formatTurnContext", () => {
     expect(
       formatTurnContext({ link: { ...link, environments: [] }, gcloudPath: null, account: null }),
     ).toBeNull();
+  });
+});
+
+describe("resource parsers", () => {
+  it("reads Cloud Run services as gcloud lists them", () => {
+    expect(
+      parseRunServices([
+        {
+          metadata: {
+            name: "api",
+            labels: { "cloud.googleapis.com/location": "europe-west1" },
+            annotations: {
+              "serving.knative.dev/lastModifier": "deployer@example.iam.gserviceaccount.com",
+            },
+          },
+          spec: { template: { spec: { containers: [{ image: "registry/app/api:4f2a9c1" }] } } },
+          status: {
+            url: "https://api-xyz.a.run.app",
+            latestReadyRevisionName: "api-00052-wkl",
+            conditions: [
+              { type: "Ready", status: "True", lastTransitionTime: "2026-10-30T21:22:44Z" },
+            ],
+          },
+        },
+        { metadata: {} },
+      ]),
+    ).toEqual([
+      {
+        name: "api",
+        region: "europe-west1",
+        url: "https://api-xyz.a.run.app",
+        state: "ready",
+        revision: "api-00052-wkl",
+        image: "registry/app/api:4f2a9c1",
+        deployedAt: "2026-10-30T21:22:44Z",
+        deployedBy: "deployer@example.iam.gserviceaccount.com",
+      },
+    ]);
+  });
+
+  it("reads jobs with their last run, and clusters", () => {
+    expect(
+      parseRunJobs([
+        {
+          metadata: { name: "nightly", labels: {} },
+          spec: {
+            template: { spec: { template: { spec: { containers: [{ image: "img:1" }] } } } },
+          },
+          status: {
+            latestCreatedExecution: {
+              completionStatus: "EXECUTION_FAILED",
+              creationTimestamp: "2026-10-16T21:51:25Z",
+            },
+          },
+        },
+        { metadata: { name: "never-ran" }, status: {} },
+      ]).map((job) => [job.name, job.image, job.lastRunState]),
+    ).toEqual([
+      ["nightly", "img:1", "failed"],
+      ["never-ran", null, "none"],
+    ]);
+    expect(
+      parseClusters([
+        { name: "main", location: "us-central1", status: "RUNNING", currentMasterVersion: "1.30" },
+      ]),
+    ).toEqual([{ name: "main", location: "us-central1", state: "ready", version: "1.30" }]);
   });
 });

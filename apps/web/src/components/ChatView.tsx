@@ -54,6 +54,7 @@ import { convertDraftToFilesTab } from "../filesTabs";
 import { useFilesTabsStore } from "../filesTabsStore";
 import { useJiraComposerBanners } from "./jira/useJiraComposerBanners";
 import { useJiraSnapshot } from "~/state/jira";
+import { gcpLinkForProject, useGcpSnapshot } from "~/state/gcp";
 import { ArrowRightLeftIcon, FolderOpenIcon } from "lucide-react";
 import { feedbackBannerItem } from "./chat/ComposerFeedback";
 import { useUsageLimitsPanel } from "./chat/useUsageLimitsPanel";
@@ -2513,6 +2514,8 @@ export default function ChatView(props: ChatViewProps) {
   };
   const handleRestoreThreadBranchStable = useStableCallback(handleRestoreThreadBranch);
   const jiraSnapshot = useJiraSnapshot(isServerThread ? environmentId : null);
+  const gcpSnapshot = useGcpSnapshot(isServerThread ? environmentId : null);
+  const cloudLink = gcpLinkForProject(gcpSnapshot, activeThread?.projectId);
   const jiraBannerItems = useJiraComposerBanners(
     activeThreadShell?.environmentId ?? null,
     activeThreadShell?.id ?? null,
@@ -4031,6 +4034,9 @@ export default function ChatView(props: ChatViewProps) {
           onAddJira={() => {
             if (activeThreadRef) useRightPanelStore.getState().open(activeThreadRef, "jira");
           }}
+          onAddCloud={() => {
+            if (activeThreadRef) useRightPanelStore.getState().open(activeThreadRef, "cloud");
+          }}
           browserAvailable={canOperatePreview && browserAvailable}
           terminalAvailable={activeProject !== null && canOperateTerminal}
           diffAvailable={isServerThread && isGitRepo}
@@ -4042,6 +4048,7 @@ export default function ChatView(props: ChatViewProps) {
           jiraAvailable={
             isServerThread && activeThreadRef !== null && jiraSnapshot?.enabled === true
           }
+          cloudAvailable={activeThreadRef !== null && cloudLink !== null}
         >
           {rightPanelContent}
         </ChatRightPanel>

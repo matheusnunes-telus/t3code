@@ -1,5 +1,9 @@
 import type {
   GcpCloudProject,
+  GcpCluster,
+  GcpResourceState,
+  GcpRunJob,
+  GcpRunService,
   GcpEnvironment,
   GcpLoginStatus,
   GcpProjectLink,
@@ -272,4 +276,111 @@ export function formatTurnContext(input: {
   }
   lines.push("</google-cloud-context>");
   return lines.join("\n");
+}
+
+const asRecord = (value: unknown): Record<string, unknown> | undefined =>
+  typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+const asText = (value: unknown): string | null =>
+  typeof value === "string" && value.length > 0 ? value : null;
+const asArray = (value: unknown): ReadonlyArray<unknown> => (Array.isArray(value) ? value : []);
+
+function readyState(status: Record<string, unknown> | undefined): {
+  readonly state: GcpResourceState;
+  readonly at: string | null;
+} {
+  const ready = asArray(status?.conditions)
+    .map(asRecord)
+    .find((condition) => condition?.type === "Ready");
+  const state: GcpResourceState =
+    ready?.status === "True"
+      ? "ready"
+      : ready?.status === "False"
+        ? "failed"
+        : ready?.status === "Unknown"
+          ? "deploying"
+          : "unknown";
+  return { state, at: asText(ready?.lastTransitionTime) };
+}
+
+const firstImage = (template: unknown): string | null =>
+  asText(asRecord(asArray(asRecord(template)?.containers)[0])?.image);
+
+/** Reads `gcloud run services list --format=json`. */
+export function parseRunServices(json: unknown): ReadonlyArray<GcpRunService> {
+  return asArray(json).flatMap((entry) => {
+    const service = asRecord(entry);
+    const metadata = asRecord(service?.metadata);
+    const name = asText(metadata?.name);
+    if (service === undefined || name === null) return [];
+    const status = asRecord(service.status);
+    const ready = readyState(status);
+    return [
+      {
+        name,
+        region: asText(asRecord(metadata?.labels)?.["cloud.googleapis.com/location"]),
+        url: asText(status?.url),
+        state: ready.state,
+        revision: asText(status?.latestReadyRevisionName),
+        image: firstImage(asRecord(asRecord(service.spec)?.template)?.spec),
+        deployedAt: ready.at,
+        deployedBy: asText(asRecord(metadata?.annotations)?.["serving.knative.dev/lastModifier"]),
+      },
+    ];
+  });
+}
+
+/** Reads `gcloud run jobs list --format=json`. */
+export function parseRunJobs(json: unknown): ReadonlyArray<GcpRunJob> {
+  return asArray(json).flatMap((entry) => {
+    const job = asRecord(entry);
+    const metadata = asRecord(job?.metadata);
+    const name = asText(metadata?.name);
+    if (job === undefined || name === null) return [];
+    const execution = asRecord(asRecord(job.status)?.latestCreatedExecution);
+    const completion = asText(execution?.completionStatus);
+    const template = asRecord(asRecord(asRecord(asRecord(job.spec)?.template)?.spec)?.template);
+    return [
+      {
+        name,
+        region: asText(asRecord(metadata?.labels)?.["cloud.googleapis.com/location"]),
+        image: firstImage(template?.spec),
+        lastRunAt: asText(execution?.creationTimestamp),
+        lastRunState:
+          execution === undefined
+            ? "none"
+            : completion === "EXECUTION_SUCCEEDED"
+              ? "succeeded"
+              : completion === null || completion === "EXECUTION_RUNNING"
+                ? "running"
+                : "failed",
+      },
+    ];
+  });
+}
+
+/** Reads `gcloud container clusters list --format=json`. */
+export function parseClusters(json: unknown): ReadonlyArray<GcpCluster> {
+  return asArray(json).flatMap((entry) => {
+    const cluster = asRecord(entry);
+    const name = asText(cluster?.name);
+    if (cluster === undefined || name === null) return [];
+    const status = asText(cluster.status);
+    return [
+      {
+        name,
+        location: asText(cluster.location) ?? "",
+        state:
+          status === "RUNNING"
+            ? "ready"
+            : status === "ERROR" || status === "DEGRADED"
+              ? "failed"
+              : status === "PROVISIONING" || status === "RECONCILING"
+                ? "deploying"
+                : "unknown",
+        version: asText(cluster.currentMasterVersion),
+      },
+    ];
+  });
 }

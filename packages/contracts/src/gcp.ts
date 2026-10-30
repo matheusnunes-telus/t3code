@@ -72,12 +72,60 @@ export const GcpCloudProject = Schema.Struct({
 });
 export type GcpCloudProject = typeof GcpCloudProject.Type;
 
+export const GcpResourceState = Schema.Literals(["ready", "failed", "deploying", "unknown"]);
+export type GcpResourceState = typeof GcpResourceState.Type;
+
+export const GcpRunService = Schema.Struct({
+  name: Schema.String,
+  region: Schema.NullOr(Schema.String),
+  url: Schema.NullOr(Schema.String),
+  state: GcpResourceState,
+  revision: Schema.NullOr(Schema.String),
+  image: Schema.NullOr(Schema.String),
+  /** When the serving revision became ready. */
+  deployedAt: Schema.NullOr(Schema.String),
+  deployedBy: Schema.NullOr(Schema.String),
+});
+export type GcpRunService = typeof GcpRunService.Type;
+
+export const GcpRunJob = Schema.Struct({
+  name: Schema.String,
+  region: Schema.NullOr(Schema.String),
+  image: Schema.NullOr(Schema.String),
+  lastRunAt: Schema.NullOr(Schema.String),
+  lastRunState: Schema.Literals(["succeeded", "failed", "running", "none"]),
+});
+export type GcpRunJob = typeof GcpRunJob.Type;
+
+export const GcpCluster = Schema.Struct({
+  name: Schema.String,
+  location: Schema.String,
+  state: GcpResourceState,
+  version: Schema.NullOr(Schema.String),
+});
+export type GcpCluster = typeof GcpCluster.Type;
+
+/** What runs in one Google Cloud project, read on demand with gcloud. */
+export const GcpEnvironmentResources = Schema.Struct({
+  projectId: Schema.String,
+  fetchedAt: IsoDateTime,
+  services: Schema.Array(GcpRunService),
+  jobs: Schema.Array(GcpRunJob),
+  clusters: Schema.Array(GcpCluster),
+  message: Schema.NullOr(Schema.String),
+});
+export type GcpEnvironmentResources = typeof GcpEnvironmentResources.Type;
+
 export const GcpSnapshot = Schema.Struct({
   enabled: Schema.Boolean,
   auth: GcpAuthState,
   links: Schema.Array(GcpProjectLink),
   /** The projects the signed-in account can see, read with `gcloud projects list`. */
   cloudProjects: Schema.Array(GcpCloudProject),
+  /** Keyed by Google Cloud project id; filled when a project's panel is opened. */
+  resources: Schema.Record(Schema.String, GcpEnvironmentResources),
+  /** Project ids being read right now. */
+  loading: Schema.Array(Schema.String),
 });
 export type GcpSnapshot = typeof GcpSnapshot.Type;
 
@@ -103,6 +151,8 @@ export const GcpCommand = Schema.Union([
   }),
   Schema.Struct({ type: Schema.Literal("saveLink"), link: GcpProjectLink }),
   Schema.Struct({ type: Schema.Literal("removeLink"), key: Schema.String }),
+  /** Reads what runs in one Google Cloud project: Cloud Run services and jobs, GKE clusters. */
+  Schema.Struct({ type: Schema.Literal("loadResources"), projectId: Schema.String }),
 ]);
 export type GcpCommand = typeof GcpCommand.Type;
 

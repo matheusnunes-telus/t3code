@@ -37,6 +37,7 @@ import {
   Plus,
   TerminalSquare,
   TicketIcon,
+  CloudIcon,
   X,
 } from "lucide-react";
 import { Volume2, VolumeOff } from "lucide";
@@ -133,6 +134,7 @@ export interface RightPanelTabsProps {
   onAddDevice: () => void;
   onAddSideChat?: (() => void) | undefined;
   onAddJira?: (() => void) | undefined;
+  onAddCloud?: (() => void) | undefined;
   browserAvailable: boolean;
   terminalAvailable: boolean;
   diffAvailable: boolean;
@@ -142,6 +144,7 @@ export interface RightPanelTabsProps {
   deviceAvailable: boolean;
   sideChatAvailable?: boolean | undefined;
   jiraAvailable?: boolean | undefined;
+  cloudAvailable?: boolean | undefined;
   pullRequestStatusSeeds?: Readonly<Record<string, PullRequestTabStatusSeed>>;
   children: ReactNode;
 }
@@ -170,6 +173,7 @@ const SURFACE_DISABLED_REASONS = {
   device: "Devices are only available from a thread.",
   sideChat: "A side chat needs a reply in this chat to copy from.",
   jira: "Turn on Jira in Settings → Threads to see this thread's tickets.",
+  cloud: "Link this project to Google Cloud in its project settings.",
 } as const;
 
 // Closed keepMounted popups must stop blocking shortcuts once their exit transition ends.
@@ -196,6 +200,7 @@ const SURFACE_UNAVAILABLE_HINTS = {
   device: "Available from a thread.",
   sideChat: "Available once this chat has a reply.",
   jira: "Turn on Jira in Settings.",
+  cloud: "Link the project to Google Cloud in its settings.",
 } as const;
 
 type TabContextMenuAction =
@@ -315,6 +320,7 @@ function RightPanelEmptyState(props: {
   onAddDevice: () => void;
   onAddSideChat?: (() => void) | undefined;
   onAddJira?: (() => void) | undefined;
+  onAddCloud?: (() => void) | undefined;
   browserAvailable: boolean;
   terminalAvailable: boolean;
   diffAvailable: boolean;
@@ -324,6 +330,7 @@ function RightPanelEmptyState(props: {
   deviceAvailable: boolean;
   sideChatAvailable?: boolean | undefined;
   jiraAvailable?: boolean | undefined;
+  cloudAvailable?: boolean | undefined;
 }) {
   const [highlight, setHighlight] = useState(-1);
 
@@ -402,6 +409,15 @@ function RightPanelEmptyState(props: {
       available: props.jiraAvailable === true,
       disabledReason: SURFACE_UNAVAILABLE_HINTS.jira,
       onClick: () => props.onAddJira?.(),
+    },
+    {
+      label: "Google Cloud",
+      description: "What runs in the project's linked environments.",
+      icon: CloudIcon,
+      shortcut: "G",
+      available: props.cloudAvailable === true,
+      disabledReason: SURFACE_UNAVAILABLE_HINTS.cloud,
+      onClick: () => props.onAddCloud?.(),
     },
   ] as const;
 
@@ -587,6 +603,8 @@ function surfaceTitle(
       return "Pull requests";
     case "jira":
       return "Jira";
+    case "cloud":
+      return "Google Cloud";
     case "device":
       return surface.title ?? surface.target?.name ?? "Device";
     case "side-chat":
@@ -681,6 +699,8 @@ function SurfaceIcon({
       return <PullRequestGlyph.link className="size-3 shrink-0" />;
     case "jira":
       return <TicketIcon className="size-3 shrink-0" />;
+    case "cloud":
+      return <CloudIcon className="size-3 shrink-0" />;
     case "device":
       return surface.target?.platform === "ios" ? (
         <AppleIcon className="size-3 shrink-0" />
@@ -1134,6 +1154,14 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
       disabledReason: SURFACE_DISABLED_REASONS.jira,
       onClick: () => props.onAddJira?.(),
     },
+    {
+      label: "Google Cloud",
+      icon: CloudIcon,
+      shortcut: "G",
+      available: props.cloudAvailable === true,
+      disabledReason: SURFACE_DISABLED_REASONS.cloud,
+      onClick: () => props.onAddCloud?.(),
+    },
   ] as const;
 
   const handleAddSurfaceMenuKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
@@ -1502,6 +1530,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             onAddDevice={props.onAddDevice}
             onAddSideChat={props.onAddSideChat}
             onAddJira={props.onAddJira}
+            onAddCloud={props.onAddCloud}
             browserAvailable={props.browserAvailable}
             terminalAvailable={props.terminalAvailable}
             diffAvailable={props.diffAvailable}
@@ -1511,6 +1540,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             deviceAvailable={props.deviceAvailable}
             sideChatAvailable={props.sideChatAvailable}
             jiraAvailable={props.jiraAvailable}
+            cloudAvailable={props.cloudAvailable}
           />
         ) : (
           props.children

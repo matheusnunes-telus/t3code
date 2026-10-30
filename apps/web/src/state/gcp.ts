@@ -1,4 +1,4 @@
-import type { EnvironmentId, GcpCommand, GcpSnapshot } from "@t3tools/contracts";
+import type { EnvironmentId, GcpCommand, GcpProjectLink, GcpSnapshot } from "@t3tools/contracts";
 
 import { useEnvironmentQuery } from "./query";
 import { serverEnvironment } from "./server";
@@ -45,4 +45,13 @@ export function gcpLoginHealth(snapshot: GcpSnapshot | null): GcpLoginHealth {
   if (auth.user === "error" || auth.applicationDefault === "error") return "error";
   if (auth.user === "checking") return "checking";
   return "ok";
+}
+
+/** The link a T3 project's chats use, if the project is linked and Google Cloud is on. */
+export function gcpLinkForProject(
+  snapshot: GcpSnapshot | null,
+  projectId: string | null | undefined,
+): GcpProjectLink | null {
+  if (snapshot === null || !snapshot.enabled || projectId == null) return null;
+  return snapshot.links.find((link) => link.projectIds.includes(projectId)) ?? null;
 }
