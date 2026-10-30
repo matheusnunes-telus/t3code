@@ -27,6 +27,7 @@ import * as ProcessRunner from "../processRunner.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import {
   classifyLogin,
+  formatTurnContext,
   gcloudCandidates,
   isTerraformCandidate,
   matchCloudProjects,
@@ -38,11 +39,17 @@ import {
 /** Google's login lasts hours, so a check every few minutes notices expiry soon enough. */
 const CHECK_INTERVAL = Duration.minutes(10);
 
+/** Lets turn start ask for a project's Google Cloud context without depending on this service. */
+export class GcpTurnContextHook extends Context.Reference<
+  ((projectId: string) => Effect.Effect<string | null>) | undefined
+>("t3/gcp/GcpTurnContextHook", { defaultValue: () => undefined }) {}
+
 export class GcpService extends Context.Service<
   GcpService,
   {
     readonly subscribe: () => Stream.Stream<GcpSnapshot>;
     readonly command: (input: GcpCommand) => Effect.Effect<GcpCommandResult, GcpError>;
+    readonly turnContext: (projectId: string) => Effect.Effect<string | null>;
   }
 >()("t3/gcp/GcpService") {}
 
@@ -414,7 +421,25 @@ export const make = Effect.gen(function* () {
     }
   };
 
-  return GcpService.of({ subscribe, command });
+  const turnContext = Effect.fn("GcpService.turnContext")(function* (projectId: string) {
+    if (!(yield* settings).enabled) return null;
+    const link = (yield* Ref.get(store)).links.find((entry) =>
+      entry.projectIds.includes(projectId),
+    );
+    if (link === undefined) return null;
+    const current = yield* Ref.get(auth);
+    return formatTurnContext({ link, gcloudPath: current.gcloudPath, account: current.account });
+  });
+
+  return GcpService.of({ subscribe, command, turnContext });
 });
 
 export const layer = Layer.effect(GcpService, make);
+
+export const layerTurnContextHook = Layer.effect(
+  GcpTurnContextHook,
+  Effect.gen(function* () {
+    const service = yield* GcpService;
+    return service.turnContext;
+  }),
+);

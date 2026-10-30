@@ -2,6 +2,7 @@ import type {
   GcpCloudProject,
   GcpEnvironment,
   GcpLoginStatus,
+  GcpProjectLink,
   GcpRuntime,
 } from "@t3tools/contracts";
 
@@ -224,4 +225,51 @@ export function isTerraformCandidate(input: {
   if (!input.hasTerraformFiles || input.folderName.endsWith(".worktrees")) return false;
   const words = new Set(nameTokens(input.folderName));
   return input.tokens.some((token) => words.has(token));
+}
+
+const RUNTIME_NAMES: Record<GcpRuntime, string> = {
+  "cloud-run": "Cloud Run",
+  gke: "GKE",
+  other: "",
+};
+
+/**
+ * What a chat's first turn learns about where its project runs. It names the environments the
+ * user linked and how to reach them, and says where deploys start so the agent doesn't invent its own.
+ */
+export function formatTurnContext(input: {
+  readonly link: GcpProjectLink;
+  readonly gcloudPath: string | null;
+  readonly account: string | null;
+}): string | null {
+  const { link } = input;
+  if (link.agentContext === false || link.environments.length === 0) return null;
+  const lines = [
+    "<google-cloud-context>",
+    "This project runs on Google Cloud. The user linked these environments in T3:",
+    ...link.environments.map((environment) => {
+      const parts = [
+        `project ${environment.projectId}`,
+        RUNTIME_NAMES[environment.runtime],
+        environment.region === null ? "" : `region ${environment.region}`,
+        environment.deployWorkflow === null ? "" : `deployed by ${environment.deployWorkflow}`,
+      ].filter((part) => part.length > 0);
+      return `- ${environment.name}: ${parts.join(", ")}`;
+    }),
+  ];
+  if (link.terraformRepos.length > 0) {
+    lines.push(`Terraform for these environments: ${link.terraformRepos.join(", ")}`);
+  }
+  if (input.gcloudPath !== null) {
+    lines.push(
+      `gcloud: ${input.gcloudPath}${input.account === null ? "" : `, signed in as ${input.account}`}. Pass --project explicitly.`,
+    );
+  }
+  if (link.environments.some((environment) => environment.deployWorkflow !== null)) {
+    lines.push(
+      "Deploys start from the GitHub workflows above, not from gcloud, unless the user asks.",
+    );
+  }
+  lines.push("</google-cloud-context>");
+  return lines.join("\n");
 }

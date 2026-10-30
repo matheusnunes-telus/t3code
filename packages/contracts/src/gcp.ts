@@ -61,6 +61,8 @@ export const GcpProjectLink = Schema.Struct({
   environments: Schema.Array(GcpEnvironment),
   /** Local folders of the Terraform repos for these environments. */
   terraformRepos: Schema.Array(Schema.String),
+  /** Whether chats in the project are told about these environments; on unless turned off. */
+  agentContext: Schema.optionalKey(Schema.Boolean),
 });
 export type GcpProjectLink = typeof GcpProjectLink.Type;
 

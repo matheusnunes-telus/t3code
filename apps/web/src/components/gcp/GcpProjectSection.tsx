@@ -17,6 +17,7 @@ import {
 import { Input } from "../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { SettingsRow, SettingsSection } from "../settings/settingsLayout";
+import { Switch } from "../ui/switch";
 
 const RUNTIME_LABELS: Record<GcpRuntime, string> = {
   "cloud-run": "Cloud Run",
@@ -118,6 +119,22 @@ export function GcpProjectSection({
               }
             />
           ))}
+          <SettingsRow
+            title="Tell chats about these environments"
+            description="A chat's first message in this project carries the environments, Terraform folders and gcloud details, so the agent uses the right project."
+            control={
+              <Switch
+                checked={link.agentContext !== false}
+                onCheckedChange={(checked) =>
+                  void command({
+                    type: "saveLink",
+                    link: { ...link, agentContext: Boolean(checked) },
+                  })
+                }
+                aria-label="Tell chats about these environments"
+              />
+            }
+          />
           <SettingsRow
             title={link.environments.length === 0 ? "No environments yet" : "Change the link"}
             control={

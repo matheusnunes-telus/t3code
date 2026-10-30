@@ -3,6 +3,7 @@ import { describe, expect, it } from "@effect/vitest";
 import {
   classifyLogin,
   environmentNameOf,
+  formatTurnContext,
   gcloudCandidates,
   isTerraformCandidate,
   matchCloudProjects,
@@ -160,5 +161,61 @@ describe("link suggestions", () => {
     expect(
       isTerraformCandidate({ folderName: "tf-infra-search", tokens, hasTerraformFiles: true }),
     ).toBe(false);
+  });
+});
+
+describe("formatTurnContext", () => {
+  const link = {
+    key: "billing",
+    title: "billing",
+    projectIds: ["project-1"],
+    workspaceRoot: "/code/billing",
+    environments: [
+      {
+        name: "Staging",
+        projectId: "acme-billing-stg",
+        region: "europe-west1",
+        runtime: "cloud-run" as const,
+        deployWorkflow: ".github/workflows/deploy-staging.yml",
+      },
+      {
+        name: "Prod",
+        projectId: "acme-billing-prod",
+        region: null,
+        runtime: "gke" as const,
+        deployWorkflow: null,
+      },
+    ],
+    terraformRepos: ["/code/billing-infra"],
+  };
+
+  it("lists the linked environments, the Terraform folders and where deploys start", () => {
+    expect(
+      formatTurnContext({ link, gcloudPath: "/usr/bin/gcloud", account: "dev@example.com" }),
+    ).toBe(
+      [
+        "<google-cloud-context>",
+        "This project runs on Google Cloud. The user linked these environments in T3:",
+        "- Staging: project acme-billing-stg, Cloud Run, region europe-west1, deployed by .github/workflows/deploy-staging.yml",
+        "- Prod: project acme-billing-prod, GKE",
+        "Terraform for these environments: /code/billing-infra",
+        "gcloud: /usr/bin/gcloud, signed in as dev@example.com. Pass --project explicitly.",
+        "Deploys start from the GitHub workflows above, not from gcloud, unless the user asks.",
+        "</google-cloud-context>",
+      ].join("\n"),
+    );
+  });
+
+  it("says nothing when the user turned it off or linked no environment", () => {
+    expect(
+      formatTurnContext({
+        link: { ...link, agentContext: false },
+        gcloudPath: null,
+        account: null,
+      }),
+    ).toBeNull();
+    expect(
+      formatTurnContext({ link: { ...link, environments: [] }, gcloudPath: null, account: null }),
+    ).toBeNull();
   });
 });

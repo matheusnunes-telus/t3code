@@ -1,5 +1,6 @@
 import { modelSelectionsEqual } from "@t3tools/shared/model";
 import { projectComposerContextForProvider } from "@t3tools/shared/composerContextReferences";
+import { GcpTurnContextHook } from "../gcp/GcpService.ts";
 import {
   CommandId,
   latestProviderTurnForAttempt,
@@ -152,6 +153,7 @@ export const layer: Layer.Layer<
     const providerSessions = yield* ProviderSessionManager.ProviderSessionManagerV2;
     const runExecution = yield* RunExecutionService.RunExecutionServiceV2;
     const runtimePolicy = yield* RuntimePolicy.RuntimePolicyV2;
+    const gcpTurnContext = yield* GcpTurnContextHook;
     const isManagedWorktreePath = yield* makeIsManagedWorktreePath;
 
     const recreateMissingWorktree = Effect.fn("ProviderTurnStartService.recreateMissingWorktree")(
@@ -1094,13 +1096,22 @@ export const layer: Layer.Layer<
       const routableSubagents = projection.subagents.filter((subagent) =>
         RunExecutionService.canRouteRelatedSubagent(subagent.status),
       );
-      const userText = projectComposerContextForProvider({
+      const messageText = projectComposerContextForProvider({
         text: message.text,
         records: message.context?.records ?? [],
       });
       // Codex and Claude parse /goal from the prompt, so it goes verbatim and history waits a turn.
       const goalDriver = session.driver === "codex" || session.driver === "claudeAgent";
       const goalCommand = goalDriver && parseGoalCommand(message) !== null;
+      // A provider thread's first turn learns where the project runs; later turns keep it in history.
+      const cloudContext =
+        gcpTurnContext === undefined ||
+        goalCommand ||
+        message.text.trimStart().startsWith("/") ||
+        projection.providerTurns.some((turn) => turn.providerThreadId === providerThread.id)
+          ? null
+          : yield* gcpTurnContext(projection.thread.projectId);
+      const userText = cloudContext === null ? messageText : `${messageText}\n\n${cloudContext}`;
       // The provider turn marks cancellation work delivered; restart continuations use their own text or resume natively.
       const noteContinuation = isRestartNoteContinuation(
         run,
