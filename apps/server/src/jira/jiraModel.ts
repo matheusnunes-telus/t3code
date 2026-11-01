@@ -459,11 +459,12 @@ export const JIRA_STATUSES = ["To Do", "In Progress", "Blocked", "Done"] as cons
 export const CHANGES_OUTPUT_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["currentDescription", "status", "comment", "description"],
+  required: ["currentDescription", "status", "comment", "links", "description"],
   properties: {
     currentDescription: { type: "string" },
     status: { anyOf: [{ type: "null" }, { type: "string", enum: [...JIRA_STATUSES] }] },
     comment: { anyOf: [{ type: "null" }, { type: "string" }] },
+    links: { type: "array", items: { type: "string" } },
     description: { anyOf: [{ type: "null" }, { type: "string" }] },
   },
 } as const;
@@ -631,4 +632,15 @@ export function parseIssueDetails(reply: string, fetchedAt: string): JiraIssueDe
     createdAt: text(fields.created) ?? null,
     dueDate: text(fields.duedate) ?? null,
   };
+}
+
+/** A comment's text as posted: the prose, then its pull request links as a short footer. */
+export function commentText(change: {
+  readonly body: string;
+  readonly links?: ReadonlyArray<string> | undefined;
+}) {
+  const links = change.links ?? [];
+  return links.length === 0
+    ? change.body
+    : `${change.body}\n\nPull requests:\n${links.map((link) => `- ${link}`).join("\n")}`;
 }

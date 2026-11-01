@@ -48,6 +48,7 @@ import {
   buildDraftTicketPrompt,
   buildMatchPrompt,
   CHANGES_OUTPUT_SCHEMA,
+  commentText,
   JIRA_SEARCH_FIELDS,
   JIRA_DETAIL_FIELDS,
   JIRA_STATUSES,
@@ -1140,6 +1141,9 @@ export const make = Effect.gen(function* () {
     return {
       title: records.thread.title,
       pullRequests,
+      pullRequestUrls: (records.thread.pullRequests ?? [])
+        .filter((pr) => pr.source !== "stack-dismissed")
+        .map((pr) => pr.url),
       lastReply: (yield* lastAssistantText(threadId)).slice(-4_000),
     };
   });
@@ -1183,7 +1187,8 @@ export const make = Effect.gen(function* () {
         `The ticket's current description:\n${currentDescription.length === 0 ? "(empty)" : currentDescription}`,
         "Draft updates to that ticket from the developer's chat below. Nothing is sent; the developer reviews every change.",
         `- status: one of ${JIRA_STATUSES.join(", ")}, only when the work clearly moved it; otherwise null.`,
-        "- comment: 1-3 plain sentences on what changed, with pull request links when there are any; null if there is nothing new.",
+        "- comment: a short paragraph (2-4 sentences) for someone who reads the ticket, not the code. Start from the ticket's goal in its description: say what this step did toward it and what is left. Plain prose; no pull request numbers, repository names or URLs. null if there is nothing new.",
+        "- links: URLs of the pull requests the comment is about, taken from the list below; [] if none.",
         "- description: a full replacement only when the scope clearly changed; otherwise null.",
         "- currentDescription: the ticket's current description as plain text.",
         "",
@@ -1203,7 +1208,20 @@ export const make = Effect.gen(function* () {
     if (status.length > 0 && status !== issue?.status)
       proposed.push({ kind: "status", to: status });
     const comment = typeof output.comment === "string" ? output.comment.trim() : "";
-    if (comment.length > 0) proposed.push({ kind: "comment", body: comment });
+    // Only links to this chat's pull requests, so the model cannot invent one.
+    const knownUrls = new Set(context.pullRequestUrls);
+    const links = Array.isArray(output.links)
+      ? output.links.filter(
+          (link): link is string => typeof link === "string" && knownUrls.has(link.trim()),
+        )
+      : [];
+    if (comment.length > 0) {
+      proposed.push({
+        kind: "comment",
+        body: comment,
+        ...(links.length > 0 ? { links: [...new Set(links.map((link) => link.trim()))] } : {}),
+      });
+    }
     const description = typeof output.description === "string" ? output.description.trim() : "";
     if (description.length > 0) {
       proposed.push({
@@ -1271,7 +1289,7 @@ export const make = Effect.gen(function* () {
         yield* callTool("jira.comment", "addOrEditJiraIssueComment", {
           cloudId,
           issueIdOrKey: key,
-          commentBody: change.body,
+          commentBody: commentText(change),
         });
         return;
       case "description":
@@ -1289,7 +1307,16 @@ export const make = Effect.gen(function* () {
       case "status":
         return ["jira", "workitem", "transition", "--key", key, "--status", change.to, "--yes"];
       case "comment":
-        return ["jira", "workitem", "comment", "create", "--key", key, "--body", change.body];
+        return [
+          "jira",
+          "workitem",
+          "comment",
+          "create",
+          "--key",
+          key,
+          "--body",
+          commentText(change),
+        ];
       case "description":
         return ["jira", "workitem", "edit", "--key", key, "--description", change.to, "--yes"];
     }

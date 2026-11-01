@@ -12,6 +12,7 @@ import { useState } from "react";
 
 import { issueByKey, useJiraCommand, useJiraSnapshot } from "~/state/jira";
 import type { ComposerBannerStackItem } from "../chat/ComposerBannerStack";
+import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
 import { Input } from "../ui/input";
@@ -309,6 +310,67 @@ function suggestionBanner(input: {
 
 const changeKey = (change: JiraChange) => change.kind;
 
+/** "repo#123" for a GitHub pull request URL, or the URL itself. */
+const pullRequestLabel = (url: string) => {
+  const match = /github\.com\/[^/]+\/([^/]+)\/pull\/(\d+)/.exec(url);
+  return match ? `${match[1]}#${match[2]}` : url;
+};
+
+/** The drafted comment as readable prose, its pull request links below it. */
+function CommentChange({
+  change,
+  enabled,
+  onEdit,
+}: {
+  change: Extract<JiraChange, { kind: "comment" }>;
+  enabled: boolean;
+  onEdit: (change: Extract<JiraChange, { kind: "comment" }>) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const links = change.links ?? [];
+  return (
+    <div
+      className={enabled ? "flex flex-col gap-1.5 ps-6" : "flex flex-col gap-1.5 ps-6 opacity-50"}
+    >
+      {editing ? (
+        <Textarea
+          size="sm"
+          aria-label="Comment"
+          autoFocus
+          value={change.body}
+          onChange={(event) => onEdit({ ...change, body: event.currentTarget.value })}
+          onBlur={() => setEditing(false)}
+        />
+      ) : (
+        <p className="text-sm leading-relaxed whitespace-pre-wrap">{change.body}</p>
+      )}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+        {links.map((link) => (
+          <a
+            key={link}
+            href={link}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 hover:text-foreground hover:underline"
+          >
+            <PullRequestGlyph.pullRequest className="size-3" aria-hidden />
+            {pullRequestLabel(link)}
+          </a>
+        ))}
+        {enabled && !editing ? (
+          <button
+            type="button"
+            className="hover:text-foreground hover:underline"
+            onClick={() => setEditing(true)}
+          >
+            Edit comment
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function ChangeList({
   set,
   chosen,
@@ -349,13 +411,7 @@ function ChangeList({
               )}
             </label>
             {current.kind === "comment" ? (
-              <Textarea
-                size="sm"
-                aria-label="Comment"
-                value={current.body}
-                disabled={!isChosen(change)}
-                onChange={(event) => edit({ ...current, body: event.currentTarget.value })}
-              />
+              <CommentChange change={current} enabled={isChosen(change)} onEdit={edit} />
             ) : null}
             {current.kind === "description" ? (
               <div className="rounded-md bg-background px-2 py-1.5 font-mono text-xs">

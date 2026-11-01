@@ -140,7 +140,12 @@ export type JiraThreadSuggestion = typeof JiraThreadSuggestion.Type;
 
 export const JiraChange = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("status"), to: TrimmedNonEmptyString }),
-  Schema.Struct({ kind: Schema.Literal("comment"), body: TrimmedNonEmptyString }),
+  Schema.Struct({
+    kind: Schema.Literal("comment"),
+    body: TrimmedNonEmptyString,
+    /** Pull request links, kept out of the prose and added as a footer when posted. */
+    links: Schema.optional(Schema.Array(Schema.String)),
+  }),
   Schema.Struct({ kind: Schema.Literal("description"), from: Schema.String, to: Schema.String }),
 ]);
 export type JiraChange = typeof JiraChange.Type;

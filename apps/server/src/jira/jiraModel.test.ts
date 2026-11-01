@@ -5,6 +5,7 @@ import * as Schema from "effect/Schema";
 import {
   adfToText,
   buildMatchPrompt,
+  commentText,
   keysMentioned,
   looksSignedOut,
   mergeSync,
@@ -454,5 +455,19 @@ describe("Atlassian CLI replies", () => {
 
   it("counts acli's sign-out wording as signed out", () => {
     expect(looksSignedOut("✗ Not authenticated")).toBe(true);
+  });
+
+  it("posts a comment's pull request links as a footer after the prose", () => {
+    expect(commentText({ body: "Board answers now use the meeting date." })).toBe(
+      "Board answers now use the meeting date.",
+    );
+    expect(
+      commentText({
+        body: "Board answers now use the meeting date.",
+        links: ["https://github.com/acme/app/pull/1", "https://github.com/acme/app/pull/2"],
+      }),
+    ).toBe(
+      "Board answers now use the meeting date.\n\nPull requests:\n- https://github.com/acme/app/pull/1\n- https://github.com/acme/app/pull/2",
+    );
   });
 });
