@@ -1800,43 +1800,6 @@ export default function ChatView(props: ChatViewProps) {
     }
   };
   const sendAppMessageStable = useStableCallback(sendAppMessage);
-  const onResendMessage = async (messageId: MessageId) => {
-    const sourceMessage = serverProjection?.messages.find((message) => message.id === messageId);
-    if (
-      !activeThread ||
-      !isServerThread ||
-      activeThreadId === null ||
-      !sourceMessage ||
-      sourceMessage.role !== "user"
-    ) {
-      return;
-    }
-    setThreadError(activeThread.id, null);
-    const result = await startThreadTurn({
-      environmentId,
-      input: {
-        threadId: activeThreadId,
-        message: {
-          messageId: newMessageId(),
-          role: "user",
-          text: sourceMessage.text,
-          attachments: sourceMessage.attachments ?? [],
-          ...(sourceMessage.context ? { context: sourceMessage.context } : {}),
-        },
-        runtimeMode,
-        interactionMode,
-        dispatchMode: "start",
-      },
-    });
-    if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
-      const error = squashAtomCommandFailure(result);
-      setThreadError(
-        activeThread.id,
-        error instanceof Error ? error.message : "Could not re-send the message.",
-      );
-    }
-  };
-  const onResendMessageStable = useStableCallback(onResendMessage);
   const queuedRunsControlRef = useRef<QueuedRunsControlHandle>(null);
 
   const {
@@ -2725,6 +2688,7 @@ export default function ChatView(props: ChatViewProps) {
     onConfirmRevertStable,
     onEditMessageStable,
     onForkFromRunStable,
+    onRetryMessageStable,
     onRevertTimelineTurnStable,
     onTimelineRollbackCheckpointStable,
   } = useTimelineRewind({
@@ -2751,6 +2715,48 @@ export default function ChatView(props: ChatViewProps) {
     runtimeMode,
     interactionMode,
   });
+  const onResendMessage = async (messageId: MessageId, turnCount?: number) => {
+    // With rollback, retry replaces the message and its reply instead of posting a copy below.
+    if (turnCount !== undefined && supportsConversationRollback) {
+      onRetryMessageStable(turnCount, messageId);
+      return;
+    }
+    const sourceMessage = serverProjection?.messages.find((message) => message.id === messageId);
+    if (
+      !activeThread ||
+      !isServerThread ||
+      activeThreadId === null ||
+      !sourceMessage ||
+      sourceMessage.role !== "user"
+    ) {
+      return;
+    }
+    setThreadError(activeThread.id, null);
+    const result = await startThreadTurn({
+      environmentId,
+      input: {
+        threadId: activeThreadId,
+        message: {
+          messageId: newMessageId(),
+          role: "user",
+          text: sourceMessage.text,
+          attachments: sourceMessage.attachments ?? [],
+          ...(sourceMessage.context ? { context: sourceMessage.context } : {}),
+        },
+        runtimeMode,
+        interactionMode,
+        dispatchMode: "start",
+      },
+    });
+    if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+      const error = squashAtomCommandFailure(result);
+      setThreadError(
+        activeThread.id,
+        error instanceof Error ? error.message : "Could not re-send the message.",
+      );
+    }
+  };
+  const onResendMessageStable = useStableCallback(onResendMessage);
   const onMarkThreadUnreadStable = useStableCallback(() => {
     if (activeThreadRef) markThreadUnread(activeThreadRef);
   });

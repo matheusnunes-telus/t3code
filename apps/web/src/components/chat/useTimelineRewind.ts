@@ -208,13 +208,16 @@ export function useTimelineRewind(input: TimelineRewindInput) {
     }
   };
   const onRevertToTurnCountStable = useStableCallback(onRevertToTurnCount);
+  /** Rewinds to before the message, then sends it again: with `editedText`, or as it was when null. */
   const performEditMessage = async (
     turnCount: number,
     messageId: MessageId,
-    text: string,
+    editedText: string | null,
     restoreFiles: boolean,
   ) => {
     if (!activeThread) return;
+    const source = serverProjection?.messages.find((message) => message.id === messageId);
+    if (editedText === null && (!source || source.role !== "user")) return;
     setThreadError(activeThread.id, null);
     const commandId = CommandId.make(randomUUID());
     const revertError = await waitForRevertedMessage(
@@ -243,7 +246,16 @@ export function useTimelineRewind(input: TimelineRewindInput) {
       environmentId,
       input: {
         threadId: activeThread.id,
-        message: { messageId: newMessageId(), role: "user", text, attachments: [] },
+        message:
+          editedText === null && source
+            ? {
+                messageId: newMessageId(),
+                role: "user",
+                text: source.text,
+                attachments: source.attachments ?? [],
+                ...(source.context ? { context: source.context } : {}),
+              }
+            : { messageId: newMessageId(), role: "user", text: editedText ?? "", attachments: [] },
         runtimeMode,
         interactionMode,
         dispatchMode: "start",
@@ -257,7 +269,7 @@ export function useTimelineRewind(input: TimelineRewindInput) {
       );
     }
   };
-  const onEditMessage = (turnCount: number, messageId: MessageId, text: string) => {
+  const onEditMessage = (turnCount: number, messageId: MessageId, text: string | null) => {
     if (
       !activeThread ||
       isRevertingCheckpoint ||
@@ -273,7 +285,12 @@ export function useTimelineRewind(input: TimelineRewindInput) {
       return;
     }
     if (phase === "running" || isSendBusy || isConnecting) {
-      setThreadError(activeThread.id, "Interrupt the current turn before editing a message.");
+      setThreadError(
+        activeThread.id,
+        text === null
+          ? "Interrupt the current turn before retrying a message."
+          : "Interrupt the current turn before editing a message.",
+      );
       return;
     }
     const files = changedFilesAfterTurn(turnCount);
@@ -286,10 +303,23 @@ export function useTimelineRewind(input: TimelineRewindInput) {
       void performEditMessage(turnCount, messageId, text, false);
       return;
     }
-    openRevertConfirm(routeThreadKey, { turnCount, messageId, files, editedText: text });
+    openRevertConfirm(
+      routeThreadKey,
+      text === null
+        ? { turnCount, messageId, files, retry: true }
+        : { turnCount, messageId, files, editedText: text },
+    );
   };
   const onEditMessageStable = useStableCallback(onEditMessage);
+  /** Retry replaces the message and everything after it, instead of posting a copy below. */
+  const onRetryMessage = (turnCount: number, messageId: MessageId) =>
+    onEditMessage(turnCount, messageId, null);
+  const onRetryMessageStable = useStableCallback(onRetryMessage);
   const onConfirmRevert = (pending: PendingRevert, restoreFiles: boolean) => {
+    if (pending.retry === true) {
+      void performEditMessage(pending.turnCount, pending.messageId, null, restoreFiles);
+      return;
+    }
     if (pending.editedText !== undefined) {
       void performEditMessage(
         pending.turnCount,
@@ -409,6 +439,7 @@ export function useTimelineRewind(input: TimelineRewindInput) {
     onConfirmRevertStable,
     onEditMessageStable,
     onForkFromRunStable,
+    onRetryMessageStable,
     onRevertTimelineTurnStable,
     onTimelineRollbackCheckpointStable,
   };

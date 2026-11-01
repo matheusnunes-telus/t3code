@@ -192,6 +192,8 @@ export interface PendingRevert {
   readonly files: ReadonlyArray<RevertChangedFile>;
   /** Set when the message was edited in place and should be re-sent with this text. */
   readonly editedText?: string;
+  /** Set when the message is retried: it is sent again as it was, replacing the old reply. */
+  readonly retry?: boolean;
 }
 
 const revertConfirmAtom = makeThreadOverlayAtom<PendingRevert>("revert-confirm");

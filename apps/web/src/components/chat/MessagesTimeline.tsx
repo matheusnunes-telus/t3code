@@ -256,7 +256,7 @@ interface MessagesTimelineProps {
   onRevertToTurnCount: (targetTurnCount: number, messageId: MessageId) => void;
   onUseArtifactTemplate?: (template: CodexArtifactTemplate) => void;
   onSendAppMessage?: (text: string) => Promise<void>;
-  onResendMessage?: (messageId: MessageId) => Promise<void>;
+  onResendMessage?: (messageId: MessageId, turnCount?: number) => Promise<void>;
   onEditMessage?: (turnCount: number, messageId: MessageId, text: string) => void;
   onMarkUnread?: () => void;
   onRunShellCommand?: (command: string) => void;

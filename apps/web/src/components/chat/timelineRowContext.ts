@@ -51,7 +51,7 @@ export interface TimelineRowSharedState {
   onRevertToTurnCount: (targetTurnCount: number, messageId: MessageId) => void;
   onUseArtifactTemplate: (template: CodexArtifactTemplate) => void;
   onSendAppMessage: ((text: string) => Promise<void>) | undefined;
-  onResendMessage: ((messageId: MessageId) => Promise<void>) | undefined;
+  onResendMessage: ((messageId: MessageId, turnCount?: number) => Promise<void>) | undefined;
   onEditMessage: ((turnCount: number, messageId: MessageId, text: string) => void) | undefined;
   onMarkUnread: (() => void) | undefined;
   onAppFullscreenChange: (rowId: string, fullscreen: boolean) => void;

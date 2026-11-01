@@ -706,7 +706,10 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
                 />
               )}
               {ctx.onResendMessage !== undefined && (
-                <ResendUserMessageButton messageId={row.message.id} />
+                <ResendUserMessageButton
+                  messageId={row.message.id}
+                  {...(typeof revertTurnCount === "number" ? { turnCount: revertTurnCount } : {})}
+                />
               )}
               {resolvedContext.text && (
                 <MessageCopyButton
@@ -764,7 +767,13 @@ function UserMessageIntentMarker({
   );
 }
 
-function ResendUserMessageButton({ messageId }: { messageId: MessageId }) {
+function ResendUserMessageButton({
+  messageId,
+  turnCount,
+}: {
+  messageId: MessageId;
+  turnCount?: number;
+}) {
   const ctx = use(TimelineRowCtx);
   const activity = use(TimelineRowActivityCtx);
 
@@ -777,14 +786,16 @@ function ResendUserMessageButton({ messageId }: { messageId: MessageId }) {
             size="xs"
             variant="ghost"
             disabled={activity.isRevertingCheckpoint || activity.isWorking}
-            onClick={() => void ctx.onResendMessage?.(messageId)}
-            aria-label="Re-send message"
+            onClick={() => void ctx.onResendMessage?.(messageId, turnCount)}
+            aria-label="Retry message"
           />
         }
       >
         <RotateCwIcon className="size-3" />
       </TooltipTrigger>
-      <TooltipPopup side="top">Re-send message</TooltipPopup>
+      <TooltipPopup side="top">
+        {turnCount === undefined ? "Re-send message" : "Retry: replaces this message's reply"}
+      </TooltipPopup>
     </Tooltip>
   );
 }
