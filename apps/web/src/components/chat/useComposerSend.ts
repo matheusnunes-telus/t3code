@@ -21,6 +21,8 @@ import {
   type EnvironmentId,
   type ModelSelection,
   type PreviewAnnotationPayload,
+  type ProviderInstanceId,
+  type RunId,
   type ThreadId,
   ProviderInteractionMode,
   RuntimeMode,
@@ -162,6 +164,11 @@ type TimelineFollow = ReturnType<typeof useTimelineFollow>;
 
 interface ComposerSendInput {
   readonly environmentId: EnvironmentId;
+  /** The run a usage limit stopped, while it is the thread's last word. */
+  readonly usageLimitedRun: {
+    readonly runId: RunId;
+    readonly providerInstanceId: ProviderInstanceId;
+  } | null;
   readonly routeThreadKey: string;
   readonly currentRouteThreadKeyRef: { readonly current: string | null };
   readonly draftId: DraftId | null;
@@ -332,6 +339,7 @@ export function useComposerSend(input: ComposerSendInput) {
     persistThreadSettingsForNextTurn,
     openStatusDialog,
     startSideChat,
+    usageLimitedRun,
   } = input;
   const handleNewThread = useNewThreadHandler();
   const navigate = useNavigate();
@@ -822,6 +830,8 @@ export function useComposerSend(input: ComposerSendInput) {
     } = planComposerTurn({
       messageText: messageTextForSend,
       sendQueuesBehindSetup,
+      // Behind a usage limit every send waits; on another provider the stopped run goes first.
+      sendWaitsForLimit: isServerThread && usageLimitedRun !== null,
       isServerThread,
       activeMessageCount,
       sendEnvMode,
@@ -1234,6 +1244,35 @@ export function useComposerSend(input: ComposerSendInput) {
     });
     if (failure === null && turnAttachmentsResult._tag === "Failure") {
       failure = turnAttachmentsResult;
+    }
+
+    // On another provider, the stopped run continues first, and this message queues behind it.
+    if (
+      failure === null &&
+      isServerThread &&
+      usageLimitedRun !== null &&
+      usageLimitedRun.providerInstanceId !== ctxSelectedModelSelection.instanceId
+    ) {
+      const continueResult = await startThreadTurn({
+        environmentId,
+        input: {
+          threadId: threadIdForSend,
+          manualContinuationOfRunId: usageLimitedRun.runId,
+          modelSelection: ctxSelectedModelSelection,
+          message: {
+            messageId: newMessageId(),
+            role: "user",
+            text: "Continue where you left off.",
+            attachments: [],
+          },
+          runtimeMode,
+          interactionMode: sendInteractionMode,
+          dispatchMode: "start",
+        },
+      });
+      if (continueResult._tag === "Failure") {
+        failure = continueResult;
+      }
     }
 
     if (failure === null && compactBeforeSend) {

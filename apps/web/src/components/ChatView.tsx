@@ -807,15 +807,25 @@ export default function ChatView(props: ChatViewProps) {
     isServerThread &&
     serverProjection?.runs.some((run) => run.status === "queued" && run.queueHeld === true) ===
       true;
+  // The run a usage limit stopped, while it is still the thread's last word.
+  const usageLimitedRun = (() => {
+    if (!isServerThread || serverProjection === null) return null;
+    const run = latestExecutedRun(serverProjection.runs);
+    if (run?.status !== "failed" || serverRuntime?.lastErrorClass !== "usage_limit") return null;
+    const failure = latestRootProviderFailure(run, serverProjection.turnItems);
+    return failure?.class === "usage_limit"
+      ? {
+          runId: run.id,
+          providerInstanceId: run.providerInstanceId,
+          resetAt: failure.resetAt ?? null,
+        }
+      : null;
+  })();
   const resumableRunId = (() => {
     if (!isServerThread || serverProjection === null) return null;
     const run = latestExecutedRun(serverProjection.runs);
     if (run?.status === "interrupted") return run.id;
-    return run?.status === "failed" &&
-      serverRuntime?.lastErrorClass === "usage_limit" &&
-      latestRootProviderFailure(run, serverProjection.turnItems)?.class === "usage_limit"
-      ? run.id
-      : null;
+    return usageLimitedRun?.runId ?? null;
   })();
   const parentSubagentThreadId =
     activeThread?.lineage.relationshipToParent === "subagent"
@@ -2693,6 +2703,7 @@ export default function ChatView(props: ChatViewProps) {
     onTimelineRollbackCheckpointStable,
   } = useTimelineRewind({
     environmentId,
+    usageLimitedRun,
     routeThreadRef,
     routeThreadKey,
     currentRouteThreadKeyRef,
@@ -2935,6 +2946,7 @@ export default function ChatView(props: ChatViewProps) {
   });
   const { onSend } = useComposerSend({
     environmentId,
+    usageLimitedRun,
     routeThreadKey,
     currentRouteThreadKeyRef,
     draftId,

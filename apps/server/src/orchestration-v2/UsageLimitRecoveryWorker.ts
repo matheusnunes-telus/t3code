@@ -34,7 +34,9 @@ export function limitRecoveryCommand(
   const identity = `${thread.id}:${thread.latestRunId}:${resetMs}`;
   const recovery = thread.limitRecovery;
   if (recovery?.runId !== thread.latestRunId || recovery.resetAt !== thread.usageLimitResetAt) {
-    if (!autoResume && (!snooze || resetMs <= nowMs)) return null;
+    // Only a stop whose reset is still ahead is armed. Older stops, such as those from before
+    // auto-resume was turned on, wait for a manual Resume instead of all continuing at once.
+    if (resetMs <= nowMs || (!autoResume && !snooze)) return null;
     return {
       type: "thread.metadata.update",
       commandId: CommandId.make(`limit-arm:${identity}`),

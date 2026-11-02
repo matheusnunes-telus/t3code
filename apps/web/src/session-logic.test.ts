@@ -5,6 +5,7 @@ import {
   CheckpointScopeId,
   NodeId,
   PlanId,
+  ProviderDriverKind,
   ProviderInstanceId,
   ProviderThreadId,
   RunAttemptId,
@@ -409,6 +410,64 @@ describe("V2 session presentation", () => {
         ),
       ).toEqual({ "user-2": 0 });
     });
+  });
+
+  it("drops a run's usage-limit notice once its limit failure row says the same", () => {
+    const now = DateTime.makeUnsafe("2026-06-20T00:00:00.000Z");
+    const threadId = ThreadId.make("thread-limit-notice");
+    const runId = RunId.make("run-limit-notice");
+    const base = (id: string, ordinal: number) => ({
+      id: TurnItemId.make(id),
+      threadId,
+      runId,
+      nodeId: null,
+      providerThreadId: null,
+      providerTurnId: null,
+      parentItemId: null,
+      ordinal,
+      status: "completed" as const,
+      title: null,
+      startedAt: now,
+      completedAt: now,
+      updatedAt: now,
+    });
+    const notice = {
+      ...base("item-limit-notice", 1),
+      type: "system_notice" as const,
+      nativeItemRef: {
+        driver: ProviderDriverKind.make("claudeAgent"),
+        nativeId: "usage-limit:turn:five_hour:1",
+        strength: "weak" as const,
+      },
+      message: "Claude usage limit reached. This turn is paused until the 5-hour limit resets.",
+    } satisfies OrchestrationV2TurnItem;
+    const failure = {
+      ...base("item-limit-failure", 2),
+      nativeItemRef: null,
+      status: "failed" as const,
+      type: "error" as const,
+      failure: {
+        class: "usage_limit" as const,
+        message: "Usage limit reached",
+        code: "usage_limit",
+        retryable: null,
+      },
+    } satisfies OrchestrationV2TurnItem;
+    const project = (items: ReadonlyArray<OrchestrationV2TurnItem>) =>
+      deriveTimelineEntriesFromVisibleTurnItems({
+        visibleTurnItems: items.map((item, position) => ({
+          position,
+          visibility: "local" as const,
+          sourceThreadId: threadId,
+          sourceItemId: item.id,
+          item,
+        })),
+        optimisticMessages: [],
+      }).map((entry) => entry.id);
+
+    // While the turn is live, the notice is the only word on why it is quiet.
+    expect(project([notice])).toEqual([notice.id]);
+    expect(project([notice, failure])).toEqual([failure.id]);
   });
 
   it("uses visible turn item order and keeps provider errors in the work log", () => {

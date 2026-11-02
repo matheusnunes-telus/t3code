@@ -1072,6 +1072,17 @@ describe("planComposerTurn", () => {
     }
   });
 
+  it("queues a send while a usage limit stopped the thread", () => {
+    expect(
+      planComposerTurn({
+        ...base,
+        isServerThread: true,
+        activeMessageCount: 2,
+        sendWaitsForLimit: true,
+      }),
+    ).toMatchObject({ turnDispatchMode: "queue", shouldQueueBehindActiveRun: true });
+  });
+
   it("queues behind a running turn only when asked to", () => {
     const running = {
       ...base,

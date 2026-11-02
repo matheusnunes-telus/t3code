@@ -8,6 +8,7 @@ import {
   CommandId,
   type EnvironmentId,
   type MessageId,
+  type ProviderInstanceId,
   type ProviderInteractionMode,
   type RuntimeMode,
   type ScopedThreadRef,
@@ -43,6 +44,11 @@ import {
 import type { ThreadCheckpointSummary } from "@t3tools/client-runtime/state/thread-checkpoints";
 interface TimelineRewindInput {
   readonly environmentId: EnvironmentId;
+  /** The run a usage limit stopped, while it is the thread's last word. */
+  readonly usageLimitedRun: {
+    readonly providerInstanceId: ProviderInstanceId;
+    readonly resetAt: string | null;
+  } | null;
   readonly routeThreadRef: ScopedThreadRef;
   readonly routeThreadKey: string;
   readonly currentRouteThreadKeyRef: { readonly current: string | null };
@@ -94,6 +100,7 @@ export function useTimelineRewind(input: TimelineRewindInput) {
     serverVisibleTurnItems,
     runtimeMode,
     interactionMode,
+    usageLimitedRun,
   } = input;
   const navigate = useNavigate();
   const createAttachmentAssetUrl = useAtomQueryRunner(assetEnvironment.createUrl, {
@@ -218,6 +225,9 @@ export function useTimelineRewind(input: TimelineRewindInput) {
     if (!activeThread) return;
     const source = serverProjection?.messages.find((message) => message.id === messageId);
     if (editedText === null && (!source || source.role !== "user")) return;
+    // Read before the rewind: it sends with the provider picked now, which may not be the
+    // limited one.
+    const modelSelection = composerRef.current?.getSendContext().selectedModelSelection;
     setThreadError(activeThread.id, null);
     const commandId = CommandId.make(randomUUID());
     const revertError = await waitForRevertedMessage(
@@ -256,6 +266,7 @@ export function useTimelineRewind(input: TimelineRewindInput) {
                 ...(source.context ? { context: source.context } : {}),
               }
             : { messageId: newMessageId(), role: "user", text: editedText ?? "", attachments: [] },
+        ...(modelSelection ? { modelSelection } : {}),
         runtimeMode,
         interactionMode,
         dispatchMode: "start",
@@ -290,6 +301,25 @@ export function useTimelineRewind(input: TimelineRewindInput) {
         text === null
           ? "Interrupt the current turn before retrying a message."
           : "Interrupt the current turn before editing a message.",
+      );
+      return;
+    }
+    // The rewind drops the limited run, so the retry would fail the same way with nothing
+    // left to wait behind.
+    const selectedInstanceId =
+      composerRef.current?.getSendContext().selectedModelSelection?.instanceId;
+    if (
+      usageLimitedRun !== null &&
+      (selectedInstanceId === undefined ||
+        selectedInstanceId === usageLimitedRun.providerInstanceId)
+    ) {
+      setThreadError(
+        activeThread.id,
+        `This provider is at its usage limit${
+          usageLimitedRun.resetAt === null
+            ? ""
+            : ` until ${new Date(usageLimitedRun.resetAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`
+        }. Pick another provider to ${text === null ? "retry" : "edit"} now, or wait for the reset.`,
       );
       return;
     }

@@ -1730,6 +1730,16 @@ function isClaudeGoalAcknowledgement(message: SDKMessage): boolean {
   return text.startsWith(CLAUDE_GOAL_SET_PREFIX) || text.startsWith("Goal cleared: ");
 }
 
+/** The CLI's own "You've hit your limit" reply when a request is refused for the usage limit. */
+function isClaudeUsageLimitReply(message: SDKMessage): boolean {
+  return (
+    message.type === "assistant" &&
+    message.parent_tool_use_id === null &&
+    message.message.model === "<synthetic>" &&
+    message.error === "rate_limit"
+  );
+}
+
 const providerGoalsEqual = Schema.toEquivalence(Schema.NullOr(OrchestrationV2ProviderGoal));
 
 function normalizeClaudeResultText(text: string): string {
@@ -8901,6 +8911,14 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               ordinal: ++subagent.nextChildItemOrdinal,
               now,
             });
+            return;
+          }
+          if (isClaudeUsageLimitReply(message)) {
+            // The run's usage-limit failure row says this, with the reset time; the result
+            // text repeats it too.
+            if (assistantText !== null) {
+              context.assistant.noticeTexts.add(normalizeClaudeResultText(assistantText.text));
+            }
             return;
           }
           if (isClaudeGoalAcknowledgement(message)) {

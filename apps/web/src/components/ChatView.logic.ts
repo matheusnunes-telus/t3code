@@ -1429,6 +1429,8 @@ export type ComposerSendSnapshot = ReturnType<typeof snapshotComposerSend>;
 export function planComposerTurn(input: {
   readonly messageText: string;
   readonly sendQueuesBehindSetup: boolean;
+  /** A usage limit stopped the thread's last run, so this send waits until it continues. */
+  readonly sendWaitsForLimit?: boolean;
   readonly isServerThread: boolean;
   readonly activeMessageCount: number;
   readonly sendEnvMode: DraftThreadEnvMode;
@@ -1457,10 +1459,13 @@ export function planComposerTurn(input: {
     baseBranchForWorktree: shouldCreateWorktree ? input.activeThreadBranch : null,
     compactBeforeSend,
     turnDispatchMode:
-      compactBeforeSend || input.sendQueuesBehindSetup ? ("queue" as const) : input.dispatchMode,
+      compactBeforeSend || input.sendQueuesBehindSetup || input.sendWaitsForLimit === true
+        ? ("queue" as const)
+        : input.dispatchMode,
     shouldQueueBehindActiveRun:
       compactBeforeSend ||
       input.sendQueuesBehindSetup ||
+      input.sendWaitsForLimit === true ||
       (input.phase === "running" && input.dispatchMode === "queue"),
   };
 }

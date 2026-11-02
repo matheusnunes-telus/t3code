@@ -546,6 +546,20 @@ function projectedWorkEntry(row: OrchestrationV2ProjectedTurnItem): WorkLogEntry
   }
 }
 
+function isUsageLimitFailure(item: OrchestrationV2TurnItem): item is Extract<
+  OrchestrationV2TurnItem,
+  { readonly type: "error" }
+> & {
+  readonly runId: NonNullable<OrchestrationV2TurnItem["runId"]>;
+} {
+  return (
+    item.type === "error" &&
+    item.status === "failed" &&
+    item.runId !== null &&
+    item.failure.class === "usage_limit"
+  );
+}
+
 /** Preserve visibleTurnItems' committed order; interleave client messages by timestamp. */
 export interface TimelineEntriesInput {
   readonly visibleTurnItems: ReadonlyArray<OrchestrationV2ProjectedTurnItem>;
@@ -597,10 +611,23 @@ export function deriveTimelineEntriesFromVisibleTurnItems(
         : [],
     ),
   );
+  // Once a run fails on its usage limit, its failure row says when the limit resets, so the
+  // provider's "paused until the limit resets" notice would only repeat it.
+  const limitFailedRunIds = new Set(
+    input.visibleTurnItems.flatMap(({ item }) => (isUsageLimitFailure(item) ? [item.runId] : [])),
+  );
   for (const row of input.visibleTurnItems) {
     const { item } = row;
     if (turnItemIsWorkspacePreparation(item)) continue;
     if (item.type === "checkpoint") continue;
+    if (
+      item.type === "system_notice" &&
+      item.runId !== null &&
+      limitFailedRunIds.has(item.runId) &&
+      item.nativeItemRef?.nativeId?.startsWith("usage-limit:") === true
+    ) {
+      continue;
+    }
     if (item.type === "user_message" && foldedAnswerMessageIds.has(item.messageId)) continue;
     const createdAt = projectedItemCreatedAt(row);
     const attempt = resolveAttempt(item);
@@ -919,7 +946,8 @@ function reuseTimelineEntries(
   ) {
     return null;
   }
-  // Answer rows can replace a message already present in the retained prefix.
+  // Answer rows can replace a message already present in the retained prefix, and a usage-limit
+  // failure hides its run's earlier limit notice.
   if (
     appended &&
     input.visibleTurnItems
@@ -927,7 +955,8 @@ function reuseTimelineEntries(
       .some(
         ({ item }) =>
           (item.type === "user_input_request" && item.questionAnswer !== undefined) ||
-          (item.type === "user_message" && item.messageId.startsWith("async-answer:")),
+          (item.type === "user_message" && item.messageId.startsWith("async-answer:")) ||
+          isUsageLimitFailure(item),
       )
   )
     return null;

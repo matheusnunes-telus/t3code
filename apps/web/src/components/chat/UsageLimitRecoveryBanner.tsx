@@ -32,17 +32,22 @@ export function usageLimitRecoveryBannerItem(props: RecoveryProps): ComposerBann
     icon: <GaugeIcon />,
     title: "Usage limit reached",
     description: resetAt
-      ? `Resets ${formatUpcomingTimestamp(resetAt, timestampFormat)}`
+      ? `${resumesAtReset(props) ? "Continues" : "Resets"} ${formatUpcomingTimestamp(resetAt, timestampFormat)}`
       : "Reset time unavailable; retry manually",
     actions: canSchedule ? <RecoveryActions key={`${runId}:${resetAt}`} {...props} /> : null,
   };
 }
 
-function RecoveryActions({ runId, resetAt, recovery, snoozedUntil, onChange }: RecoveryProps) {
+/** Whether this stop is set to continue by itself at the reset. */
+function resumesAtReset({ runId, resetAt, recovery }: RecoveryProps): boolean {
+  return recovery?.runId === runId && recovery.resetAt === resetAt && recovery.autoResume;
+}
+
+function RecoveryActions(props: RecoveryProps) {
+  const { runId, resetAt, recovery, snoozedUntil, onChange } = props;
   const [pending, setPending] = useState(false);
 
-  const scheduled =
-    recovery?.runId === runId && recovery.resetAt === resetAt && recovery.autoResume;
+  const scheduled = resumesAtReset(props);
   // The server leaves snoozedUntil in place after the timer wakes the thread,
   // so a snooze whose reset has passed is no longer active.
   const resetPassed = useDeadlinePassed(resetAt === null ? null : Date.parse(resetAt));
@@ -86,7 +91,7 @@ function RecoveryActions({ runId, resetAt, recovery, snoozedUntil, onChange }: R
   return (
     <>
       <Button size="xs" variant="ghost" disabled={pending} onClick={() => void toggle("resume")}>
-        {pending ? "Saving..." : scheduled ? "Cancel auto-resume" : "Resume at reset"}
+        {pending ? "Saving..." : scheduled ? "Don't auto-resume" : "Resume at reset"}
       </Button>
       <Button
         size="xs"

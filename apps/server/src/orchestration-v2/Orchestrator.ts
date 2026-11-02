@@ -721,11 +721,17 @@ function nextQueuedRun(
   return queuedRunsInDeliveryOrder(projection)[0];
 }
 
+/**
+ * App-owned monitor updates follow the agent currently handling the thread, and so do messages
+ * that queued while their provider was at its usage limit.
+ */
 function followsCurrentConversation(
   message: OrchestrationV2ConversationMessage | undefined,
+  run?: Pick<OrchestrationV2Run, "queuedBehindLimit">,
 ): boolean {
   return (
-    message?.notification?.source.kind === "monitor" && !isBufferedProviderNotification(message)
+    run?.queuedBehindLimit === true ||
+    (message?.notification?.source.kind === "monitor" && !isBufferedProviderNotification(message))
   );
 }
 
@@ -734,8 +740,7 @@ function queuedRunModelSelection(
   run: OrchestrationV2Run,
 ): ModelSelection {
   const message = projection.messages.find((candidate) => candidate.id === run.userMessageId);
-  // App-owned monitor updates follow the agent currently handling the thread.
-  return followsCurrentConversation(message)
+  return followsCurrentConversation(message, run)
     ? projection.thread.modelSelection
     : run.modelSelection;
 }
@@ -1623,7 +1628,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       const activeProviderThread = projection.providerThreads.find(
         (candidate) => candidate.id === projection.thread.activeProviderThreadId,
       );
-      const followsCurrent = followsCurrentConversation(queuedMessage);
+      const followsCurrent = followsCurrentConversation(queuedMessage, storedQueuedRun);
       const targetProviderThread = followsCurrent
         ? activeProviderThread?.providerInstanceId === queuedRun.providerInstanceId
           ? activeProviderThread
@@ -5531,7 +5536,20 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       projection.thread.worktreePath === null
         ? latestRun
         : undefined;
-    const queueBehindRun = activeRun ?? worktreeMissingRun;
+    // A message sent while its provider is at its usage limit would fail the same way, so it
+    // waits behind the limited run. It starts once that run is continued: by the auto-resume at
+    // the reset, or by Resume or a send on another provider. Continuations themselves still start.
+    const limitedRun =
+      activeRun === undefined &&
+      worktreeMissingRun === undefined &&
+      (dispatchMode.type === "start_immediately" || dispatchMode.type === "queue_after_active") &&
+      command.manualContinuationOfRunId === undefined &&
+      command.usageLimitContinuationOfRunId === undefined &&
+      command.restartContinuationOfRunId === undefined &&
+      usageLimitHoldsQueue(projection, modelSelection.instanceId)
+        ? (latestRun ?? undefined)
+        : undefined;
+    const queueBehindRun = activeRun ?? worktreeMissingRun ?? limitedRun;
     const pendingMergeBackTransfers = pendingMergeBackTransfersForThread(projection);
     const startsOrQueuesRun =
       dispatchMode.type === "defer_start" ||
@@ -5678,6 +5696,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         rootNodeId,
         activeAttemptId: attemptId,
         status: "queued",
+        ...(limitedRun === undefined ? {} : { queuedBehindLimit: true }),
         ...(worktreeMissingRun !== undefined ||
         (heldRunsToRelease.length === 0 &&
           projection.runs.some(

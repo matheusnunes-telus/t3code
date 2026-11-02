@@ -4929,6 +4929,137 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
     }),
   );
 
+  it.effect("queues a send behind a usage limit, then follows the provider that continues", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const eventSink = yield* EventSink.EventSinkV2;
+      const threadId = ThreadId.make("runtime-layer-send-behind-limit");
+      const otherSelection = { instanceId: alternateInstanceId, model: "gpt-5.5" };
+      yield* orchestrator.dispatch({
+        type: "thread.create",
+        commandId: CommandId.make(`${threadId}:create`),
+        threadId,
+        createdBy: "user",
+        creationSource: "web",
+        projectId: ProjectId.make(`${threadId}:project`),
+        title: "Send behind limit",
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: process.cwd(),
+      });
+      const send = (
+        key: string,
+        extra: {
+          readonly manualContinuationOfRunId?: RunId;
+          readonly modelSelection?: typeof otherSelection;
+        } = {},
+      ) =>
+        orchestrator.dispatch({
+          type: "message.dispatch",
+          commandId: CommandId.make(`${threadId}:${key}`),
+          threadId,
+          messageId: MessageId.make(`${threadId}:${key}`),
+          text: key,
+          attachments: [],
+          createdBy: "user",
+          creationSource: "web",
+          dispatchMode: { type: "start_immediately" },
+          ...extra,
+        });
+      yield* send("first");
+      const [limited] = (yield* orchestrator.getThreadProjection(threadId)).runs;
+      assert.isDefined(limited);
+      const now = yield* DateTime.now;
+      yield* eventSink.write({
+        events: [
+          {
+            id: EventId.make(`${threadId}:error`),
+            type: "turn-item.updated",
+            threadId,
+            runId: limited.id,
+            nodeId: limited.rootNodeId!,
+            providerInstanceId: limited.providerInstanceId,
+            occurredAt: now,
+            payload: {
+              id: TurnItemId.make(`${threadId}:error`),
+              type: "error",
+              threadId,
+              runId: limited.id,
+              nodeId: limited.rootNodeId!,
+              providerThreadId: limited.providerThreadId,
+              providerTurnId: null,
+              nativeItemRef: null,
+              parentItemId: null,
+              ordinal: 2,
+              status: "failed",
+              title: "Usage limit",
+              startedAt: now,
+              completedAt: now,
+              updatedAt: now,
+              failure: {
+                class: "usage_limit",
+                message: "Usage limit reached",
+                code: "usage_limit",
+                retryable: null,
+              },
+            },
+          },
+          {
+            id: EventId.make(`${threadId}:failed`),
+            type: "run.updated",
+            threadId,
+            runId: limited.id,
+            providerInstanceId: limited.providerInstanceId,
+            occurredAt: now,
+            payload: { ...limited, status: "failed", completedAt: now },
+          },
+        ],
+      });
+
+      // On the limited provider, a send waits instead of failing the same way.
+      yield* send("waiting");
+      const waiting = (yield* orchestrator.getThreadProjection(threadId)).runs.find(
+        (run) => run.userMessageId === MessageId.make(`${threadId}:waiting`),
+      );
+      assert.equal(waiting?.status, "queued");
+      assert.equal(waiting?.queuedBehindLimit, true);
+
+      // Continuing on another provider starts at once; the waiting message stays behind it.
+      yield* send("continue", {
+        manualContinuationOfRunId: limited.id,
+        modelSelection: otherSelection,
+      });
+      const continued = yield* orchestrator.getThreadProjection(threadId);
+      const continuation = continued.runs.find(
+        (run) => run.userMessageId === MessageId.make(`${threadId}:continue`),
+      );
+      assert.notEqual(continuation?.status, "queued");
+      assert.equal(continued.runs.find((run) => run.id === waiting?.id)?.status, "queued");
+
+      const doneAt = yield* DateTime.now;
+      yield* eventSink.write({
+        events: [
+          {
+            id: EventId.make(`${threadId}:continued`),
+            type: "run.updated",
+            threadId,
+            runId: continuation!.id,
+            providerInstanceId: continuation!.providerInstanceId,
+            occurredAt: doneAt,
+            payload: { ...continuation!, status: "completed", completedAt: doneAt },
+          },
+        ],
+      });
+      yield* orchestrator.resumeQueuedRuns;
+      const after = yield* orchestrator.getThreadProjection(threadId);
+      const started = after.runs.find((run) => run.id === waiting?.id);
+      assert.notEqual(started?.status, "queued");
+      assert.equal(started?.modelSelection.instanceId, alternateInstanceId);
+    }),
+  );
+
   it.effect.each([
     ["server", modelSelection],
     ["provider", modelSelection],
@@ -6566,6 +6697,9 @@ it.layer(layerTest)("usage-limit recovery", (it) => {
         (thread) => thread.id === threadId,
       )!;
       assert.isNull(limitRecoveryCommand(shell, false, DateTime.toEpochMillis(now)));
+      // A stop whose reset already passed is never armed, so turning auto-resume on later does
+      // not continue every old stop at once.
+      assert.isNull(limitRecoveryCommand(shell, true, Date.parse(resetAt) + 60_000));
       if (scenario === "invalid-snooze") {
         const result = yield* orchestrator
           .dispatch({
