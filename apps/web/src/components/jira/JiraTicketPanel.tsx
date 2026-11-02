@@ -9,12 +9,13 @@ import type {
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
 import {
   BellIcon,
+  ChevronDownIcon,
   ExternalLinkIcon,
   MessageSquarePlusIcon,
   PencilLineIcon,
   TicketIcon,
 } from "lucide-react";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 
 import { useComposerDraftStore } from "~/composerDraftStore";
 import { useNewThreadHandler } from "~/hooks/useHandleNewThread";
@@ -23,14 +24,17 @@ import { useThreadShell, useThreadShells } from "~/state/entities";
 import {
   issueByKey,
   issuePath,
+  jiraSyncHealth,
   relativeAge,
   threadTicketKeys,
   ticketThreadIds,
   useJiraCommand,
   useJiraSnapshot,
 } from "~/state/jira";
-import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
+import { useMinuteClock } from "../gcp/useMinuteClock";
+import { PULL_REQUEST_STATE_PRESENTATION, PullRequestGlyph } from "../pullRequest/pullRequestIcons";
 import { Button } from "../ui/button";
+import { RefreshIcon } from "../ui/refresh-icon";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { JiraKey, JiraLevelTag, JiraTicketPath, JiraTicketThreads } from "./JiraTicketBits";
 import { JiraSyncStatus } from "./JiraSyncStatus";
@@ -106,6 +110,9 @@ function TicketUpdatesToggle({
   );
 }
 
+/** How many pull requests show before "Show N more". */
+const PULL_REQUESTS_SHOWN = 3;
+
 function TicketPullRequests({
   environmentId,
   threadIds,
@@ -114,43 +121,107 @@ function TicketPullRequests({
   threadIds: ReadonlyArray<ThreadId>;
 }) {
   const shells = useThreadShells();
+  const [showAll, setShowAll] = useState(false);
   const pullRequests = shells
     .filter((shell) => shell.environmentId === environmentId && threadIds.includes(shell.id))
-    .flatMap((shell) => visibleThreadPullRequests(shell.pullRequests));
-  if (pullRequests.length === 0) {
-    return <p className="text-xs text-muted-foreground">No pull requests yet.</p>;
-  }
+    .flatMap((shell) => visibleThreadPullRequests(shell.pullRequests))
+    .toSorted((a, b) => b.number - a.number);
+  const stateOf = (pr: (typeof pullRequests)[number]) =>
+    pr.snapshot?.isDraft ? "draft" : (pr.snapshot?.state ?? "open");
+  const counts = (["merged", "open", "draft", "closed"] as const)
+    .map((state) => ({ state, count: pullRequests.filter((pr) => stateOf(pr) === state).length }))
+    .filter((entry) => entry.count > 0);
+  const shown = showAll ? pullRequests : pullRequests.slice(0, PULL_REQUESTS_SHOWN);
+
   return (
-    <ul className="flex flex-col gap-0.5">
-      {pullRequests.map((pr) => {
-        const state = pr.snapshot?.state ?? "open";
-        return (
-          <li key={`${pr.repository}#${pr.number}`}>
-            <a
-              href={pr.url}
-              target="_blank"
-              rel="noreferrer"
-              className="flex min-w-0 items-center gap-2 rounded-md px-1.5 py-1 text-xs hover:bg-accent"
-            >
+    <div>
+      <SectionLabel
+        end={counts
+          .map(
+            ({ state, count }) =>
+              `${count} ${PULL_REQUEST_STATE_PRESENTATION[state].label.toLowerCase()}`,
+          )
+          .join(" · ")}
+      >
+        Pull requests
+      </SectionLabel>
+      {pullRequests.length === 0 ? (
+        <p className="px-1.5 text-xs text-muted-foreground">No pull requests yet.</p>
+      ) : (
+        <>
+          <div aria-hidden className="mx-1.5 mb-1 flex h-1 gap-0.5 overflow-hidden rounded-full">
+            {counts.map(({ state, count }) => (
               <span
-                aria-hidden
+                key={state}
                 className={cn(
-                  "size-1.5 shrink-0 rounded-full",
-                  state === "merged"
-                    ? "bg-info"
-                    : state === "closed"
-                      ? "bg-destructive"
-                      : "bg-success",
+                  "bg-current opacity-70",
+                  PULL_REQUEST_STATE_PRESENTATION[state].toneClassName,
                 )}
+                style={{ flexGrow: count }}
               />
-              <span className="shrink-0 font-mono text-muted-foreground">#{pr.number}</span>
-              <span className="min-w-0 flex-1 truncate">{pr.snapshot?.title ?? pr.repository}</span>
-              <span className="shrink-0 text-muted-foreground">{state}</span>
-            </a>
-          </li>
-        );
-      })}
-    </ul>
+            ))}
+          </div>
+          <ul className="flex flex-col">
+            {shown.map((pr) => {
+              const presentation = PULL_REQUEST_STATE_PRESENTATION[stateOf(pr)];
+              return (
+                <li key={`${pr.repository}#${pr.number}`}>
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <a
+                          href={pr.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex h-7 min-w-0 items-center gap-2 rounded-md px-1.5 text-xs hover:bg-accent"
+                        />
+                      }
+                    >
+                      <presentation.Icon
+                        aria-hidden
+                        className={cn("size-3 shrink-0", presentation.toneClassName)}
+                      />
+                      <span className="shrink-0 font-mono text-muted-foreground">#{pr.number}</span>
+                      <span className="min-w-0 flex-1 truncate">
+                        {pr.snapshot?.title ?? pr.repository}
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipPopup>
+                      {presentation.label} · {pr.repository}
+                    </TooltipPopup>
+                  </Tooltip>
+                </li>
+              );
+            })}
+          </ul>
+          {pullRequests.length > PULL_REQUESTS_SHOWN ? (
+            <button
+              type="button"
+              aria-expanded={showAll}
+              onClick={() => setShowAll((value) => !value)}
+              className="flex h-7 w-full cursor-pointer items-center gap-2 rounded-md px-1.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              <ChevronDownIcon
+                aria-hidden
+                className={cn("size-3 shrink-0 transition-transform", showAll && "rotate-180")}
+              />
+              {showAll ? "Show fewer" : `Show ${pullRequests.length - PULL_REQUESTS_SHOWN} more`}
+            </button>
+          ) : null}
+        </>
+      )}
+    </div>
+  );
+}
+
+function SectionLabel({ children, end }: { children: ReactNode; end?: ReactNode }) {
+  return (
+    <div className="flex items-center gap-2 px-1.5 pb-1">
+      <span className="text-2xs font-medium tracking-wide text-muted-foreground uppercase">
+        {children}
+      </span>
+      {end ? <span className="ms-auto truncate text-xs text-muted-foreground">{end}</span> : null}
+    </div>
   );
 }
 
@@ -171,7 +242,8 @@ function TicketCard({
   const [drafting, setDrafting] = useState(false);
   const issue = issueByKey(snapshot, issueKey);
   const threadIds = ticketThreadIds(snapshot, issueKey);
-  const now = Date.now();
+  const now = useMinuteClock();
+  const syncing = snapshot.sync.status === "syncing";
 
   const startThread = async () => {
     if (shell === null) return;
@@ -197,60 +269,79 @@ function TicketCard({
     setDrafting(false);
   };
 
+  const details = snapshot.details[issueKey];
+  const refreshLabel = [
+    `Synced ${relativeAge(snapshot.sync.lastSyncedAt, now)}${
+      snapshot.via === "cli"
+        ? " with the Atlassian CLI"
+        : snapshot.via === "mcp"
+          ? " through Atlassian MCP"
+          : ""
+    }`,
+    details ? `details read ${relativeAge(details.fetchedAt, now)}` : null,
+  ]
+    .filter(Boolean)
+    .join(", ");
+
   return (
-    <section className="flex flex-col gap-2 border-b border-border px-4 py-3 last:border-b-0">
-      <div className="flex items-center gap-2">
-        <JiraKey value={issueKey} />
-        {issue ? <JiraStatusMenu environmentId={environmentId} issue={issue} /> : null}
-        {issue ? <JiraLevelTag level={issue.level} /> : null}
-        <span className="flex-1" />
-        <TicketUpdatesToggle
-          value={snapshot.ticketUpdates[issueKey] ?? "link"}
-          onChange={(updates) => void command({ type: "ticketUpdates", key: issueKey, updates })}
-        />
+    <section className="flex flex-col gap-3 border-b border-border px-3 py-3 last:border-b-0">
+      <div className="flex flex-col gap-1.5 px-1.5">
+        <div className="flex items-center gap-2">
+          <TicketIcon aria-hidden className="size-3 shrink-0 text-muted-foreground" />
+          <JiraKey value={issueKey} />
+          {issue ? <JiraStatusMenu environmentId={environmentId} issue={issue} /> : null}
+          {issue ? <JiraLevelTag level={issue.level} /> : null}
+          <span className="flex-1" />
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  size="icon-xs"
+                  variant="ghost"
+                  aria-label={`Read ${issueKey} from Jira again`}
+                  disabled={syncing}
+                  onClick={() => {
+                    void command({ type: "sync" });
+                    void command({ type: "loadDetails", key: issueKey });
+                  }}
+                />
+              }
+            >
+              <RefreshIcon refreshing={syncing} />
+            </TooltipTrigger>
+            <TooltipPopup>{refreshLabel}. Refresh</TooltipPopup>
+          </Tooltip>
+          <TicketUpdatesToggle
+            value={snapshot.ticketUpdates[issueKey] ?? "link"}
+            onChange={(updates) => void command({ type: "ticketUpdates", key: issueKey, updates })}
+          />
+        </div>
+        <h3 className="text-sm leading-snug font-semibold">
+          {issue?.summary ?? "Not in the synced tree yet"}
+        </h3>
+        <JiraTicketPath snapshot={snapshot} issueKey={issueKey} />
+        <div className="pt-1">
+          <JiraTicketDetails
+            environmentId={environmentId}
+            issueKey={issueKey}
+            details={details}
+            sprints={snapshot.sprints}
+            now={now}
+          />
+        </div>
       </div>
-      <h3 className="text-sm font-medium">{issue?.summary ?? "Not in the synced tree yet"}</h3>
-      <JiraTicketPath snapshot={snapshot} issueKey={issueKey} />
-      <JiraTicketDetails
-        environmentId={environmentId}
-        issueKey={issueKey}
-        details={snapshot.details[issueKey]}
-        sprints={snapshot.sprints}
-        now={now}
-      />
-      <p className="text-xs text-muted-foreground">
-        Synced {relativeAge(snapshot.sync.lastSyncedAt, now)}
-        {snapshot.via === "cli"
-          ? " with the Atlassian CLI"
-          : snapshot.via === "mcp"
-            ? " through Atlassian MCP"
-            : ""}{" "}
-        ·{" "}
-        <button
-          type="button"
-          className="cursor-pointer underline underline-offset-2 hover:text-foreground"
-          onClick={() => void command({ type: "sync" })}
-        >
-          Refresh
-        </button>
-      </p>
       <div>
-        <p className="mb-1 text-2xs font-medium tracking-wide text-muted-foreground uppercase">
-          Threads ({threadIds.length})
-        </p>
+        <SectionLabel end={threadIds.length > 1 ? String(threadIds.length) : undefined}>
+          Threads
+        </SectionLabel>
         <JiraTicketThreads
           environmentId={environmentId}
           threadIds={threadIds}
           currentThreadId={threadRef.threadId}
         />
       </div>
-      <div>
-        <p className="mb-1 text-2xs font-medium tracking-wide text-muted-foreground uppercase">
-          Pull requests
-        </p>
-        <TicketPullRequests environmentId={environmentId} threadIds={threadIds} />
-      </div>
-      <div className="flex flex-wrap gap-1.5 pt-1">
+      <TicketPullRequests environmentId={environmentId} threadIds={threadIds} />
+      <div className="flex flex-wrap gap-1.5 px-1.5">
         <Button size="compact" onClick={() => void startThread()}>
           <MessageSquarePlusIcon />
           New thread for this ticket
@@ -283,6 +374,7 @@ function TicketCard({
 export function JiraTicketPanel({ threadRef }: { threadRef: ScopedThreadRef }) {
   const environmentId = threadRef.environmentId;
   const snapshot = useJiraSnapshot(environmentId);
+  const now = useMinuteClock();
   if (snapshot === null || !snapshot.enabled) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center text-sm text-muted-foreground">
@@ -292,6 +384,9 @@ export function JiraTicketPanel({ threadRef }: { threadRef: ScopedThreadRef }) {
     );
   }
   const keys = threadTicketKeys(snapshot, threadRef.threadId);
+  // A healthy sync is in each ticket's refresh tooltip; the footer is for problems and sign-in.
+  const health = jiraSyncHealth(snapshot, now);
+  const showSyncStatus = keys.length === 0 || (health !== "ok" && health !== "syncing");
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="min-h-0 flex-1 overflow-y-auto">
@@ -312,9 +407,11 @@ export function JiraTicketPanel({ threadRef }: { threadRef: ScopedThreadRef }) {
           ))
         )}
       </div>
-      <div className="border-t border-border px-4 py-2">
-        <JiraSyncStatus environmentId={environmentId} />
-      </div>
+      {showSyncStatus ? (
+        <div className="border-t border-border px-4 py-2">
+          <JiraSyncStatus environmentId={environmentId} />
+        </div>
+      ) : null}
     </div>
   );
 }

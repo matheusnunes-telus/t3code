@@ -1,13 +1,14 @@
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentId, JiraIssue, JiraSnapshot, ThreadId } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
-import { ChevronRightIcon } from "lucide-react";
+import { ChevronRightIcon, MessageSquareIcon } from "lucide-react";
 
 import { cn } from "~/lib/utils";
 import { useThreadShells } from "~/state/entities";
 import { issuePath, levelLabel } from "~/state/jira";
 import { buildThreadRouteParams } from "../../threadRoutes";
 import { Badge } from "../ui/badge";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 const STATUS_VARIANT = {
   new: "secondary",
@@ -43,7 +44,7 @@ export function JiraLevelTag({ level }: { level: number }) {
   );
 }
 
-/** The initiative › epic › task path above a ticket. */
+/** The initiative › epic path above a ticket, by name; each key is in its tooltip. */
 export function JiraTicketPath({
   snapshot,
   issueKey,
@@ -62,11 +63,17 @@ export function JiraTicketPath({
         className,
       )}
     >
-      {path.map((issue) => (
+      {path.map((issue, index) => (
         <span key={issue.key} className="inline-flex min-w-0 items-center gap-1">
-          <JiraKey value={issue.key} className="text-muted-foreground" />
-          <span className="truncate">{issue.summary}</span>
-          <ChevronRightIcon aria-hidden className="size-3 shrink-0 opacity-50" />
+          {index > 0 ? (
+            <ChevronRightIcon aria-hidden className="size-3 shrink-0 opacity-50" />
+          ) : null}
+          <Tooltip>
+            <TooltipTrigger render={<span className="truncate" />}>{issue.summary}</TooltipTrigger>
+            <TooltipPopup>
+              {issue.key} · {levelLabel(issue.level)}
+            </TooltipPopup>
+          </Tooltip>
         </span>
       ))}
     </div>
@@ -106,17 +113,18 @@ export function JiraTicketThreads({
                   params: buildThreadRouteParams(scopeThreadRef(environmentId, threadId)),
                 })
               }
-              className="flex w-full min-w-0 items-center gap-2 rounded-md px-1.5 py-1 text-left text-xs hover:bg-accent disabled:cursor-default disabled:hover:bg-transparent"
+              className={cn(
+                "flex h-7 w-full min-w-0 cursor-pointer items-center gap-2 rounded-md px-1.5 text-left text-xs hover:bg-accent disabled:cursor-default",
+                current && "bg-accent/60 disabled:hover:bg-accent/60",
+              )}
             >
-              <span
-                aria-hidden
-                className={cn(
-                  "size-1.5 shrink-0 rounded-full",
-                  current ? "bg-info" : "bg-muted-foreground/50",
-                )}
-              />
-              <span className="truncate">{shell?.title ?? "Thread"}</span>
-              {current ? <span className="shrink-0 text-muted-foreground">(this one)</span> : null}
+              <MessageSquareIcon aria-hidden className="size-3 shrink-0 text-muted-foreground" />
+              <span className="min-w-0 flex-1 truncate">{shell?.title ?? "Thread"}</span>
+              {current ? (
+                <span className="shrink-0 rounded-sm bg-muted px-1 text-3xs text-muted-foreground">
+                  this thread
+                </span>
+              ) : null}
             </button>
           </li>
         );
