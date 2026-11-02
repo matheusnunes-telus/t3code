@@ -4,6 +4,7 @@ import {
   type UsageBucket,
   type UsageProviderKind,
   type UsageSource,
+  type UsageSourceAccount,
   type UsageSourceFingerprint,
   type UsageSummary,
   type UsageTokenTotals,
@@ -15,6 +16,16 @@ export interface EnvironmentUsage {
   readonly summary: UsageSummary;
 }
 
+export interface AccountTotals {
+  readonly instanceId: string;
+  readonly label: string;
+  readonly costUsd: number;
+  readonly totalTokens: number;
+  readonly sessions: number;
+  readonly costShare: number;
+  readonly tokenShare: number;
+}
+
 export interface ProviderTotals {
   readonly provider: UsageProviderKind;
   readonly costUsd: number;
@@ -23,6 +34,13 @@ export interface ProviderTotals {
   readonly sessions: number;
   readonly costShare: number;
   readonly tokenShare: number;
+  /** One entry per provider instance (account) that reported usage; old servers report none. */
+  readonly accounts: readonly AccountTotals[];
+}
+
+/** Joins a bucket to its source's account; buckets without a sourcePath have none. */
+export function sourceAccountKey(provider: UsageProviderKind, path: string): string {
+  return `${provider}\u0000${path}`;
 }
 
 export interface ModelTotals {
@@ -224,10 +242,20 @@ function ownedContribution(
 ): {
   readonly buckets: readonly UsageBucket[];
   readonly sessionsByProvider: ReadonlyMap<UsageProviderKind, number>;
+  readonly accountBySource: ReadonlyMap<string, UsageSourceAccount>;
+  readonly sessionsByAccount: ReadonlyMap<
+    string,
+    { provider: UsageProviderKind; account: UsageSourceAccount; sessions: number }
+  >;
 } {
   const ownedProviders = new Set<UsageProviderKind>();
   const ownedSources = new Set<string>();
   const sessionsByProvider = new Map<UsageProviderKind, number>();
+  const accountBySource = new Map<string, UsageSourceAccount>();
+  const sessionsByAccount = new Map<
+    string,
+    { provider: UsageProviderKind; account: UsageSourceAccount; sessions: number }
+  >();
   for (const source of environment.summary.sources) {
     if (source.status === "missing") continue;
     const key = fingerprintKey(source.fingerprint);
@@ -236,11 +264,22 @@ function ownedContribution(
       ownedProviders.add(provider);
       ownedSources.add(`${provider}\u0000${source.fingerprint.resolvedHomePath}`);
       // Count distinct sessions per directory; bucket sums overcount sessions spanning days/models.
-      sessionsByProvider.set(
-        provider,
-        (sessionsByProvider.get(provider) ?? 0) +
-          (sessionsByFingerprint.get(key) ?? source.distinctSessions),
-      );
+      const sourceSessions = sessionsByFingerprint.get(key) ?? source.distinctSessions;
+      sessionsByProvider.set(provider, (sessionsByProvider.get(provider) ?? 0) + sourceSessions);
+      if (source.account !== undefined) {
+        accountBySource.set(
+          sourceAccountKey(provider, source.fingerprint.resolvedHomePath),
+          source.account,
+        );
+        const accountKey = sourceAccountKey(provider, source.account.instanceId);
+        const entry = sessionsByAccount.get(accountKey) ?? {
+          provider,
+          account: source.account,
+          sessions: 0,
+        };
+        entry.sessions += sourceSessions;
+        sessionsByAccount.set(accountKey, entry);
+      }
     }
   }
   return {
@@ -252,6 +291,8 @@ function ownedContribution(
           : ownedSources.has(`${bucket.provider}\u0000${bucket.sourcePath}`)),
     ),
     sessionsByProvider,
+    accountBySource,
+    sessionsByAccount,
   };
 }
 
@@ -346,6 +387,33 @@ export function mergeUsage(
     UsageProviderKind,
     { costUsd: number; totalTokens: number; records: number; sessions: number }
   >();
+  // Keyed by provider and instanceId, so the same account on two environments adds up.
+  const accountAccumulator = new Map<
+    string,
+    {
+      provider: UsageProviderKind;
+      instanceId: string;
+      label: string;
+      costUsd: number;
+      totalTokens: number;
+      sessions: number;
+    }
+  >();
+  const accountFor = (provider: UsageProviderKind, account: UsageSourceAccount) => {
+    const key = sourceAccountKey(provider, account.instanceId);
+    const existing = accountAccumulator.get(key);
+    if (existing !== undefined) return existing;
+    const created = {
+      provider,
+      instanceId: account.instanceId,
+      label: account.label,
+      costUsd: 0,
+      totalTokens: 0,
+      sessions: 0,
+    };
+    accountAccumulator.set(key, created);
+    return created;
+  };
   const modelAccumulator = new Map<
     string,
     {
@@ -379,7 +447,7 @@ export function mergeUsage(
   const contributingEnvironments: EnvironmentId[] = [];
 
   for (const environment of current) {
-    const { buckets, sessionsByProvider } = ownedContribution(
+    const { buckets, sessionsByProvider, accountBySource, sessionsByAccount } = ownedContribution(
       environment,
       ownerByFingerprint,
       supplementalBucketsByEnvironment.get(environment.environmentId) ?? new Set(),
@@ -399,9 +467,21 @@ export function mergeUsage(
       provider.sessions += providerSessions;
       providerAccumulator.set(providerKind, provider);
     }
+    for (const { provider, account, sessions: accountSessions } of sessionsByAccount.values()) {
+      accountFor(provider, account).sessions += accountSessions;
+    }
 
     for (const bucket of buckets) {
       const tokens = bucketTokens(bucket);
+      const account =
+        bucket.sourcePath === undefined
+          ? undefined
+          : accountBySource.get(sourceAccountKey(bucket.provider, bucket.sourcePath));
+      if (account !== undefined) {
+        const accountTotals = accountFor(bucket.provider, account);
+        accountTotals.costUsd += bucket.costUsd;
+        accountTotals.totalTokens += tokens;
+      }
 
       costUsd += bucket.costUsd;
       cacheSavingsUsd += bucket.cacheSavingsUsd;
@@ -503,6 +583,23 @@ export function mergeUsage(
 
   const totalTokens = uncachedInputTokens + cachedInputTokens + cacheCreationTokens + outputTokens;
 
+  const accountsOf = (provider: UsageProviderKind): AccountTotals[] => {
+    const accounts = [...accountAccumulator.values()].filter(
+      (account) => account.provider === provider,
+    );
+    return accounts
+      .map(({ instanceId, label, costUsd: accountCost, totalTokens: accountTokens, sessions }) => ({
+        instanceId,
+        label,
+        costUsd: accountCost,
+        totalTokens: accountTokens,
+        sessions,
+        costShare: costUsd === 0 ? 0 : accountCost / costUsd,
+        tokenShare: totalTokens === 0 ? 0 : accountTokens / totalTokens,
+      }))
+      .sort((a, b) => b.costUsd - a.costUsd || a.label.localeCompare(b.label));
+  };
+
   const providers: ProviderTotals[] = [...providerAccumulator.entries()]
     .map(([provider, totals]) => ({
       provider,
@@ -512,6 +609,7 @@ export function mergeUsage(
       sessions: totals.sessions,
       costShare: costUsd === 0 ? 0 : totals.costUsd / costUsd,
       tokenShare: totalTokens === 0 ? 0 : totals.totalTokens / totalTokens,
+      accounts: accountsOf(provider),
     }))
     .sort((a, b) => b.costUsd - a.costUsd);
 

@@ -8,10 +8,11 @@ import {
   USAGE_CONTRACT_VERSION,
   type EnvironmentId,
   type UsageProviderKind,
+  type UsageSourceAccount,
   type UsageSummaryInput,
 } from "@t3tools/contracts";
 import { CircleAlertIcon, ChevronDownIcon, InfoIcon, SlidersHorizontalIcon } from "lucide-react";
-import { useEffect, useEffectEvent, useRef, useState } from "react";
+import { Fragment, useEffect, useEffectEvent, useRef, useState } from "react";
 import { settlePromise } from "@t3tools/client-runtime/state/runtime";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import * as Cause from "effect/Cause";
@@ -42,7 +43,7 @@ import { primaryServerKeybindingsAtom, serverEnvironment } from "../../state/ser
 import { isCommandPaletteOpen } from "../../commandPaletteBus";
 import { isModelPickerOpen } from "../../modelPickerVisibility";
 import { shortcutLabelForCommand } from "../../keybindings";
-import { useUsage, type EnvironmentUsageStatus } from "../../state/usage";
+import { usageAccountsByProvider, useUsage, type EnvironmentUsageStatus } from "../../state/usage";
 import { useAtomCommand } from "../../state/use-atom-command";
 import {
   enumerateDays,
@@ -201,6 +202,7 @@ export function UsagePage() {
   const [selectedEnvironmentIds, setSelectedEnvironmentIds] =
     useState<ReadonlySet<EnvironmentId> | null>(null);
   const hiddenProviders = new Set(preferences.hiddenProviders);
+  const hiddenAccounts = new Set(preferences.hiddenAccounts);
   const { days: windowDays, window } = windowSelection;
   const isPast24Hours = windowDays === 1;
   const {
@@ -210,7 +212,9 @@ export function UsagePage() {
     shown,
     isPartial,
     refresh,
-  } = useUsage(window, selectedEnvironmentIds, hiddenProviders);
+  } = useUsage(window, selectedEnvironmentIds, hiddenProviders, hiddenAccounts);
+  // From every environment, not the selection, so the menu keeps an account that has no usage here.
+  const accountsByProvider = usageAccountsByProvider(environments);
   const merged = shown?.merged ?? answeredUsage;
   const shownWindow = shown?.window ?? window;
   const shownHourly = shownWindow.resolution === "hour";
@@ -381,7 +385,9 @@ export function UsagePage() {
         <WorkspaceBreadcrumbItem current className="min-w-10">
           <UsageProviderFilter
             hiddenProviders={hiddenProviders}
-            onChange={(next) => updatePreferences({ hiddenProviders: next })}
+            hiddenAccounts={hiddenAccounts}
+            accountsByProvider={accountsByProvider}
+            onChange={(next) => updatePreferences(next)}
           />
         </WorkspaceBreadcrumbItem>
       </WorkspaceBreadcrumb>
@@ -555,6 +561,7 @@ export function UsagePage() {
                 metric={metric === "tokens" ? "tokens" : "cost"}
                 selectedEnvironments={selectedEnvironments}
                 hiddenProviders={hiddenProviders}
+                accountsByProvider={accountsByProvider}
                 refreshingUsage={refreshingUsage}
                 cursorAccessEnvironments={cursorAccessEnvironments}
                 showChatGptSharing={showChatGptSharing}
@@ -608,6 +615,7 @@ function UsageOverview({
   metric,
   selectedEnvironments,
   hiddenProviders,
+  accountsByProvider,
   refreshingUsage,
   cursorAccessEnvironments,
   showChatGptSharing,
@@ -623,6 +631,7 @@ function UsageOverview({
   readonly metric: "tokens" | "cost";
   readonly selectedEnvironments: readonly EnvironmentUsageStatus[];
   readonly hiddenProviders: ReadonlySet<UsageProviderKind>;
+  readonly accountsByProvider: ReadonlyMap<UsageProviderKind, readonly UsageSourceAccount[]>;
   readonly refreshingUsage: boolean;
   readonly cursorAccessEnvironments: readonly EnvironmentUsageStatus[];
   readonly showChatGptSharing: boolean;
@@ -810,6 +819,30 @@ function UsageOverview({
                     ? `${formatPercent(share)} of cost · ${formatTokens(totals?.totalTokens ?? 0)} tokens`
                     : `${formatPercent(share)} of tokens · ${formatUsd(totals?.costUsd ?? 0)}`}
                 </span>
+                {accountsByProvider.has(provider) && totals !== undefined
+                  ? totals.accounts.map((account) => (
+                      <div
+                        key={account.instanceId}
+                        className={cn(
+                          "flex items-baseline justify-between gap-4 ps-8 text-xs",
+                          figureClass(providerLoading),
+                        )}
+                      >
+                        <span className="flex min-w-0 items-baseline gap-1.5 text-muted-foreground">
+                          <span className="truncate text-foreground">{account.label}</span>
+                          <span className="shrink-0 whitespace-nowrap text-2xs tabular-nums">
+                            {formatCount(account.sessions)}{" "}
+                            {account.sessions === 1 ? "session" : "sessions"}
+                          </span>
+                        </span>
+                        <span className="shrink-0 text-foreground tabular-nums">
+                          {metric === "cost"
+                            ? formatUsd(account.costUsd)
+                            : formatTokens(account.totalTokens)}
+                        </span>
+                      </div>
+                    ))
+                  : null}
               </div>
             );
           })}
@@ -1429,20 +1462,40 @@ function UsageEnvironmentFilter({
 
 function UsageProviderFilter({
   hiddenProviders,
+  hiddenAccounts,
+  accountsByProvider,
   onChange,
 }: {
   readonly hiddenProviders: ReadonlySet<UsageProviderKind>;
-  readonly onChange: (hiddenProviders: readonly UsageProviderKind[]) => void;
+  readonly hiddenAccounts: ReadonlySet<string>;
+  readonly accountsByProvider: ReadonlyMap<UsageProviderKind, readonly UsageSourceAccount[]>;
+  readonly onChange: (next: {
+    readonly hiddenProviders: readonly UsageProviderKind[];
+    readonly hiddenAccounts: readonly string[];
+  }) => void;
 }) {
   const visible = PROVIDER_ORDER.filter((provider) => !hiddenProviders.has(provider));
+  const visibleAccounts = (provider: UsageProviderKind) =>
+    (accountsByProvider.get(provider) ?? []).filter(
+      (account) => !hiddenAccounts.has(account.instanceId),
+    );
+  const onlyAccount =
+    visible.length === 1 && accountsByProvider.has(visible[0]!) ? visibleAccounts(visible[0]!) : [];
+  const anyAccountHidden = visible.some(
+    (provider) =>
+      visibleAccounts(provider).length < (accountsByProvider.get(provider)?.length ?? 0),
+  );
   const label =
-    visible.length === PROVIDER_ORDER.length
+    visible.length === PROVIDER_ORDER.length && !anyAccountHidden
       ? "All providers"
       : visible.length === 0
         ? "No providers"
-        : visible.length === 1
-          ? PROVIDER_PRESENTATION[visible[0]!].label
-          : `${visible.length} providers`;
+        : onlyAccount.length === 1
+          ? onlyAccount[0]!.label
+          : visible.length === 1
+            ? PROVIDER_PRESENTATION[visible[0]!].label
+            : `${visible.length} providers`;
+  const hiddenAccountList = [...hiddenAccounts];
 
   return (
     <Menu>
@@ -1455,32 +1508,89 @@ function UsageProviderFilter({
       </MenuTrigger>
       <MenuPopup align="start">
         <MenuCheckboxItem
-          checked={hiddenProviders.size === 0}
+          checked={hiddenProviders.size === 0 && hiddenAccounts.size === 0}
           closeOnClick={false}
-          onCheckedChange={(checked) => onChange(checked ? [] : PROVIDER_ORDER)}
+          onCheckedChange={(checked) =>
+            onChange(
+              checked
+                ? { hiddenProviders: [], hiddenAccounts: [] }
+                : { hiddenProviders: PROVIDER_ORDER, hiddenAccounts: hiddenAccountList },
+            )
+          }
         >
           All providers
         </MenuCheckboxItem>
         <MenuSeparator />
-        {PROVIDER_ORDER.map((provider) => (
-          <MenuCheckboxItem
-            key={provider}
-            checked={!hiddenProviders.has(provider)}
-            closeOnClick={false}
-            onCheckedChange={(checked) =>
-              onChange(
-                PROVIDER_ORDER.filter((entry) =>
-                  entry === provider ? !checked : hiddenProviders.has(entry),
-                ),
-              )
-            }
-          >
-            <span className="flex min-w-0 items-center gap-2">
-              <ProviderMark provider={provider} className="size-3.5" />
-              <span className="truncate">{PROVIDER_PRESENTATION[provider].label}</span>
-            </span>
-          </MenuCheckboxItem>
-        ))}
+        {PROVIDER_ORDER.map((provider) => {
+          const accounts = accountsByProvider.get(provider) ?? [];
+          return (
+            <Fragment key={provider}>
+              <MenuCheckboxItem
+                checked={!hiddenProviders.has(provider)}
+                closeOnClick={false}
+                onCheckedChange={(checked) =>
+                  onChange({
+                    hiddenProviders: PROVIDER_ORDER.filter((entry) =>
+                      entry === provider ? !checked : hiddenProviders.has(entry),
+                    ),
+                    // Turning a provider on shows all of its accounts again.
+                    hiddenAccounts: checked
+                      ? hiddenAccountList.filter(
+                          (id) => !accounts.some((account) => account.instanceId === id),
+                        )
+                      : hiddenAccountList,
+                  })
+                }
+              >
+                <span className="flex min-w-0 items-center gap-2">
+                  <ProviderMark provider={provider} className="size-3.5" />
+                  <span className="truncate">{PROVIDER_PRESENTATION[provider].label}</span>
+                </span>
+              </MenuCheckboxItem>
+              {accounts.map((account) => (
+                <MenuCheckboxItem
+                  key={account.instanceId}
+                  checked={
+                    !hiddenProviders.has(provider) && !hiddenAccounts.has(account.instanceId)
+                  }
+                  closeOnClick={false}
+                  onCheckedChange={(checked) => {
+                    const others = accounts
+                      .map((entry) => entry.instanceId)
+                      .filter((id) => id !== account.instanceId);
+                    // From a hidden provider, checking one account shows only that account.
+                    const nextHidden = !checked
+                      ? [...hiddenAccountList, account.instanceId]
+                      : hiddenProviders.has(provider)
+                        ? [
+                            ...hiddenAccountList.filter(
+                              (id) => id !== account.instanceId && !others.includes(id),
+                            ),
+                            ...others,
+                          ]
+                        : hiddenAccountList.filter((id) => id !== account.instanceId);
+                    const allHidden = accounts.every((entry) =>
+                      nextHidden.includes(entry.instanceId),
+                    );
+                    // Unchecking the last account hides the provider instead, so it never shows empty.
+                    onChange({
+                      hiddenProviders: PROVIDER_ORDER.filter((entry) =>
+                        entry === provider ? allHidden : hiddenProviders.has(entry),
+                      ),
+                      hiddenAccounts: allHidden
+                        ? nextHidden.filter(
+                            (id) => !accounts.some((entry) => entry.instanceId === id),
+                          )
+                        : nextHidden,
+                    });
+                  }}
+                >
+                  <span className="truncate ps-5.5">{account.label}</span>
+                </MenuCheckboxItem>
+              ))}
+            </Fragment>
+          );
+        })}
       </MenuPopup>
     </Menu>
   );
