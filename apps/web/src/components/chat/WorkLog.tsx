@@ -10,7 +10,10 @@ import { cn } from "../../lib/utils";
 
 const GroupedRows = createContext(false);
 
-/** Groups may span virtualized timeline items. Each part owns its trailing space. */
+/**
+ * Groups may span virtualized timeline items. Each part owns its trailing space.
+ * An opened group is one bubble: the header draws its top half, the content its bottom half.
+ */
 export function WorkLogBlock({
   layout = "standalone",
   continues = false,
@@ -21,16 +24,18 @@ export function WorkLogBlock({
   children: ReactNode;
 }) {
   return (
-    <div
-      className={
-        continues || layout === "group-header"
-          ? "pb-0"
-          : layout === "group-content"
-            ? "pb-1"
-            : "pb-2"
-      }
-    >
-      {children}
+    <div className={continues || layout === "group-header" ? "pb-0" : "pb-2"}>
+      {layout === "group-header" ? (
+        <div className="rounded-t-lg border-x border-t border-border/60 bg-muted/40 px-1 pt-0.5">
+          {children}
+        </div>
+      ) : layout === "group-content" ? (
+        <div className="rounded-b-lg border-x border-b border-border/60 bg-muted/40 px-1 pb-1">
+          <div className="ms-3 border-s border-border/60 ps-1.5">{children}</div>
+        </div>
+      ) : (
+        children
+      )}
     </div>
   );
 }
@@ -83,11 +88,13 @@ function WorkLogLine({ icon, label, trailing, wrapLabel }: RowContent) {
 const interactionClassName =
   "cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70";
 
-function useRowClassName(interactive: boolean) {
+function useRowClassName(interactive: boolean, opened = false) {
   const grouped = use(GroupedRows);
   return cn(
     "group/timeline-row relative w-full min-w-0 rounded-md px-0.5 text-left transition-colors",
     grouped ? "py-0" : "py-0.5",
+    // An opened step is a smaller bubble inside its group's bubble.
+    opened && "my-0.5 rounded-lg border border-border/60 bg-accent/50 px-1 pb-1",
     interactive && interactionClassName,
   );
 }
@@ -113,10 +120,11 @@ export function WorkLogRow({
   label,
   trailing,
   wrapLabel = false,
+  opened = false,
   children,
   ...rowProps
-}: RowContent & Omit<ComponentProps<"div">, "className" | "style">) {
-  const className = useRowClassName(rowProps.onClick !== undefined);
+}: RowContent & { opened?: boolean } & Omit<ComponentProps<"div">, "className" | "style">) {
+  const className = useRowClassName(rowProps.onClick !== undefined, opened);
   return (
     <div {...rowProps} className={className}>
       <WorkLogLine icon={icon} label={label} trailing={trailing} wrapLabel={wrapLabel} />

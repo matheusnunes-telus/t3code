@@ -388,6 +388,7 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
       data-v2-item-type={workEntry.projectedItem?.item.type}
       data-v2-item-visibility={workEntry.projectedItem?.visibility}
       {...rowToggleProps}
+      opened={expanded && canExpandProjectedItem}
       icon={
         <span
           className={iconWrapperClass}
