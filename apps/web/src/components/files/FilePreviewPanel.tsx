@@ -98,6 +98,7 @@ import {
   remapFileCommentAnnotations,
 } from "./fileCommentAnnotations";
 import { installFileEditorDismissal } from "./fileEditorDismissal";
+import { installVsCodeEditorKeys } from "./vscodeEditorKeys";
 import {
   FILE_LINK_REVEAL_ATTRIBUTE,
   FILE_LINK_REVEAL_UNSAFE_CSS,
@@ -825,6 +826,12 @@ function EditableFileSurface({
       onDismiss: () => setSelectedRange(null),
     });
   }, [hasOpenCommentForm, setSelectedRange]);
+  // oxlint-disable-next-line t3code/react-effect-budget -- the VS Code shortcuts are DOM listeners on the editor's container, installed while it is mounted.
+  useEffect(() => {
+    const root = surfaceRef.current;
+    if (!root) return;
+    return installVsCodeEditorKeys(root, () => editorRef.current);
+  }, []);
   const handleLineSelectionEnd = (range: SelectedLineRange | null) => {
     setSelectedRange(range);
     if (range) {

@@ -12,6 +12,7 @@ import type { ComposerHandleRef } from "../../composerHandleContext";
 import type { BranchToolbarHandle } from "../BranchToolbar";
 import { shouldTypeToFocusComposer } from "./composerFocusRedirect";
 import { composerShortcutCommands } from "./composerShortcuts";
+import { claimsVsCodeEditorShortcut } from "../files/vscodeEditorKeys";
 
 /** Returning false lets the key event through untouched. */
 export type ChatShortcutHandler = (context: {
@@ -56,6 +57,7 @@ export function useChatShortcuts(input: ChatShortcutsInput) {
       return;
     }
     if (!input.enabled || isCommandPaletteOpen()) return;
+    if (claimsVsCodeEditorShortcut(event)) return;
     const terminalFocusOwner = getTerminalFocusOwner();
     if (event.defaultPrevented && terminalFocusOwner === null) return;
     const shortcutContext = input.getShortcutContext(event.target);
