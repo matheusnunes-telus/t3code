@@ -23,8 +23,8 @@ import {
   useComposerDraftStore,
 } from "../composerDraftStore";
 import { useFileAutoSaveStore } from "../fileAutoSaveStore";
-import { closeFilesTab, filesDraftIdForThreadKey } from "../filesTabs";
-import { useFilesTabsStore } from "../filesTabsStore";
+import { closeFileInFilesTab, closeFilesTab, filesDraftIdForThreadKey } from "../filesTabs";
+import { filesTabTitle, isScratchPath, useFilesTabsStore } from "../filesTabsStore";
 import { useTheme } from "../hooks/useTheme";
 import { PierreEntryIcon } from "./chat/PierreEntryIcon";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
@@ -189,6 +189,10 @@ export function ChatTabsBar() {
       return [[key, { draftId: draftId as DraftId, session, filesTab }] as const];
     }),
   );
+  const filesTabCwd = (files: NonNullable<ReturnType<typeof filesTabByThreadKey.get>>) =>
+    files.session.worktreePath ??
+    projectByKey.get(`${files.session.environmentId}:${files.session.projectId}`)?.workspaceRoot ??
+    null;
   const lastDraftThreadKeyRef = useRef<string | null>(null);
   useEffect(() => {
     if (routeDraftThreadKey) lastDraftThreadKeyRef.current = routeDraftThreadKey;
@@ -255,12 +259,7 @@ export function ChatTabsBar() {
       const index = tabs.findIndex((tab) => tab.threadKey === threadKey);
       const remaining = tabs.filter((tab) => tab.threadKey !== threadKey);
       const next = (remaining[index] ?? remaining[index - 1])?.threadKey ?? null;
-      const cwd =
-        files.session.worktreePath ??
-        projectByKey.get(`${files.session.environmentId}:${files.session.projectId}`)
-          ?.workspaceRoot ??
-        null;
-      void closeFilesTab(files.draftId, cwd).then((closed) => {
+      void closeFilesTab(files.draftId, filesTabCwd(files)).then((closed) => {
         if (closed && threadKey === activeThreadKey) void navigateToThreadKey(next);
       });
       return;
@@ -309,7 +308,15 @@ export function ChatTabsBar() {
       }
       event.preventDefault();
       event.stopPropagation();
-      if (!event.repeat) handleCloseTab(current);
+      if (event.repeat) return;
+      // In a files tab, mod+W closes the open file first, like an editor tab in VS Code.
+      const files = filesTabByThreadKey.get(current);
+      const activePath = files?.filesTab.relativePath ?? null;
+      if (files && activePath !== null) {
+        void closeFileInFilesTab(files.draftId, activePath, filesTabCwd(files));
+        return;
+      }
+      handleCloseTab(current);
       return;
     }
     if (command === "chatTab.reopenClosed") {
@@ -376,16 +383,19 @@ export function ChatTabsBar() {
               ? (`${files.session.environmentId}:${files.session.projectId}` as const)
               : null;
           const project = projectKey ? projectByKey.get(projectKey) : undefined;
-          const filePath = files?.filesTab.relativePath ?? null;
+          const activePath = files?.filesTab.relativePath ?? null;
+          const filePath = activePath && !isScratchPath(activePath) ? activePath : null;
           const title =
             thread?.title ??
             (files
-              ? filePath
-                ? (filePath.split("/").at(-1) ?? filePath)
+              ? activePath
+                ? filesTabTitle(activePath)
                 : `${project?.title ?? "Project"} files`
               : "Unavailable thread");
           const unsaved =
-            files !== undefined && !autoSave && filesDirtyByDraftId[files.draftId] === true;
+            files !== undefined &&
+            !autoSave &&
+            Object.keys(filesDirtyByDraftId[files.draftId] ?? {}).length > 0;
           const tabElement = (
             <div
               key={tab.threadKey}

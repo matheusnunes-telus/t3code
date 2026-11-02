@@ -12,7 +12,13 @@ import {
   useComposerDraftStore,
 } from "./composerDraftStore";
 import { useFileAutoSaveStore } from "./fileAutoSaveStore";
-import { isFilesDraft, useFilesTabsStore } from "./filesTabsStore";
+import {
+  filesTabPathUnsaved,
+  filesTabTitle,
+  isFilesDraft,
+  isScratchPath,
+  useFilesTabsStore,
+} from "./filesTabsStore";
 import { clearProjectFileQueryData } from "./components/files/projectFilesQueryState";
 import { readLocalApi } from "./localApi";
 import { setRightPanelFileOpenInterceptor, useRightPanelStore } from "./rightPanelStore";
@@ -35,7 +41,7 @@ export function filesDraftIdForThreadKey(threadKey: string): DraftId | null {
 setComposerDraftSessionKeeper(isFilesDraft);
 
 // A file opened from a files tab's right panel (tree, search, file picker) shows in
-// the main area instead; "." still opens the explorer itself.
+// the main area instead, as a preview tab; "." still opens the explorer itself.
 setRightPanelFileOpenInterceptor((ref, relativePath, line) => {
   if (relativePath === ".") return false;
   const draftId = filesDraftIdForRef(ref);
@@ -69,25 +75,59 @@ export function convertDraftToFilesTab(draftId: DraftId) {
   useRightPanelStore.getState().openFile(threadRef, ".");
 }
 
+const unsavedMessage = (names: readonly string[]) =>
+  names.length === 1
+    ? `${names[0]} has unsaved changes. Close it without saving?`
+    : `${names.length} files have unsaved changes. Close them without saving?`;
+
+/**
+ * Closes one editor tab of a files tab. Without auto-save, unsaved edits ask first, as does
+ * a scratchpad with text. Returns false when the user keeps it.
+ */
+export async function closeFileInFilesTab(
+  draftId: DraftId,
+  path: string,
+  cwd: string | null,
+): Promise<boolean> {
+  const autoSave = useFileAutoSaveStore.getState().autoSave;
+  if (filesTabPathUnsaved(draftId, path, autoSave)) {
+    const confirmed =
+      (await readLocalApi()?.dialogs.confirm(unsavedMessage([filesTabTitle(path)]), {
+        variant: "destructive",
+      })) ?? true;
+    if (!confirmed) return false;
+    const session = useComposerDraftStore.getState().getDraftSession(draftId);
+    if (session && cwd && !isScratchPath(path)) {
+      clearProjectFileQueryData(session.environmentId, cwd, path);
+    }
+  }
+  useFilesTabsStore.getState().closeFile(draftId, path);
+  return true;
+}
+
 /**
  * Closes a files tab and deletes its draft. Without auto-save, unsaved edits ask first,
- * and closing anyway drops them. Returns false when the user keeps the tab.
+ * and closing anyway drops them; so does scratchpad text. Returns false when the user keeps the tab.
  */
 export async function closeFilesTab(draftId: DraftId, cwd: string | null): Promise<boolean> {
   const draftStore = useComposerDraftStore.getState();
   const session = draftStore.getDraftSession(draftId);
   const tab = useFilesTabsStore.getState().tabsByDraftId[draftId];
-  const dirty = useFilesTabsStore.getState().dirtyByDraftId[draftId] === true;
-  const unsaved = dirty && !useFileAutoSaveStore.getState().autoSave;
-  if (unsaved && tab?.relativePath) {
-    const name = tab.relativePath.split("/").at(-1) ?? tab.relativePath;
+  const autoSave = useFileAutoSaveStore.getState().autoSave;
+  const unsaved = (tab?.openPaths ?? []).filter((path) =>
+    filesTabPathUnsaved(draftId, path, autoSave),
+  );
+  if (unsaved.length > 0) {
     const confirmed =
-      (await readLocalApi()?.dialogs.confirm(
-        `${name} has unsaved changes. Close it without saving?`,
-        { variant: "destructive" },
-      )) ?? true;
+      (await readLocalApi()?.dialogs.confirm(unsavedMessage(unsaved.map(filesTabTitle)), {
+        variant: "destructive",
+      })) ?? true;
     if (!confirmed) return false;
-    if (session && cwd) clearProjectFileQueryData(session.environmentId, cwd, tab.relativePath);
+    for (const path of unsaved) {
+      if (session && cwd && !isScratchPath(path)) {
+        clearProjectFileQueryData(session.environmentId, cwd, path);
+      }
+    }
   }
   if (session) {
     const threadKey = scopedThreadKey(scopeThreadRef(session.environmentId, session.threadId));
