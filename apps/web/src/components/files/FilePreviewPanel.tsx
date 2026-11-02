@@ -866,9 +866,9 @@ function EditableFileSurface({
             onEditChange={handleEditChange}
             options={{
               disableFileHeader: true,
-              enableGutterUtility: !hasOpenCommentForm,
+              // No "+" on the hovered line; selecting line numbers still starts a comment.
+              enableGutterUtility: false,
               enableLineSelection: !hasOpenCommentForm,
-              onGutterUtilityClick: setSelectedRange,
               onLineSelectionChange: setSelectedRange,
               onLineSelectionEnd: handleLineSelectionEnd,
               overflow: wordWrap ? "wrap" : "scroll",
