@@ -2920,6 +2920,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         >
           <SidebarMenuButton
             ref={isManualProjectSorting ? dragHandleProps?.setActivatorNodeRef : undefined}
+            data-sidebar-project-key={project.projectKey}
             className={isManualProjectSorting ? "cursor-grab active:cursor-grabbing" : undefined}
             {...(isManualProjectSorting && dragHandleProps ? dragHandleProps.attributes : {})}
             {...(isManualProjectSorting && dragHandleProps ? dragHandleProps.listeners : {})}
@@ -3876,6 +3877,30 @@ function useLegacySidebarProjects() {
     projectPhysicalKeyByScopedRef,
     sidebarProjects,
   };
+}
+
+/** Top-level sidebar projects in sidebar order, with the refs of their nested folder projects. */
+export function useLegacySidebarRailProjects() {
+  const sidebarProjectSortOrder = useClientSettings((s) => s.sidebarProjectSortOrder);
+  const { physicalToLogicalKey, projectPhysicalKeyByScopedRef, sidebarProjects } =
+    useLegacySidebarProjects();
+  const { sortedProjects } = useSortedLegacySidebarProjects({
+    sidebarProjects,
+    physicalToLogicalKey,
+    projectPhysicalKeyByScopedRef,
+    sidebarProjectSortOrder,
+  });
+  const detachedProjectKeys = useSubProjectStore((store) => store.detachedProjectKeys);
+  const { topLevelProjects, childProjectsByKey } = nestProjectsByFolder(
+    sortedProjects,
+    detachedProjectKeys,
+  );
+  return topLevelProjects.map((project) => ({
+    project,
+    memberProjectRefs: [project, ...(childProjectsByKey.get(project.projectKey) ?? [])].flatMap(
+      (member) => member.memberProjectRefs,
+    ),
+  }));
 }
 
 // Re-sort on thread changes without rebuilding project snapshots used as row keys.

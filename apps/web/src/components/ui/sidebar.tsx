@@ -194,7 +194,8 @@ function useSidebarPeekState(enabled: boolean) {
       onPointerMove: (event: React.PointerEvent<HTMLDivElement>) => {
         pointerInsideRef.current = true;
         const overButton =
-          event.target instanceof Element && event.target.closest("button") !== null;
+          event.target instanceof Element &&
+          event.target.closest("button, [data-sidebar-rail-control]") !== null;
         if (overButton) {
           clearTimer();
           return;
