@@ -7,7 +7,7 @@ import { threadRuntimeCanArchive } from "@t3tools/client-runtime/state/models";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
 import { useRouter } from "@tanstack/react-router";
-import { ClockIcon, FolderIcon, PlusIcon, XIcon } from "lucide-react";
+import { ClockIcon, FolderIcon, MessageSquareIcon, PlusIcon, XIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import {
@@ -386,7 +386,7 @@ export function ChatTabsBar() {
               : "Unavailable thread");
           const unsaved =
             files !== undefined && !autoSave && filesDirtyByDraftId[files.draftId] === true;
-          return (
+          const tabElement = (
             <div
               key={tab.threadKey}
               role="tab"
@@ -400,10 +400,6 @@ export function ChatTabsBar() {
                   ? "border-border bg-background text-foreground"
                   : "border-transparent text-muted-foreground hover:bg-accent/60 hover:text-foreground",
                 draggingTabKey === tab.threadKey && "opacity-50",
-                tabDropTarget?.index === index &&
-                  (tabDropTarget.after
-                    ? "shadow-[inset_-2px_0_0_0_var(--color-primary)]"
-                    : "shadow-[inset_2px_0_0_0_var(--color-primary)]"),
               )}
               onDragStart={(event) => {
                 event.dataTransfer.effectAllowed = "move";
@@ -450,16 +446,42 @@ export function ChatTabsBar() {
                 }
               }}
             >
-              {isRunning ? (
-                <span className="size-1.5 shrink-0 motion-safe:animate-status-pulse rounded-full bg-info" />
-              ) : hasUnreadCompletion ? (
+              {isActive ? (
                 <span
-                  role="img"
-                  aria-label="Completed"
-                  className="size-1.5 shrink-0 rounded-full bg-emerald-500 dark:bg-emerald-300/90"
+                  aria-hidden
+                  className="pointer-events-none absolute inset-x-2 -top-px h-0.5 rounded-full bg-primary"
                 />
               ) : null}
-              {project ? <ProjectFavicon project={project} className="size-3.5 shrink-0" /> : null}
+              {tabDropTarget?.index === index ? (
+                <span
+                  aria-hidden
+                  className={cn(
+                    "pointer-events-none absolute inset-y-1 w-0.5 rounded-full bg-primary",
+                    tabDropTarget.after ? "-right-px" : "-left-px",
+                  )}
+                />
+              ) : null}
+              {/* One status slot: a dot on the project icon, the same signal the sidebar rail uses. */}
+              <span className="relative flex shrink-0">
+                {project ? (
+                  <ProjectFavicon project={project} className="size-3.5 shrink-0" />
+                ) : isRunning || hasUnreadCompletion ? (
+                  <MessageSquareIcon aria-hidden className="size-3.5 text-muted-foreground" />
+                ) : null}
+                {isRunning ? (
+                  <span
+                    role="img"
+                    aria-label="Working"
+                    className="absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-info ring-2 ring-background motion-safe:animate-status-pulse"
+                  />
+                ) : hasUnreadCompletion ? (
+                  <span
+                    role="img"
+                    aria-label="Completed"
+                    className="absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-success ring-2 ring-background"
+                  />
+                ) : null}
+              </span>
               {files ? (
                 // A folder marks a files tab apart from chats, then the open file's type.
                 <>
@@ -500,6 +522,22 @@ export function ChatTabsBar() {
                 <XIcon className="size-3" />
               </button>
             </div>
+          );
+          if (!thread || draggingTabKey !== null) return tabElement;
+          return (
+            <Tooltip key={tab.threadKey}>
+              <TooltipTrigger delay={600} render={tabElement} />
+              <TooltipPopup side="bottom" align="start" className="max-w-72">
+                <ChatTabHoverCard
+                  thread={thread}
+                  title={title}
+                  projectTitle={project?.title ?? null}
+                  status={
+                    isRunning ? "Working" : hasUnreadCompletion ? "Finished, not read yet" : null
+                  }
+                />
+              </TooltipPopup>
+            </Tooltip>
           );
         })}
         {draftTabs.map((draft) => {
@@ -583,8 +621,7 @@ export function ChatTabsBar() {
   );
 }
 
-/** Shows how long a Claude chat's prompt cache has left, once it is close to expiring. */
-function ChatTabCacheBadge({ thread }: { thread: ThreadShell }) {
+function usePromptCacheWarning(thread: ThreadShell): string | null {
   const nowIso = useNowMinute();
   const driver = useAtomValue(
     serverEnvironment.providersValueAtom(thread.environmentId),
@@ -595,16 +632,42 @@ function ChatTabCacheBadge({ thread }: { thread: ThreadShell }) {
   if (remainingMs === null || remainingMs <= 0 || remainingMs > PROMPT_CACHE_WARNING_MS) {
     return null;
   }
-  const label = formatPromptCacheRemaining(remainingMs);
+  return formatPromptCacheRemaining(remainingMs);
+}
+
+/** A clock on a Claude chat's tab once its prompt cache is close to expiring; the time is in the hover card. */
+function ChatTabCacheBadge({ thread }: { thread: ThreadShell }) {
+  const label = usePromptCacheWarning(thread);
+  if (label === null) return null;
   return (
-    <span
+    <ClockIcon
       role="img"
       aria-label={`Prompt cache expires in ${label}`}
-      title={`Prompt cache expires in ${label}`}
-      className="inline-flex shrink-0 items-center gap-0.5 text-3xs tabular-nums text-warning-foreground"
-    >
-      <ClockIcon className="size-3" />
-      {label.replace(" min", "m")}
+      className="size-3 shrink-0 text-warning"
+    />
+  );
+}
+
+function ChatTabHoverCard({
+  thread,
+  title,
+  projectTitle,
+  status,
+}: {
+  thread: ThreadShell;
+  title: string;
+  projectTitle: string | null;
+  status: string | null;
+}) {
+  const cacheLabel = usePromptCacheWarning(thread);
+  return (
+    <span className="flex flex-col gap-0.5 py-0.5">
+      <span className="font-medium">{title}</span>
+      {projectTitle ? <span className="text-muted-foreground">{projectTitle}</span> : null}
+      {status ? <span>{status}</span> : null}
+      {cacheLabel ? (
+        <span className="text-warning">Prompt cache expires in {cacheLabel}</span>
+      ) : null}
     </span>
   );
 }
