@@ -61,6 +61,7 @@ import { type AssistantCitationRequest } from "./AssistantCitationSource";
 import { useAssistantCitationTarget } from "./useAssistantCitationTarget";
 import { resolveCitationPhase, type CitedHistory } from "./citationProcedure";
 import {
+  closedLiveWorkGroupKey,
   resolveTimelineIsAtEnd,
   resolveTimelineMinimapHasPersistentGutter,
   resolveTimelineMinimapCurrentIndex,
@@ -512,11 +513,24 @@ const ConversationTimeline = memo(function ConversationTimeline({
       return next;
     });
   };
-  const onToggleWorkGroup = (groupId: string, anchorKey: string) => {
-    suspendEndScrollMaintenanceForDisclosure(anchorKey, expandedWorkGroupIds.has(groupId));
+  const onToggleWorkGroup = (groupId: string, anchorKey: string, liveExpanded?: boolean) => {
+    suspendEndScrollMaintenanceForDisclosure(
+      anchorKey,
+      liveExpanded ?? expandedWorkGroupIds.has(groupId),
+    );
     setExpandedWorkGroupIds((existing) => {
       const next = new Set(existing);
-      if (next.has(groupId)) {
+      if (liveExpanded !== undefined) {
+        // The live group opens by itself, so only a close is remembered. It closes for good once
+        // the agent moves on, unless the user opened it by hand.
+        const closedKey = closedLiveWorkGroupKey(groupId);
+        if (liveExpanded) {
+          next.delete(groupId);
+          next.add(closedKey);
+        } else {
+          next.delete(closedKey);
+        }
+      } else if (next.has(groupId)) {
         next.delete(groupId);
       } else {
         next.add(groupId);

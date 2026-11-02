@@ -83,7 +83,8 @@ export interface TimelineRowSharedState {
   onFileOpen: (attachment: ChatFileAttachment) => void;
   onFileDownload: (attachment: ChatFileAttachment) => void;
   openPullRequest: (event: MouseEvent<HTMLElement>, url: string) => void;
-  onToggleWorkGroup: (groupId: string, anchorKey: string) => void;
+  /** `liveExpanded` is set for the group the agent is working in, which opens by default. */
+  onToggleWorkGroup: (groupId: string, anchorKey: string, liveExpanded?: boolean) => void;
   onToggleWorkEntry: (anchorKey: string, collapsed: boolean) => void;
   onCancelWorktreeSetup: (() => void) | null;
   retryableWorkspacePreparationRunIds: ReadonlySet<RunId>;

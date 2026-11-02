@@ -24,6 +24,7 @@ import { describe, expect, it } from "vite-plus/test";
 import { EnvironmentId, MessageId, RunId } from "@t3tools/contracts";
 import { serializeAssistantCitation } from "@t3tools/shared/assistantCitations";
 import {
+  closedLiveWorkGroupKey,
   computeStableMessagesTimelineRows,
   computeMessageDurationStart,
   deriveMessagesTimelineRows,
@@ -334,6 +335,8 @@ describe("deriveMessagesTimelineRows", () => {
         activeTurnStartedAt: fixture.time(0),
         turnDiffSummaries: [],
         supportsConversationRollback: false,
+        // A waiting group is the live one, which opens by itself; check requests don't open it.
+        expandedWorkGroupIds: new Set([closedLiveWorkGroupKey(`work-group:${entries[0]!.id}`)]),
       });
       const workRows = rows.filter((row) => row.kind === "work-toggle" || row.kind === "work-live");
       expect(workRows).toHaveLength(1);
@@ -1733,6 +1736,69 @@ describe("deriveMessagesTimelineRows", () => {
     });
   });
 
+  it("opens the live group until the user closes it, then closes it once the run settles", () => {
+    const rows = (isWorking: boolean, expandedWorkGroupIds: ReadonlySet<string> = new Set()) =>
+      deriveMessagesTimelineRows({
+        timelineEntries: [
+          {
+            id: "command-entry",
+            kind: "work",
+            createdAt: "2026-01-01T00:00:05Z",
+            entry: {
+              id: "command",
+              createdAt: "2026-01-01T00:00:05Z",
+              runId: "turn-1" as never,
+              label: "Ran tests",
+              command: "vp test run",
+              requestKind: "command",
+              tone: "tool" as const,
+              toolLifecycleStatus: "completed" as const,
+            },
+          },
+          {
+            id: "running-entry",
+            kind: "work",
+            createdAt: "2026-01-01T00:00:06Z",
+            entry: {
+              id: "running",
+              createdAt: "2026-01-01T00:00:06Z",
+              runId: "turn-1" as never,
+              label: "Running rg",
+              command: "rg toolCall",
+              requestKind: "command",
+              tone: "tool" as const,
+              toolLifecycleStatus: isWorking ? ("inProgress" as const) : ("completed" as const),
+            },
+          },
+        ],
+        latestRun: {
+          runId: "turn-1" as never,
+          status: isWorking ? "running" : "completed",
+          startedAt: "2026-01-01T00:00:00Z",
+          completedAt: isWorking ? null : "2026-01-01T00:00:09Z",
+        },
+        isWorking,
+        activeTurnStartedAt: isWorking ? "2026-01-01T00:00:00Z" : null,
+        turnDiffSummaries: [],
+        supportsConversationRollback: false,
+        expandedRunIds: new Set(["turn-1" as never]),
+        expandedWorkGroupIds,
+      });
+    const groupId = "work-group:command-entry";
+
+    expect(rows(true).map((row) => row.kind)).toEqual(["working", "work-live", "work"]);
+    expect(rows(true).find((row) => row.kind === "work-live")).toMatchObject({
+      expanded: true,
+      live: true,
+    });
+    const closed = new Set([closedLiveWorkGroupKey(groupId)]);
+    expect(rows(true, closed).map((row) => row.kind)).toEqual(["working", "work-live"]);
+    expect(rows(false).some((row) => row.kind === "work" && row.isExpandedToolGroup)).toBe(false);
+    expect(
+      rows(false, new Set([groupId])).some((row) => row.kind === "work" && row.isExpandedToolGroup),
+    ).toBe(true);
+  });
+
   it("keeps an actually running tool in the shared activity row", () => {
     const rows = deriveMessagesTimelineRows({
       timelineEntries: [
@@ -1794,7 +1860,8 @@ describe("deriveMessagesTimelineRows", () => {
       supportsConversationRollback: false,
     });
 
-    expect(rows.map((row) => row.kind)).toEqual(["working", "work-live"]);
+    // The live group is open while the agent works in it.
+    expect(rows.map((row) => row.kind)).toEqual(["working", "work-live", "work"]);
     expect(rows.some((row) => row.kind === "thinking")).toBe(false);
     expect(rows.find((row) => row.kind === "work-live")).toMatchObject({
       entry: { id: "running-command" },
@@ -1950,6 +2017,7 @@ describe("deriveMessagesTimelineRows", () => {
       "user:resume",
       "working",
       "work-live",
+      "work",
     ]);
 
     expect(shape(rows({ resume: "failed", working: false }))).toEqual([
@@ -2077,6 +2145,7 @@ describe("deriveMessagesTimelineRows", () => {
       "work:before",
       "work:question",
       "work-live:after + running",
+      "work:after + running",
     ]);
   });
 
@@ -2269,7 +2338,14 @@ describe("deriveMessagesTimelineRows", () => {
       supportsConversationRollback: false,
     });
 
-    expect(rows.map((row) => row.kind)).toEqual(["working", "work-live", "message", "work-live"]);
+    // Only the latest group is the live one that opens by itself.
+    expect(rows.map((row) => row.kind)).toEqual([
+      "working",
+      "work-live",
+      "message",
+      "work-live",
+      "work",
+    ]);
     expect(rows.filter((row) => row.kind === "work-live").map((row) => row.entry.id)).toEqual([
       "first-running",
       "second-running",

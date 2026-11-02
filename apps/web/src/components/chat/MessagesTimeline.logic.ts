@@ -534,6 +534,8 @@ type MessagesTimelineRowContent =
       expanded: boolean;
       active: boolean;
       thought?: WorkLogEntry;
+      /** The group the agent is working in now: open unless the user closed it. */
+      live?: true;
     }
   | {
       kind: "working";
@@ -672,6 +674,11 @@ export function computeMessageDurationStart(
 
 function workGroupId(timelineEntryId: string): string {
   return `work-group:${timelineEntryId}`;
+}
+
+/** Marks a live group the user closed; it otherwise stays open while the agent works in it. */
+export function closedLiveWorkGroupKey(groupId: string): string {
+  return `closed:${groupId}`;
 }
 
 export type TimelineToolPresentation = T3McpToolPresentation;
@@ -1539,8 +1546,11 @@ export function deriveMessagesTimelineRows(input: {
             entry: (latestRunningToolEntry ?? latestVisibleToolEntry).entry,
             groupedEntries: visibleActiveToolEntries.map((entry) => entry.entry),
             groupId,
-            expanded: input.expandedWorkGroupIds?.has(groupId) ?? false,
+            expanded:
+              (input.expandedWorkGroupIds?.has(groupId) ?? false) ||
+              !(input.expandedWorkGroupIds?.has(closedLiveWorkGroupKey(groupId)) ?? false),
             active: latestToolKeepsActivityLive,
+            live: true as const,
             ...(latestThoughtEntry ? { thought: latestThoughtEntry.entry } : {}),
           };
         })()
@@ -2427,6 +2437,7 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
         a.groupId === bw.groupId &&
         a.expanded === bw.expanded &&
         a.active === bw.active &&
+        a.live === bw.live &&
         Equal.equals(a.entry, bw.entry) &&
         Equal.equals(a.groupedEntries, bw.groupedEntries)
       );

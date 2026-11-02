@@ -1,6 +1,10 @@
 import { RunId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
-import { deriveMessagesTimelineRows, liveWorkEntryLabel } from "./MessagesTimeline.logic";
+import {
+  closedLiveWorkGroupKey,
+  deriveMessagesTimelineRows,
+  liveWorkEntryLabel,
+} from "./MessagesTimeline.logic";
 
 describe("long active tool groups", () => {
   it.each([false, true])(
@@ -30,7 +34,10 @@ describe("long active tool groups", () => {
         activeTurnStartedAt: createdAt,
         turnDiffSummaries: [],
         supportsConversationRollback: false,
-        expandedWorkGroupIds: new Set(expanded ? ["work-group:work-entry-0"] : []),
+        // The live group opens by itself, so "collapsed" means the user closed it.
+        expandedWorkGroupIds: new Set([
+          expanded ? "work-group:work-entry-0" : closedLiveWorkGroupKey("work-group:work-entry-0"),
+        ]),
       });
       const live = rows.find((row) => row.kind === "work-live");
       expect(live).toBeDefined();

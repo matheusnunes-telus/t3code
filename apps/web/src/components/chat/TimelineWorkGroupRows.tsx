@@ -501,7 +501,9 @@ export function LiveWorkEntryTimelineRow({
           : undefined
       }
       aria-expanded={row.expanded}
-      onClick={() => ctx.onToggleWorkGroup(row.groupId, row.id)}
+      onClick={() =>
+        ctx.onToggleWorkGroup(row.groupId, row.id, row.live ? row.expanded : undefined)
+      }
     >
       {thoughtLine ? (
         <WorkLogRow
