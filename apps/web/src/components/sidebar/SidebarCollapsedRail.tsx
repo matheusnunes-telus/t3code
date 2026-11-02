@@ -277,7 +277,9 @@ export function SidebarCollapsedRail({ showThreadActions }: { showThreadActions:
                     ? "Google Cloud: sign in again"
                     : cloudAvailable
                       ? "Google Cloud"
-                      : "Google Cloud: link this project in its settings"
+                      : routeThreadRef === null
+                        ? "Google Cloud: open a chat first"
+                        : "Google Cloud: link this project in its settings"
                 }
                 disabled={!cloudAvailable}
                 badgeClassName={cloudNeedsSignIn ? "bg-warning" : null}
