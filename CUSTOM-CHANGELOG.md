@@ -2,7 +2,7 @@
 
 This fork is the official [pingdotgg/t3code](https://github.com/pingdotgg/t3code) plus the changes below. The `custom` branch merges the official `main` from time to time. Everything listed here is what this version adds or changes compared to it.
 
-Last synced with the official `main`: 2026-10-21.
+Last synced with the official `main`: 2026-11-03.
 
 ## The app itself
 
@@ -46,7 +46,7 @@ Last synced with the official `main`: 2026-10-21.
 
 ## Side chats and commands
 
-- `/btw <question>` and a "Side chat" button fork the chat into a read-only copy in the right panel (plan mode, with approvals). "Open as chat" turns it into a normal chat.
+- Side chats now come from the official app (`/side`, also `/btw`). The fork keeps the `/status` command below.
 - `/status` shows the provider version, login, model, effort, permissions, folder and session ID.
 
 ## Cost and prompt cache
