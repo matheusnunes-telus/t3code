@@ -24,7 +24,6 @@ import { describe, expect, it } from "vite-plus/test";
 import { EnvironmentId, MessageId, RunId } from "@t3tools/contracts";
 import { serializeAssistantCitation } from "@t3tools/shared/assistantCitations";
 import {
-  closedLiveWorkGroupKey,
   computeStableMessagesTimelineRows,
   computeMessageDurationStart,
   deriveMessagesTimelineRows,
@@ -279,7 +278,7 @@ describe("deriveMessagesTimelineRows", () => {
   });
 
   it.each(["waiting", "completed"] as const)(
-    "groups approval and user-input requests with commands without expanding them when %s",
+    "lists approval and user-input requests as steps beside commands, closed, when %s",
     (status) => {
       const fixture = makeStreamingTimelineFixture();
       const source = fixture.visibleTurnItems[0]!;
@@ -335,28 +334,15 @@ describe("deriveMessagesTimelineRows", () => {
         activeTurnStartedAt: fixture.time(0),
         turnDiffSummaries: [],
         supportsConversationRollback: false,
-        // A waiting group is the live one, which opens by itself; check requests don't open it.
-        expandedWorkGroupIds: new Set([closedLiveWorkGroupKey(`work-group:${entries[0]!.id}`)]),
       });
-      const workRows = rows.filter((row) => row.kind === "work-toggle" || row.kind === "work-live");
-      expect(workRows).toHaveLength(1);
-      expect(workRows[0]).toMatchObject({ expanded: false });
-      const expandedRows = deriveMessagesTimelineRows({
-        timelineEntries: entries,
-        isWorking: status === "waiting",
-        runningRunId: fixture.runId,
-        activeTurnStartedAt: fixture.time(0),
-        turnDiffSummaries: [],
-        supportsConversationRollback: false,
-        expandedWorkGroupIds: new Set([workRows[0]!.groupId]),
-      });
-      const expanded = expandedRows.find((row) => row.kind === "work" && row.isExpandedToolGroup);
-      expect(
-        expanded?.kind === "work" && expanded.groupedEntries.map((entry) => entry.itemType),
-      ).toEqual(["command_execution", "approval_request", "user_input_request"]);
+      // Each request is its own step, and none opens by itself.
+      const stepRows = rows.filter(
+        (row) => row.kind === "work" || row.kind === "work-toggle" || row.kind === "work-live",
+      );
+      expect(stepRows).toHaveLength(3);
+      expect(stepRows.some((row) => "expanded" in row && row.expanded === true)).toBe(false);
+      expect(stepRows.some((row) => row.kind === "work" && row.isExpandedToolGroup)).toBe(false);
       expect(rows.some((row) => row.kind === "event")).toBe(false);
-      expect(workRows[0]).not.toMatchObject({ expanded: true });
-      expect(workRows[0]).not.toMatchObject({ isExpandedToolGroup: true });
     },
   );
 
@@ -1683,7 +1669,7 @@ describe("deriveMessagesTimelineRows", () => {
     expect(rows.some((row) => row.kind === "thinking")).toBe(false);
   });
 
-  it("carries the latest thought on the live row while a later tool runs", () => {
+  it("lists each thought as its own step before the tool that runs after it", () => {
     type WorkEntry = Extract<
       Parameters<typeof deriveMessagesTimelineRows>[0]["timelineEntries"][number],
       { kind: "work" }
@@ -1731,13 +1717,16 @@ describe("deriveMessagesTimelineRows", () => {
       supportsConversationRollback: false,
     });
 
-    expect(rows.find((row) => row.kind === "work-live")).toMatchObject({
-      entry: { id: "running-command" },
-      thought: { id: "new-thought" },
-    });
+    expect(rows.map((row) => row.id)).toEqual([
+      "working-indicator-row",
+      "old-thought-entry",
+      "new-thought-entry",
+      "live-activity-row",
+    ]);
+    expect(rows.at(-1)).toMatchObject({ kind: "work-live", entry: { id: "running-command" } });
   });
 
-  it("opens the live group until the user closes it, then closes it once the run settles", () => {
+  it("keeps the running step closed until the user opens it", () => {
     const rows = (isWorking: boolean, expandedWorkGroupIds: ReadonlySet<string> = new Set()) =>
       deriveMessagesTimelineRows({
         timelineEntries: [
@@ -1785,19 +1774,21 @@ describe("deriveMessagesTimelineRows", () => {
         expandedRunIds: new Set(["turn-1" as never]),
         expandedWorkGroupIds,
       });
-    const groupId = "work-group:command-entry";
+    const groupId = "work-group:running-entry";
 
-    expect(rows(true).map((row) => row.kind)).toEqual(["working", "work-live", "work"]);
+    // The finished command is a line of its own; only the running one is live.
+    expect(rows(true).map((row) => row.kind)).toEqual(["working", "work", "work-live"]);
     expect(rows(true).find((row) => row.kind === "work-live")).toMatchObject({
-      expanded: true,
+      expanded: false,
       live: true,
     });
-    const closed = new Set([closedLiveWorkGroupKey(groupId)]);
-    expect(rows(true, closed).map((row) => row.kind)).toEqual(["working", "work-live"]);
+    expect(rows(true, new Set([groupId])).map((row) => row.kind)).toEqual([
+      "working",
+      "work",
+      "work-live",
+      "work",
+    ]);
     expect(rows(false).some((row) => row.kind === "work" && row.isExpandedToolGroup)).toBe(false);
-    expect(
-      rows(false, new Set([groupId])).some((row) => row.kind === "work" && row.isExpandedToolGroup),
-    ).toBe(true);
   });
 
   it("keeps an actually running tool in the shared activity row", () => {
@@ -1861,17 +1852,18 @@ describe("deriveMessagesTimelineRows", () => {
       supportsConversationRollback: false,
     });
 
-    // The live group is open while the agent works in it.
-    expect(rows.map((row) => row.kind)).toEqual(["working", "work-live", "work"]);
+    // The running tool stays live in its place, even with finished steps after it.
+    expect(rows.map((row) => row.id)).toEqual([
+      "working-indicator-row",
+      "live-activity-row",
+      "completed-edit-entry",
+      "completed-command-entry",
+    ]);
     expect(rows.some((row) => row.kind === "thinking")).toBe(false);
     expect(rows.find((row) => row.kind === "work-live")).toMatchObject({
       entry: { id: "running-command" },
       active: true,
-      groupedEntries: [
-        { id: "running-command" },
-        { id: "completed-edit" },
-        { id: "completed-command" },
-      ],
+      groupedEntries: [{ id: "running-command" }],
     });
   });
 
@@ -2004,7 +1996,8 @@ describe("deriveMessagesTimelineRows", () => {
     expect(shape(expanded)).toEqual([
       "user:launch",
       "fold:Completed 2 steps in 8.0s",
-      "work-toggle",
+      "work",
+      "work",
       "assistant:launch-answer",
       "user:resume",
       "fold:Completed 1 step in 8.0s",
@@ -2018,7 +2011,6 @@ describe("deriveMessagesTimelineRows", () => {
       "user:resume",
       "working",
       "work-live",
-      "work",
     ]);
 
     expect(shape(rows({ resume: "failed", working: false }))).toEqual([
@@ -2145,8 +2137,8 @@ describe("deriveMessagesTimelineRows", () => {
       "working",
       "work:before",
       "work:question",
-      "work-live:after + running",
-      "work:after + running",
+      "work:after",
+      "work-live:running",
     ]);
   });
 
@@ -2339,14 +2331,8 @@ describe("deriveMessagesTimelineRows", () => {
       supportsConversationRollback: false,
     });
 
-    // Only the latest group is the live one that opens by itself.
-    expect(rows.map((row) => row.kind)).toEqual([
-      "working",
-      "work-live",
-      "message",
-      "work-live",
-      "work",
-    ]);
+    // Each running step is live in its place; none opens by itself.
+    expect(rows.map((row) => row.kind)).toEqual(["working", "work-live", "message", "work-live"]);
     expect(rows.filter((row) => row.kind === "work-live").map((row) => row.entry.id)).toEqual([
       "first-running",
       "second-running",
@@ -2497,18 +2483,10 @@ describe("deriveMessagesTimelineRows", () => {
     expect(completedActivityRow).toMatchObject({ kind: "work-live", active: true });
     expect(failedRows.some((row) => row.kind === "work-live")).toBe(false);
     expect(failedRows.at(-1)).toMatchObject({ kind: "thinking", id: "live-activity-row" });
-    const failedThinkingRow = failedRows.at(-1);
-    const failedGroupId =
-      failedThinkingRow?.kind === "thinking" ? failedThinkingRow.groupId : undefined;
-    expect(failedGroupId).toBeDefined();
-    const expandedFailedRows = deriveRows("failed", new Set([failedGroupId!]));
-    expect(expandedFailedRows.slice(-2)).toMatchObject([
-      { kind: "thinking", id: "live-activity-row", expanded: true },
-      {
-        kind: "work",
-        isExpandedToolGroup: true,
-        groupedEntries: [{ id: "latest-command" }],
-      },
+    // The failed command stays a line of its own just above the agent's next thought.
+    expect(failedRows.slice(-2)).toMatchObject([
+      { kind: "work", groupedEntries: [{ id: "latest-command" }] },
+      { kind: "thinking", id: "live-activity-row" },
     ]);
     expect(declinedRows.find((row) => row.kind === "work-live")).toMatchObject({ active: false });
     expect(declinedRows.at(-1)).toMatchObject({ kind: "thinking", id: "live-activity-row" });
@@ -2580,62 +2558,42 @@ describe("deriveMessagesTimelineRows", () => {
     expect(rows.map((row) => row.id)).toContain("live-activity-row");
   });
 
-  it.each([
-    ["the later success is hidden", ["failed", "completed", "info"], false],
-    ["the later success is visible", ["failed", "info", "completed"], false],
-    ["an error-toned entry recovers", ["error", "info", "completed"], false],
-    ["the final failure is hidden", ["completed", "failed", "info"], true],
-    ["the final failure is visible", ["failed", "info", "failed"], true],
-    ["the only failure is visible", ["completed", "info", "failed"], true],
-  ] as const)(
-    "uses the final tool call for mixed work groups when %s",
-    (_, statuses, hasFailure) => {
-      const timelineEntries = statuses.map((status, index) => {
-        const id = `work-${index}`;
-        const createdAt = `2026-01-01T00:00:0${index}Z`;
+  it("gives each step of a turn its own row, in order, like VS Code's agent view", () => {
+    const statuses = ["failed", "info", "completed"] as const;
+    const timelineEntries = statuses.map((status, index) => {
+      const id = `work-${index}`;
+      const createdAt = `2026-01-01T00:00:0${index}Z`;
+      return {
+        id: `work-entry-${index}`,
+        kind: "work" as const,
+        createdAt,
+        entry:
+          status === "info"
+            ? { id, createdAt, label: "Status updated", tone: "info" as const }
+            : {
+                id,
+                createdAt,
+                label: "Ran command",
+                tone: "tool" as const,
+                toolLifecycleStatus: status,
+              },
+      };
+    });
 
-        return {
-          id: `work-entry-${index}`,
-          kind: "work" as const,
-          createdAt,
-          entry:
-            status === "info"
-              ? { id, createdAt, label: "Status updated", tone: "info" as const }
-              : status === "error"
-                ? { id, createdAt, label: "Command failed", tone: "error" as const }
-                : {
-                    id,
-                    createdAt,
-                    label: "Ran command",
-                    tone: "tool" as const,
-                    toolLifecycleStatus: status,
-                  },
-        };
-      });
+    const rows = deriveMessagesTimelineRows({
+      timelineEntries,
+      isWorking: false,
+      activeTurnStartedAt: null,
+      turnDiffSummaries: [],
+      supportsConversationRollback: false,
+    });
 
-      const rows = deriveMessagesTimelineRows({
-        timelineEntries,
-        isWorking: false,
-        activeTurnStartedAt: null,
-        turnDiffSummaries: [],
-        supportsConversationRollback: false,
-      });
-
-      expect(rows.find((row) => row.kind === "work-toggle")).toMatchObject({
-        hiddenCount: statuses.some((status) => status === "error") ? 2 : 3,
-        summary: statuses.some((status) => status === "error")
-          ? "Received 1 update and used 1 tool"
-          : "Used 2 tools and received 1 update",
-        hasFailure,
-      });
-      if (statuses.some((status) => status === "error")) {
-        expect(rows[0]).toMatchObject({
-          kind: "work",
-          groupedEntries: [{ tone: "error", label: "Command failed" }],
-        });
-      }
-    },
-  );
+    expect(rows.map((row) => row.id)).toEqual([
+      "work-entry-0",
+      "work-toggle:work-entry-1",
+      "work-entry-2",
+    ]);
+  });
 });
 
 describe("v2 run and attempt history", () => {
@@ -2754,7 +2712,8 @@ describe("v2 run and attempt history", () => {
       "user-entry",
       "turn-fold:turn-1",
       "assistant-thought-entry",
-      "work-toggle:work-entry-1",
+      "work-entry-1",
+      "work-toggle:provider-recovered-entry",
       "thread-created-entry",
       "assistant-final-entry",
     ]);
@@ -2769,11 +2728,13 @@ describe("v2 run and attempt history", () => {
       turnDiffSummaries: [],
       supportsConversationRollback: false,
     });
-    const expandedWork = openedActivity.find((row) => row.kind === "work");
-    expect(expandedWork?.kind === "work" ? expandedWork.groupedEntries : []).toEqual([
-      expect.objectContaining({ id: "work-1" }),
-      expect.objectContaining({ id: "provider-recovered" }),
-    ]);
+    // The command and the provider's recovery are two steps, not one group.
+    expect(
+      openedActivity.flatMap((row) =>
+        row.kind === "work" ? row.groupedEntries.map((entry) => entry.id) : [],
+      ),
+    ).toEqual(["work-1"]);
+    expect(openedActivity.map((row) => row.id)).toContain("work-toggle:provider-recovered-entry");
   });
   it("collapses only output from a superseded V2 attempt within the active logical run", () => {
     const runId = "run-steered" as never;

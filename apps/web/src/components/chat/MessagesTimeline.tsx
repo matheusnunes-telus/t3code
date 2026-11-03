@@ -2,7 +2,7 @@ import { AudioPreviewUnmountContext } from "../files/AudioPreview";
 import { ThreadFindTimelineContext } from "./ThreadFindProvider";
 import { MarkdownFindContext } from "./markdownFindContext";
 import { useChatCanvas } from "./ChatCanvasContext";
-import { WorkLogBlock } from "./WorkLog";
+import { WorkLogBlock, WorkLogRail } from "./WorkLog";
 import type { WorktreeSetupSnapshot } from "@t3tools/contracts";
 import { deriveTimelineMinimapItems } from "./timelineMinimapItems";
 import {
@@ -61,7 +61,6 @@ import { type AssistantCitationRequest } from "./AssistantCitationSource";
 import { useAssistantCitationTarget } from "./useAssistantCitationTarget";
 import { resolveCitationPhase, type CitedHistory } from "./citationProcedure";
 import {
-  closedLiveWorkGroupKey,
   resolveTimelineIsAtEnd,
   resolveTimelineMinimapHasPersistentGutter,
   resolveTimelineMinimapCurrentIndex,
@@ -521,15 +520,8 @@ const ConversationTimeline = memo(function ConversationTimeline({
     setExpandedWorkGroupIds((existing) => {
       const next = new Set(existing);
       if (liveExpanded !== undefined) {
-        // The live group opens by itself, so only a close is remembered. It closes for good once
-        // the agent moves on, unless the user opened it by hand.
-        const closedKey = closedLiveWorkGroupKey(groupId);
-        if (liveExpanded) {
-          next.delete(groupId);
-          next.add(closedKey);
-        } else {
-          next.delete(closedKey);
-        }
+        if (liveExpanded) next.delete(groupId);
+        else next.add(groupId);
       } else if (next.has(groupId)) {
         next.delete(groupId);
       } else {
@@ -1456,6 +1448,7 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
           row.kind === "assistant-meta"
           ? "group/assistant"
           : null,
+        row.onRail && "ms-3 border-s border-foreground/15 ps-4",
       )}
       data-timeline-row-id={row.id}
       data-timeline-row-kind={row.kind}
@@ -1464,44 +1457,48 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
       }
       data-message-role={row.kind === "message" ? row.message.role : undefined}
     >
-      {isWorkLogRow ? (
-        <WorkLogBlock
-          continues={row.continuesWorkLog}
-          layout={
-            isExpandedToolGroup
-              ? "group-content"
-              : isExpandedToolGroupHeader
-                ? "group-header"
-                : "standalone"
-          }
-        >
-          {row.kind === "work" ? (
-            <WorkGroupSection
-              anchorKey={row.id}
-              groupedEntries={row.groupedEntries}
-              isExpandedToolGroup={row.isExpandedToolGroup}
-              displayLabel={row.displayLabel}
-            />
-          ) : null}
-          {row.kind === "work-live" ? <LiveWorkEntryTimelineRow row={row} /> : null}
-          {row.kind === "work-toggle" ? <WorkGroupToggleTimelineRow row={row} /> : null}
-          {row.kind === "thinking" ? <ThinkingTimelineRow row={row} /> : null}
-        </WorkLogBlock>
-      ) : null}
-      {row.kind === "turn-fold" ? <TurnFoldTimelineRow row={row} /> : null}
-      {row.kind === "attempt-fold" ? <AttemptFoldTimelineRow row={row} /> : null}
-      {row.kind === "context-compaction" ? <ContextCompactionTimelineRow row={row} /> : null}
-      {row.kind === "message" && row.message.role === "user" ? <UserMessageRow row={row} /> : null}
-      {row.kind === "message" && row.message.role === "assistant" ? (
-        <AssistantTimelineRow row={row} />
-      ) : null}
-      {row.kind === "assistant-meta" ? <AssistantMetaTimelineRow row={row} /> : null}
-      {row.kind === "proposed-plan" ? <ProposedPlanTimelineRow row={row} /> : null}
-      {row.kind === "html-render" ? <HtmlRenderTimelineRow row={row} /> : null}
-      {row.kind === "mcp-app" ? <McpAppTimelineRow row={row} /> : null}
-      {row.kind === "working" ? <WorkingTimelineRow row={row} /> : null}
-      {row.kind === "worktree-setup" ? <WorktreeSetupTimelineRow row={row} /> : null}
-      {row.kind === "event" ? <V2EventTimelineRow row={row} /> : null}
+      <WorkLogRail value={row.onRail === true}>
+        {isWorkLogRow ? (
+          <WorkLogBlock
+            continues={row.continuesWorkLog}
+            layout={
+              isExpandedToolGroup
+                ? "group-content"
+                : isExpandedToolGroupHeader
+                  ? "group-header"
+                  : "standalone"
+            }
+          >
+            {row.kind === "work" ? (
+              <WorkGroupSection
+                anchorKey={row.id}
+                groupedEntries={row.groupedEntries}
+                isExpandedToolGroup={row.isExpandedToolGroup}
+                displayLabel={row.displayLabel}
+              />
+            ) : null}
+            {row.kind === "work-live" ? <LiveWorkEntryTimelineRow row={row} /> : null}
+            {row.kind === "work-toggle" ? <WorkGroupToggleTimelineRow row={row} /> : null}
+            {row.kind === "thinking" ? <ThinkingTimelineRow row={row} /> : null}
+          </WorkLogBlock>
+        ) : null}
+        {row.kind === "turn-fold" ? <TurnFoldTimelineRow row={row} /> : null}
+        {row.kind === "attempt-fold" ? <AttemptFoldTimelineRow row={row} /> : null}
+        {row.kind === "context-compaction" ? <ContextCompactionTimelineRow row={row} /> : null}
+        {row.kind === "message" && row.message.role === "user" ? (
+          <UserMessageRow row={row} />
+        ) : null}
+        {row.kind === "message" && row.message.role === "assistant" ? (
+          <AssistantTimelineRow row={row} />
+        ) : null}
+        {row.kind === "assistant-meta" ? <AssistantMetaTimelineRow row={row} /> : null}
+        {row.kind === "proposed-plan" ? <ProposedPlanTimelineRow row={row} /> : null}
+        {row.kind === "html-render" ? <HtmlRenderTimelineRow row={row} /> : null}
+        {row.kind === "mcp-app" ? <McpAppTimelineRow row={row} /> : null}
+        {row.kind === "working" ? <WorkingTimelineRow row={row} /> : null}
+        {row.kind === "worktree-setup" ? <WorktreeSetupTimelineRow row={row} /> : null}
+        {row.kind === "event" ? <V2EventTimelineRow row={row} /> : null}
+      </WorkLogRail>
     </div>
   );
 });

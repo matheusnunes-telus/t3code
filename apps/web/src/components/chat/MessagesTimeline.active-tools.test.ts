@@ -1,15 +1,11 @@
 import { RunId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
-import {
-  closedLiveWorkGroupKey,
-  deriveMessagesTimelineRows,
-  liveWorkEntryLabel,
-} from "./MessagesTimeline.logic";
+import { deriveMessagesTimelineRows, liveWorkEntryLabel } from "./MessagesTimeline.logic";
 
-describe("long active tool groups", () => {
+describe("long active turns", () => {
   it.each([false, true])(
-    "preserves chronological order and the latest activity, expanded=%s",
-    (expanded) => {
+    "keeps every step in order and only the running one live, opened=%s",
+    (opened) => {
       const runId = RunId.make("long-active-run");
       const createdAt = "2026-10-12T00:00:00Z";
       const timelineEntries = Array.from({ length: 1_000 }, (_, index) => ({
@@ -34,25 +30,24 @@ describe("long active tool groups", () => {
         activeTurnStartedAt: createdAt,
         turnDiffSummaries: [],
         supportsConversationRollback: false,
-        // The live group opens by itself, so "collapsed" means the user closed it.
-        expandedWorkGroupIds: new Set([
-          expanded ? "work-group:work-entry-0" : closedLiveWorkGroupKey("work-group:work-entry-0"),
-        ]),
+        ...(opened ? { expandedWorkGroupIds: new Set(["work-group:work-entry-999"]) } : {}),
       });
       const live = rows.find((row) => row.kind === "work-live");
-      expect(live).toBeDefined();
       expect(live?.entry.id).toBe("work-999");
       expect(live && liveWorkEntryLabel(live.entry, undefined, live.active)).toContain("999");
-      expect(live?.thought?.id).toBe("work-998");
-      expect(live?.groupedEntries.map(({ id }) => id)).toEqual(
-        timelineEntries.map(({ entry }) => entry.id),
+      expect(live?.groupedEntries.map(({ id }) => id)).toEqual(["work-999"]);
+      expect(live?.expanded).toBe(opened);
+      // Every earlier step is a row of its own, in order, on the turn's rail.
+      const steps = rows.filter((row) => row.kind === "work" || row.kind === "work-toggle");
+      expect(steps.slice(0, 3).map((row) => row.id)).toEqual([
+        "work-entry-0",
+        "work-entry-1",
+        "work-entry-2",
+      ]);
+      expect(steps.filter((row) => row.id !== "work-group:work-entry-999:details")).toHaveLength(
+        999,
       );
-      expect(live?.groupId).toBe("work-group:work-entry-0");
-      const details = rows.filter((row) => row.kind === "work");
-      expect(details).toHaveLength(expanded ? 1 : 0);
-      if (expanded) {
-        expect(details[0]?.groupedEntries).toEqual(live?.groupedEntries);
-      }
+      expect(steps.every((row) => row.onRail === true)).toBe(true);
     },
   );
 });

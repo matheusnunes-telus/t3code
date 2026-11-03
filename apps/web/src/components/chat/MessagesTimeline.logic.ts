@@ -506,6 +506,8 @@ const LIVE_ACTIVITY_ROW_ID = "live-activity-row";
 
 export type MessagesTimelineRow = MessagesTimelineRowContent & {
   readonly continuesWorkLog?: boolean;
+  /** Part of an opened or running turn, drawn on the turn's rail. */
+  readonly onRail?: true;
 };
 
 type MessagesTimelineRowContent =
@@ -533,7 +535,6 @@ type MessagesTimelineRowContent =
       groupId: string;
       expanded: boolean;
       active: boolean;
-      thought?: WorkLogEntry;
       /** The group the agent is working in now: open unless the user closed it. */
       live?: true;
     }
@@ -677,10 +678,6 @@ function workGroupId(timelineEntryId: string): string {
 }
 
 /** Marks a live group the user closed; it otherwise stays open while the agent works in it. */
-export function closedLiveWorkGroupKey(groupId: string): string {
-  return `closed:${groupId}`;
-}
-
 export type TimelineToolPresentation = T3McpToolPresentation;
 
 function expandedWorkGroupRow(
@@ -1561,7 +1558,6 @@ export function deriveMessagesTimelineRows(input: {
   const visibleActiveToolEntries = activeToolEntries.filter((entry) =>
     workEntryIsVisibleInGroup(entry.entry, true),
   );
-  const activeWorkAnchor = activeToolEntries[0];
   const latestVisibleToolEntry = visibleActiveToolEntries.at(-1);
   const latestRunningToolEntry = visibleActiveToolEntries.findLast((entry) =>
     workEntryIsActiveTurnActivity(entry.entry),
@@ -1576,35 +1572,33 @@ export function deriveMessagesTimelineRows(input: {
     latestVisibleToolEntry.entry.toolLifecycleStatus !== "declined" &&
     workEntryDisplayIndicatesToolFailure(latestVisibleToolEntry.entry);
 
-  const latestThoughtEntry = visibleActiveToolEntries.findLast(
-    (entry) => entry.entry.itemType === "reasoning" && (entry.entry.detail?.trim() ?? "") !== "",
-  );
-  const activeWorkPlacementEntryId = latestVisibleToolEntry?.id;
+  // The live row is the one step running now, in its place among the steps; the steps around
+  // it, and the thoughts between them, are lines of their own.
+  const liveToolEntry = latestToolFailed
+    ? undefined
+    : (latestRunningToolEntry ?? latestVisibleToolEntry);
+  const activeWorkPlacementEntryId = liveToolEntry?.id;
   const activeWorkRow =
-    activeWorkAnchor && latestVisibleToolEntry && !latestToolFailed
-      ? (() => {
-          const groupId = workGroupId(activeWorkAnchor.id);
+    liveToolEntry === undefined
+      ? null
+      : (() => {
+          const groupId = workGroupId(liveToolEntry.id);
           return {
             kind: "work-live" as const,
             id: latestToolKeepsActivityLive
               ? LIVE_ACTIVITY_ROW_ID
-              : `work-live:${activeWorkAnchor.id}`,
-            createdAt: activeWorkAnchor.createdAt,
-            entry: (latestRunningToolEntry ?? latestVisibleToolEntry).entry,
-            groupedEntries: visibleActiveToolEntries.map((entry) => entry.entry),
+              : `work-live:${liveToolEntry.id}`,
+            createdAt: liveToolEntry.createdAt,
+            entry: liveToolEntry.entry,
+            groupedEntries: [liveToolEntry.entry],
             groupId,
-            expanded:
-              (input.expandedWorkGroupIds?.has(groupId) ?? false) ||
-              !(input.expandedWorkGroupIds?.has(closedLiveWorkGroupKey(groupId)) ?? false),
+            // One line, like the steps before it, until the user opens it.
+            expanded: input.expandedWorkGroupIds?.has(groupId) ?? false,
             active: latestToolKeepsActivityLive,
             live: true as const,
-            ...(latestThoughtEntry ? { thought: latestThoughtEntry.entry } : {}),
           };
-        })()
-      : null;
-  const activeWorkEntryIds = new Set(
-    activeWorkRow !== null || latestToolFailed ? activeToolEntries.map((entry) => entry.id) : [],
-  );
+        })();
+  const activeWorkEntryIds = new Set(liveToolEntry === undefined ? [] : [liveToolEntry.id]);
   // A bare `/compact` turn is the compaction itself: one compaction row stands in for its prompt
   // and working indicator, from the moment the turn starts. Likewise an answered "compact before
   // continuing?" question folds into the compaction it asked for.
@@ -1832,32 +1826,9 @@ export function deriveMessagesTimelineRows(input: {
         });
         continue;
       }
+      // Steps read one per line, like VS Code's agent view, so neighbours never merge into a
+      // "Ran 3 commands" group.
       const groupedEntries = [timelineEntry.entry];
-      let cursor = index + 1;
-      while (cursor < timelineEntries.length) {
-        const nextEntry = timelineEntries[cursor];
-        if (
-          !nextEntry ||
-          nextEntry.kind !== "work" ||
-          nextEntry.entry.sourceActivityKind === "context-compaction" ||
-          nextEntry.entry.tone === "error" ||
-          nextEntry.entry.sourceActivityKind === "runtime.error" ||
-          nextEntry.entry.itemType === "system_notice" ||
-          nextEntry.entry.itemType === "notification" ||
-          nextEntry.entry.questionAnswer !== undefined ||
-          activeWorkEntryIds.has(nextEntry.id) ||
-          collapsedEntryIds.has(nextEntry.id) ||
-          collapsedSupersededEntryIds.has(nextEntry.id) ||
-          foldsByAnchorEntryId.has(nextEntry.id) ||
-          supersededFoldsByAnchorEntryId.has(nextEntry.id) ||
-          (nextEntry.entry.runId ?? null) !== (timelineEntry.entry.runId ?? null) ||
-          nextEntry.attempt?.id !== timelineEntry.attempt?.id
-        ) {
-          break;
-        }
-        groupedEntries.push(nextEntry.entry);
-        cursor += 1;
-      }
       const visibleGroupedEntries = groupedEntries.filter((entry) =>
         workEntryIsVisibleInGroup(entry, workEntryIsInActiveRun(entry)),
       );
@@ -1957,7 +1928,6 @@ export function deriveMessagesTimelineRows(input: {
           }
         }
       }
-      index = cursor - 1;
       continue;
     }
 
@@ -2135,43 +2105,52 @@ export function deriveMessagesTimelineRows(input: {
     !compactionOnlyRunFinished &&
     (!hasActivityRow || latestToolFailed)
   ) {
-    const failedGroupAnchor = latestToolFailed ? activeWorkAnchor : undefined;
-    if (failedGroupAnchor) {
-      const groupId = workGroupId(failedGroupAnchor.id);
-      const expanded = input.expandedWorkGroupIds?.has(groupId) ?? false;
-      nextRows.push({
-        kind: "thinking",
-        id: LIVE_ACTIVITY_ROW_ID,
-        createdAt: input.activeTurnStartedAt ?? null,
-        groupId,
-        expanded,
-      });
-      if (expanded) {
-        nextRows.push(
-          expandedWorkGroupRow(
-            groupId,
-            failedGroupAnchor.createdAt,
-            visibleActiveToolEntries.map((entry) => entry.entry),
-          ),
-        );
-      }
-    } else {
-      nextRows.push({
-        kind: "thinking",
-        id: LIVE_ACTIVITY_ROW_ID,
-        createdAt: input.activeTurnStartedAt ?? null,
-      });
-    }
+    // A failed last step is a line of its own; the agent is thinking about what to do next.
+    nextRows.push({
+      kind: "thinking",
+      id: LIVE_ACTIVITY_ROW_ID,
+      createdAt: input.activeTurnStartedAt ?? null,
+    });
   }
 
   const result = attachTrailingToolGroupsToAssistant(
     attachCreatedThreadSummaries(nextRows, timelineEntries, collapsedFoldMemberIds),
   );
-  return result.map((row, index) =>
-    timelineRowIsWorkLog(row) && timelineRowIsWorkLog(result[index + 1])
-      ? { ...row, continuesWorkLog: true }
-      : row,
-  );
+  // An opened turn, and the one running now, read as one rail: its steps and the agent's
+  // words in between hang off a single line under the fold header.
+  const railEntryIds = new Set<string>();
+  for (const fold of foldsByAnchorEntryId.values()) {
+    if (input.expandedRunIds?.has(fold.runId)) {
+      for (const entryId of fold.hiddenEntryIds) railEntryIds.add(entryId);
+    }
+  }
+  const workingRowIndex = input.isWorking ? result.findIndex((row) => row.kind === "working") : -1;
+  return result.map((row, index) => {
+    const onRail =
+      row.kind !== "turn-fold" &&
+      row.kind !== "working" &&
+      row.kind !== "worktree-setup" &&
+      !(row.kind === "message" && row.message.role === "user") &&
+      ((workingRowIndex >= 0 && index > workingRowIndex) ||
+        railEntryIds.has(timelineRowEntryId(row)));
+    const continuesWorkLog = timelineRowIsWorkLog(row) && timelineRowIsWorkLog(result[index + 1]);
+    return onRail || continuesWorkLog
+      ? {
+          ...row,
+          ...(continuesWorkLog ? { continuesWorkLog: true } : {}),
+          ...(onRail ? { onRail: true as const } : {}),
+        }
+      : row;
+  });
+}
+
+/** The timeline entry a row was made from, by the ids rows are given. */
+function timelineRowEntryId(row: MessagesTimelineRow): string {
+  const id = row.id.endsWith(":details") ? row.id.slice(0, -":details".length) : row.id;
+  for (const prefix of ["work-toggle:", "work-live:", "work-group:"]) {
+    if (id.startsWith(prefix)) return id.slice(prefix.length);
+  }
+  return id;
 }
 
 function timelineRowIsWorkLog(row: MessagesTimelineRow | undefined): boolean {
@@ -2397,6 +2376,8 @@ export function computeStableMessagesTimelineRows(
 
 function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean {
   if (a.kind !== b.kind || a.id !== b.id) return false;
+  // Where a row sits in its turn draws its rail and spacing, whatever its kind.
+  if (a.onRail !== b.onRail || a.continuesWorkLog !== b.continuesWorkLog) return false;
 
   switch (a.kind) {
     case "working":

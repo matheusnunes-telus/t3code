@@ -10,6 +10,9 @@ import { cn } from "../../lib/utils";
 
 const GroupedRows = createContext(false);
 
+/** Rows of an opened or running turn hang off one rail line; their icons sit on that line. */
+export const WorkLogRail = createContext(false);
+
 /**
  * Groups may span virtualized timeline items. Each part owns its trailing space.
  * An opened group is one bubble: the header draws its top half, the content its bottom half.
@@ -56,6 +59,7 @@ type RowContent = {
 };
 
 function WorkLogLine({ icon, label, trailing, wrapLabel }: RowContent) {
+  const onRail = use(WorkLogRail);
   return (
     <div
       className={cn(
@@ -65,7 +69,13 @@ function WorkLogLine({ icon, label, trailing, wrapLabel }: RowContent) {
     >
       <div className="flex min-w-0 flex-1 items-baseline gap-1.5">
         {icon ? (
-          <span className="relative w-6 shrink-0 leading-0">
+          <span
+            className={cn(
+              "relative w-6 shrink-0 leading-0",
+              // Centered on the rail, with the page behind it so the line breaks around it.
+              onRail && "-ms-[1.75rem] me-1 rounded-full bg-background",
+            )}
+          >
             <span className="inline-block size-6 overflow-hidden align-[calc(0.5cap_-_0.75rem)]">
               <span className="flex size-full items-center justify-center">{icon}</span>
             </span>
