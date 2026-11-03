@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it } from "vite-plus/test";
 
-import { useChatTabsStore } from "./chatTabsStore";
+import { localDayKey, useChatTabsStore } from "./chatTabsStore";
 
 beforeEach(() => {
-  useChatTabsStore.setState({ tabs: [], closedThreadKeys: [] });
+  useChatTabsStore.setState({ tabs: [], closedThreadKeys: [], lastSweptDay: null });
 });
 
 const keys = () => useChatTabsStore.getState().tabs.map((tab) => `${tab.threadKey}:${tab.preview}`);
@@ -41,5 +41,27 @@ describe("chatTabsStore", () => {
     expect(store.removeTab("missing")).toBeNull();
     expect(keys()).toEqual(["a:false"]);
     expect(store.popClosedTab()).toBeNull();
+  });
+
+  it("clears swept tabs once per day and returns them to settle", () => {
+    const store = useChatTabsStore.getState();
+    store.openTab("a", { permanent: true });
+    store.openTab("pinned", { permanent: true });
+    store.openTab("b");
+    const sweepable = (key: string) => key !== "pinned";
+    // First run only records the day.
+    expect(store.sweepTabs("2026-11-03", sweepable)).toEqual([]);
+    expect(keys()).toEqual(["a:false", "pinned:false", "b:true"]);
+    // Same day: nothing happens.
+    expect(store.sweepTabs("2026-11-03", sweepable)).toEqual([]);
+    // Next day: swept tabs go, others stay, and closed tabs can't be reopened.
+    expect(store.sweepTabs("2026-11-04", sweepable)).toEqual(["a", "b"]);
+    expect(keys()).toEqual(["pinned:false"]);
+    expect(useChatTabsStore.getState().closedThreadKeys).toEqual([]);
+    expect(store.sweepTabs("2026-11-04", sweepable)).toEqual([]);
+  });
+
+  it("formats the local day", () => {
+    expect(localDayKey(new Date(2026, 10, 3, 23, 59))).toBe("2026-11-03");
   });
 });

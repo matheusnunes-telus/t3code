@@ -16,7 +16,8 @@ import {
   startRecentTabCycle,
   stepRecentTabCycle,
 } from "../chatTabCycle";
-import { useChatTabsStore } from "../chatTabsStore";
+import { localDayKey, useChatTabsStore } from "../chatTabsStore";
+import { useThreadActions } from "../hooks/useThreadActions";
 import {
   composerDraftHasUserContent,
   type DraftId,
@@ -73,7 +74,7 @@ function scrollTabsWithWheel(element: HTMLDivElement | null) {
   return () => element.removeEventListener("wheel", onWheel);
 }
 
-function useNavigateToThreadKey() {
+export function useNavigateToThreadKey() {
   const router = useRouter();
   return (threadKey: string | null) => {
     const ref = threadKey ? parseScopedThreadKey(threadKey) : null;
@@ -101,6 +102,8 @@ export function ChatTabsBar() {
   const closeTab = useChatTabsStore((state) => state.closeTab);
   const popClosedTab = useChatTabsStore((state) => state.popClosedTab);
   const removeTabs = useChatTabsStore((state) => state.removeTabs);
+  const sweepTabs = useChatTabsStore((state) => state.sweepTabs);
+  const { settleThread, unsettleThread } = useThreadActions();
   const moveTab = useChatTabsStore((state) => state.moveTab);
   // Drag a tab sideways to reorder; the drop indicator sits on the hovered tab's near edge.
   const [draggingTabKey, setDraggingTabKey] = useState<string | null>(null);
@@ -253,6 +256,39 @@ export function ChatTabsBar() {
     };
   }, [finishRecentCycle]);
 
+  // An open tab means an unsettled chat: closing the tab settles it, and reopening it undoes that.
+  const settleTabThread = (threadKey: string) => {
+    const ref = parseScopedThreadKey(threadKey);
+    if (!ref || !threadByKey.has(threadKey)) return;
+    void settleThread(ref);
+  };
+
+  // End of the day (local time) settles the open tabs and clears the strip, like Arc. A window
+  // that was closed over midnight does it on startup. Pinned and running chats keep their tab.
+  const sweepTabsOfTheDay = useStableCallback(() => {
+    const swept = sweepTabs(localDayKey(new Date()), (key) => {
+      const thread = threadByKey.get(key);
+      return (
+        thread !== undefined && thread.pinnedAt == null && threadRuntimeCanArchive(thread.runtime)
+      );
+    });
+    for (const key of swept) settleTabThread(key);
+    if (activeThreadKey && swept.includes(activeThreadKey)) void navigateToThreadKey(null);
+  });
+  const threadsLoaded = threads.length > 0;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- a timer to the next local midnight is outside React; threads must be loaded first so the sweep can tell running and pinned chats apart.
+  useEffect(() => {
+    if (!threadsLoaded) return;
+    sweepTabsOfTheDay();
+    const now = new Date();
+    const nextMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+    const timer = window.setTimeout(
+      sweepTabsOfTheDay,
+      nextMidnight.getTime() - now.getTime() + 1000,
+    );
+    return () => window.clearTimeout(timer);
+  }, [threadsLoaded, sweepTabsOfTheDay]);
+
   const handleCloseTab = (threadKey: string) => {
     const files = filesTabByThreadKey.get(threadKey);
     if (files) {
@@ -265,6 +301,7 @@ export function ChatTabsBar() {
       return;
     }
     const next = closeTab(threadKey);
+    settleTabThread(threadKey);
     if (threadKey === activeThreadKey) void navigateToThreadKey(next);
   };
   // Leaves the unsent chat in place (it stays in the sidebar as a draft).
@@ -324,6 +361,8 @@ export function ChatTabsBar() {
       event.stopPropagation();
       if (event.repeat) return;
       const reopened = popClosedTab();
+      const reopenedRef = reopened ? parseScopedThreadKey(reopened) : null;
+      if (reopenedRef && threadByKey.has(reopened!)) void unsettleThread(reopenedRef);
       if (reopened) void navigateToThreadKey(reopened);
       return;
     }

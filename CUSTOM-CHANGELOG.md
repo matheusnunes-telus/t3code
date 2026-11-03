@@ -26,6 +26,7 @@ Last synced with the official `main`: 2026-11-03.
 - An unsent new chat gets a temporary italic "New chat" tab.
 - A "+" button after the last tab opens a new tab.
 - Archiving or deleting a chat closes its tab.
+- An open tab means an unsettled chat. Closing a tab settles the chat (Cmd+Shift+T reopens it and un-settles it). At the end of each day, open tabs are settled and cleared, like Arc. Pinned and running chats keep their tab.
 - When tabs overflow, a normal wheel or swipe scrolls them sideways. Scrolled tabs stop before the sidebar toggle.
 - The tab strip sits a bit lower, leaving a strip above it to drag the window.
 
