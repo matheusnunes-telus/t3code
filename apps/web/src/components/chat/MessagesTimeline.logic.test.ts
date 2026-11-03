@@ -1991,8 +1991,7 @@ describe("deriveMessagesTimelineRows", () => {
     expect(shape(expanded)).toEqual([
       "user:launch",
       "fold:Completed 2 steps in 8s",
-      "work",
-      "work",
+      "work-toggle",
       "assistant:launch-answer",
       "user:resume",
       "fold:Completed 1 step in 8s",

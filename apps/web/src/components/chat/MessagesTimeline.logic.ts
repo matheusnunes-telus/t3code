@@ -1888,9 +1888,42 @@ export function deriveMessagesTimelineRows(input: {
         });
         continue;
       }
-      // Steps read one per line, like VS Code's agent view, so neighbours never merge into a
-      // "Ran 3 commands" group.
+      // Steps read one per line while the agent is still on them. Once it writes a message, the
+      // steps right before it fold into one "Ran 3 commands" line.
       const groupedEntries = [timelineEntry.entry];
+      let cursor = index + 1;
+      while (cursor < timelineEntries.length) {
+        const nextEntry = timelineEntries[cursor];
+        if (
+          !nextEntry ||
+          nextEntry.kind !== "work" ||
+          nextEntry.entry.sourceActivityKind === "context-compaction" ||
+          nextEntry.entry.tone === "error" ||
+          nextEntry.entry.sourceActivityKind === "runtime.error" ||
+          nextEntry.entry.itemType === "system_notice" ||
+          nextEntry.entry.itemType === "notification" ||
+          nextEntry.entry.questionAnswer !== undefined ||
+          activeWorkEntryIds.has(nextEntry.id) ||
+          collapsedEntryIds.has(nextEntry.id) ||
+          collapsedSupersededEntryIds.has(nextEntry.id) ||
+          foldsByAnchorEntryId.has(nextEntry.id) ||
+          supersededFoldsByAnchorEntryId.has(nextEntry.id) ||
+          (nextEntry.entry.runId ?? null) !== (timelineEntry.entry.runId ?? null) ||
+          nextEntry.attempt?.id !== timelineEntry.attempt?.id
+        ) {
+          break;
+        }
+        groupedEntries.push(nextEntry.entry);
+        cursor += 1;
+      }
+      const followedByAssistantMessage = (() => {
+        const next = timelineEntries[cursor];
+        return next?.kind === "message" && next.message.role === "assistant";
+      })();
+      if (!followedByAssistantMessage) {
+        groupedEntries.length = 1;
+        cursor = index + 1;
+      }
       const visibleGroupedEntries = groupedEntries.filter((entry) =>
         workEntryIsVisibleInGroup(entry, workEntryIsInActiveRun(entry)),
       );
@@ -1981,6 +2014,7 @@ export function deriveMessagesTimelineRows(input: {
           }
         }
       }
+      index = cursor - 1;
       continue;
     }
 
