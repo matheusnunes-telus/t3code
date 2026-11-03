@@ -72,7 +72,7 @@ When the hook fails, read the failure. If it's in code you wrote, fix it. If eve
 
 ## Land it on `custom`
 
-Once the change is checked, land it, unless Matheus asked to keep it on the branch. Landing is local and easy to undo. From your worktree:
+Once the change is checked and you think the solution is good enough, land it without asking, unless Matheus asked to keep it on the branch. Only do it when the main checkout (`~/Desktop/matheus/repos/t3code`) has no uncommitted changes (`git -C ~/Desktop/matheus/repos/t3code status --short` is empty). If it's dirty, leave the work on its branch and tell Matheus. Landing is local and easy to undo. From your worktree:
 
 ```sh
 git rebase custom
