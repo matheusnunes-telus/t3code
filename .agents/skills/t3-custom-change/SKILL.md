@@ -19,9 +19,21 @@ source scripts/custom-env.sh
 
 Run tools as `pnpm exec vp ...`. Calling `vp` directly can fail with "Vitest failed to find the current suite".
 
-Run `git status -sb` before you edit. Other chats work in this repo too, so uncommitted files you didn't touch belong to someone else. Leave them alone, and stage your own files by path instead of `git add -A`.
+## Work in your own worktree
 
-If you're in a worktree, commit on its branch. When Matheus wants it on `custom`, merge from the main checkout with `git merge --no-ff <branch>` ("Merge branch '<branch>' into custom"). A new worktree needs its own `pnpm install --frozen-lockfile --ignore-scripts`. Don't symlink `node_modules`.
+Matheus often has many chats changing this repo at once. So every change gets its own worktree, and the main checkout (`~/Desktop/matheus/repos/t3code`) stays clean on `custom`. Don't edit there: it's only for landing, rebuilding and syncing. If you find uncommitted files there, they belong to another chat, so leave them alone.
+
+Pick a short name for the change, then:
+
+```sh
+cd ~/Desktop/matheus/repos/t3code
+git worktree add ../t3code-wt-<name> -b <name> custom
+cd ../t3code-wt-<name>
+source scripts/custom-env.sh
+pnpm install --frozen-lockfile
+```
+
+Don't symlink `node_modules`. If the chat already runs in a worktree T3 made (under `~/.t3/worktrees`), use that one. Its setup runs in the background, so wait while `.t3/setup-running` exists.
 
 ## Starting from a scratch chat
 
@@ -48,7 +60,7 @@ Always start in a new worktree (`git worktree add ../t3code-wt-<topic> -b <topic
 
 ## Commit it
 
-Make one commit per requested change, so each one is easy to track and revert. Never rebuild or push as part of a change. Those only happen when Matheus asks.
+Commit on your worktree's branch. Make one commit per requested change, so each one is easy to track and revert. Never rebuild or push as part of a change. Those only happen when Matheus asks.
 
 - The subject is a plain sentence saying what changed for the user, like "Add a Mark as unread button under the latest reply". The fork doesn't use `feat(web):` prefixes. Add a short body when the why isn't obvious.
 - If users will notice the change, add a line to `CUSTOM-CHANGELOG.md` in the same commit, under the matching section.
@@ -58,14 +70,43 @@ The pre-commit hook runs format, lint and knip. As of 2026-11-03 the fork has 15
 
 When the hook fails, read the failure. If it's in code you wrote, fix it. If every failure was already there, commit with `--no-verify` and say so in your reply. To compare, run `pnpm exec vp run knip:check` and check that your change adds nothing to the list. Once that list is empty, delete this paragraph and the one above.
 
+## Land it on `custom`
+
+Once the change is checked, land it, unless Matheus asked to keep it on the branch. Landing is local and easy to undo. From your worktree:
+
+```sh
+git rebase custom
+pnpm exec vp run typecheck
+cat ~/.t3/custom-rebuild.lock 2>/dev/null
+git -C ~/Desktop/matheus/repos/t3code merge --ff-only <name>
+```
+
+- `git rebase custom` puts your commits on top of what other chats landed. If it conflicts, keep both sides: the other work is finished work from another chat. In `CUSTOM-CHANGELOG.md` that just means keeping both lines. If another chat changed the same behavior in a way you can't combine, ask.
+- A fast-forward can't conflict. If it refuses, another chat landed first, so run the steps again. Never use a merge commit or force anything to get around that.
+- If the lock file exists and its PID is alive (`kill -0 <pid>`), a rebuild is running and reads the files in the main checkout. Don't land until it ends. If it isn't alive, the lock is stale and you can land.
+
+## Clean up
+
+After landing, stop any dev server you started, then delete the worktree and branch:
+
+```sh
+cd ~/Desktop/matheus/repos/t3code
+git worktree remove ../t3code-wt-<name>
+git branch -d <name>
+```
+
+Don't add `--force`, and don't use `-D`. Both commands refuse when something would be lost, like uncommitted files or commits that didn't land, so look at what's there first. If Matheus asks for more in this chat, make a new worktree.
+
+Leave worktrees T3 made in place, since their chat depends on them. Tell Matheus the work has landed.
+
 ## Report back
 
 End your reply with:
 
 - What changed, plus screenshots for UI changes.
 - What you tested and what you didn't.
-- Everything waiting for the next rebuild, as short hash and subject. Call out reverts, since a change and its revert cancel out:
+- Everything on `custom` waiting for the next rebuild, as short hash and subject, including what other chats landed. Call out reverts, since a change and its revert cancel out. If you kept work on a branch, say so, since it won't be in the next rebuild.
 
 ```sh
-git log --oneline "$(cat ~/.t3/custom-app-built-commit)"..HEAD
+git log --oneline "$(cat ~/.t3/custom-app-built-commit)"..custom
 ```

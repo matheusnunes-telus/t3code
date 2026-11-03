@@ -29,14 +29,17 @@ If `fork/main` has commits that `custom` lacks (a PR merged from another session
 
 ## 2. Merge the official repo
 
-Save the current commit so you can compare later, then merge:
+A big merge takes hours, and other chats keep landing work meanwhile. So do it in its own worktree, and the main checkout stays usable:
 
 ```sh
-git rev-parse HEAD
+cd ~/Desktop/matheus/repos/t3code
+git worktree add ../t3code-wt-sync -b sync-official custom
+cd ../t3code-wt-sync
+source scripts/custom-env.sh
 git merge origin/main --no-commit
 ```
 
-If it goes badly, `git merge --abort` gets you back. Nothing is shared until step 5.
+If it goes badly, `git merge --abort` gets you back. Nothing reaches `custom` until you land it in step 5.
 
 Resolving conflicts is the real work here:
 
@@ -77,10 +80,14 @@ Say plainly what you didn't check. "All tests pass" must mean you saw them pass.
 
 In `CUSTOM-CHANGELOG.md`, update "Last synced with the official `main`", and fix any line the merge made wrong. Commit that as its own commit.
 
-## 5. Push
+## 5. Land and push
+
+Land it the same way as any change (see "Land it on `custom`" in t3-custom-change), with one difference: use `git merge custom` rather than `git rebase custom`, because a rebase would flatten the merge. Typecheck again if other chats landed work. Then fast-forward `custom`, and delete the worktree and branch.
+
+Then push from the main checkout:
 
 ```sh
-git push fork custom:main
+git -C ~/Desktop/matheus/repos/t3code push fork custom:main
 ```
 
 If it's rejected, `fork/main` moved. Go back to step 1. Don't force.
