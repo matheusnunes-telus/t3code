@@ -23,13 +23,21 @@ Run `git status -sb` before you edit. Other chats work in this repo too, so unco
 
 If you're in a worktree, commit on its branch. When Matheus wants it on `custom`, merge from the main checkout with `git merge --no-ff <branch>` ("Merge branch '<branch>' into custom"). A new worktree needs its own `pnpm install --frozen-lockfile --ignore-scripts`. Don't symlink `node_modules`.
 
+## Starting from a scratch chat
+
+Chats started outside this repo can't load this skill with the Skill tool. Read it with `cat ~/Desktop/matheus/repos/t3code/.agents/skills/t3-custom-change/SKILL.md`.
+
+Screenshots pasted into the chat often show as "unavailable". They are on disk in `~/.t3/custom/userdata/attachments/`, so view the newest `.png` there before asking.
+
+Always start in a new worktree (`git worktree add ../t3code-wt-<topic> -b <topic> custom`), then run `pnpm install --frozen-lockfile --ignore-scripts` in it. When the commits are ready and the main checkout is clean, fast-forward `custom` with `git merge --ff-only <topic>`.
+
 ## Build it
 
 - For UI work, read [references/design-language.md](references/design-language.md) first. It has the fork's layout choices and the rules lint won't catch.
 - Copy the closest existing component instead of inventing a pattern.
 - Start from the simplest version that works. List what you cut, so Matheus can ask for it later.
 - For a proposal or a big UI change, show a mock before building it.
-- If you're unsure about a choice that changes the result, ask.
+- If you're unsure about a choice that changes the result, ask. For "it was fine before" bugs, run `git log -S` on the relevant code first: the cause is often one recent fork commit, and its message says what it meant to do.
 - Don't use `try`/`catch` inside `ChatView.tsx` handlers. It caused a render loop (React #301) in the installed app. Use `.then(ok, err)` or the `result._tag === "Failure"` pattern.
 
 ## Check it
