@@ -17,8 +17,19 @@ INSTALL_DIR=${INSTALL_DIR:-$HOME/Applications}
 BACKUP_ROOT=${BACKUP_ROOT:-$HOME/.t3/custom-app-backups}
 KEEP_BACKUPS=3
 
+LOCK_FILE=$HOME/.t3/custom-rebuild.lock
+
 step() { printf '\n==> %s\n' "$1"; }
 die() { printf 'error: %s\n' "$1" >&2; exit 1; }
+
+# Other chats land work on `custom` from their worktrees. They wait while this lock exists,
+# so the files on disk don't change under the build.
+if [[ -e "$LOCK_FILE" ]] && kill -0 "$(cat "$LOCK_FILE")" 2>/dev/null; then
+  die "Another rebuild is running."
+fi
+echo $$ >"$LOCK_FILE"
+trap 'rm -f "$LOCK_FILE"' EXIT
+built_commit=$(git rev-parse HEAD)
 
 # The repo needs Node 24, but the shell default is often older.
 step "Node"
@@ -63,7 +74,7 @@ step "Building the app"
 pnpm run dist:desktop:dmg:arm64
 
 work=$(mktemp -d)
-trap 'rm -rf "$work"' EXIT
+trap 'rm -rf "$work"; rm -f "$LOCK_FILE"' EXIT
 
 step "Unpacking and signing"
 zip=$(ls -t release/T3-Code-*-arm64.zip | head -1)
@@ -98,7 +109,7 @@ if [[ -d "$BACKUP_ROOT" ]]; then
 fi
 
 # Lets `git log "$(cat ~/.t3/custom-app-built-commit)"..HEAD` list what the next rebuild adds.
-git -C "$REPO_ROOT" rev-parse HEAD >"$HOME/.t3/custom-app-built-commit"
+echo "$built_commit" >"$HOME/.t3/custom-app-built-commit"
 
 step "Done"
 echo "Installed: $INSTALL_DIR/$APP_NAME"
