@@ -994,6 +994,30 @@ function failedTimelineRunIds(
   return failed;
 }
 
+/** A folded turn's header: how it ended, its steps and its time, like VS Code's agent view. */
+export function turnFoldLabel(input: {
+  readonly steps: number;
+  readonly duration: string | null;
+  readonly outcome: "completed" | "stopped" | "usage-limit" | "failed";
+}): string {
+  const steps = input.steps > 0 ? ` ${input.steps} ${input.steps === 1 ? "step" : "steps"}` : "";
+  const time = input.duration === null ? "" : ` in ${input.duration}`;
+  switch (input.outcome) {
+    case "completed":
+      return steps
+        ? `Completed${steps}${time}`
+        : input.duration
+          ? `Worked for ${input.duration}`
+          : "Worked";
+    case "stopped":
+      return `Stopped${steps ? ` after${steps}` : ""}${time}`;
+    case "usage-limit":
+      return `Stopped at the usage limit${steps ? ` after${steps}` : ""}`;
+    case "failed":
+      return `Failed${steps ? ` after${steps}` : ""}${time}`;
+  }
+}
+
 function deriveTurnFolds(input: {
   timelineEntries: ReadonlyArray<TimelineEntry>;
   terminalAssistantMessageIds: ReadonlySet<string>;
@@ -1004,8 +1028,11 @@ function deriveTurnFolds(input: {
   completeSupersededReplyEntryIds: ReadonlySet<string>;
 }): ReadonlyMap<string, TurnFold> {
   const interruptedRunIds = new Set<RunId>();
+  const failureClassByRunId = new Map<RunId, string>();
   const promptIndexByRunId = new Map<RunId, number>();
   for (const [index, entry] of input.timelineEntries.entries()) {
+    const failure = timelineEntryFailedItem(entry);
+    if (failure?.runId != null) failureClassByRunId.set(failure.runId, failure.failure.class);
     if (timelineEntryStartsResponse(entry)) {
       const runId = responseBoundaryRunId(entry);
       if (runId !== null && !promptIndexByRunId.has(runId)) promptIndexByRunId.set(runId, index);
@@ -1103,7 +1130,6 @@ function deriveTurnFolds(input: {
   for (const [runId, group] of groupsByRunId) {
     if (
       input.unfoldedRunIds.has(runId) ||
-      interruptedRunIds.has(runId) ||
       runlessFailedKeys.has(runId) ||
       (input.runlessWorkActive && runId === runlessKey)
     ) {
@@ -1112,12 +1138,27 @@ function deriveTurnFolds(input: {
     if (group.hasStreamingMessage) {
       continue;
     }
+    // A turn that stopped or failed has no answer to leave out: its last words were cut off,
+    // so everything folds, and only the failure row and the interrupt line stay below.
+    const failureClass = failureClassByRunId.get(runId);
+    const stopped =
+      interruptedRunIds.has(runId) ||
+      (input.latestRun?.runId === runId && input.latestRun.status === "interrupted");
+    const terminalEntry = stopped || failureClass !== undefined ? null : group.terminalEntry;
     const hiddenEntryIds = new Set<string>();
-    const terminalEntryIndex = group.terminalEntry
-      ? group.entries.findIndex((entry) => entry.id === group.terminalEntry?.id)
+    const terminalEntryIndex = terminalEntry
+      ? group.entries.findIndex((entry) => entry.id === terminalEntry.id)
       : group.entries.length;
     for (const [index, entry] of group.entries.entries()) {
-      if (entry.id === group.terminalEntry?.id) {
+      if (entry.id === terminalEntry?.id) {
+        continue;
+      }
+      if (
+        timelineEntryFailedItem(entry) !== null ||
+        (entry.kind === "event" &&
+          (entry.projectedItem.item.type === "run_interrupt_request" ||
+            entry.projectedItem.item.type === "run_interrupt_result"))
+      ) {
         continue;
       }
       const isCompaction = timelineEntryIsCompaction(entry);
@@ -1155,8 +1196,6 @@ function deriveTurnFolds(input: {
       continue;
     }
 
-    const isLatestInterruptedTurn =
-      input.latestRun?.runId === runId && input.latestRun.status === "interrupted";
     // A turn cut short by a steer leaves trailing work entries behind its
     // terminal message — take whichever ended last.
     const lastEntryEnd = timelineEntryEnd(lastEntry);
@@ -1165,17 +1204,26 @@ function deriveTurnFolds(input: {
         ? computeElapsedMs(input.latestRun.startedAt, input.latestRun.completedAt)
         : computeElapsedMs(
             group.startBoundary ?? firstEntry.createdAt,
-            maxIsoTimestamp(group.terminalEntry?.message.updatedAt ?? null, lastEntryEnd) ??
-              lastEntryEnd,
+            maxIsoTimestamp(terminalEntry?.message.updatedAt ?? null, lastEntryEnd) ?? lastEntryEnd,
           );
     const duration = elapsedMs !== null ? formatDuration(elapsedMs) : null;
-    const label = isLatestInterruptedTurn
-      ? duration
-        ? `You stopped after ${duration}`
-        : "You stopped this response"
-      : duration
-        ? `Worked for ${duration}`
-        : "Worked";
+    const label = turnFoldLabel({
+      steps: group.entries.filter(
+        (entry) =>
+          hiddenEntryIds.has(entry.id) &&
+          entry.kind === "work" &&
+          !timelineEntryIsCompaction(entry) &&
+          workEntryIsVisibleInGroup(entry.entry),
+      ).length,
+      duration,
+      outcome: stopped
+        ? "stopped"
+        : failureClass === "usage_limit"
+          ? "usage-limit"
+          : failureClass !== undefined
+            ? "failed"
+            : "completed",
+    });
 
     // The top row keeps the whole turn's time, steers included. Work after a
     // steer folds under its own row below that steer, keyed apart from the run
@@ -1369,7 +1417,6 @@ function deriveTimelineTurnFolds(
 ) {
   const timelineEntries = timelineRowEntries(input.timelineEntries);
   const unsettledRunId = deriveUnsettledRunId(input.latestRun ?? null, input.runningRunId ?? null);
-  const failedRunIds = failedTimelineRunIds(timelineEntries, input.latestRun ?? null);
   const activeVisualResponseRunIds = deriveActiveVisualResponseRunIds({
     timelineEntries,
     unsettledRunId,
@@ -1379,7 +1426,7 @@ function deriveTimelineTurnFolds(
     timelineEntries,
     terminalAssistantMessageIds: deriveTerminalAssistantMessageIds(timelineEntries),
     latestRun: input.latestRun ?? null,
-    unfoldedRunIds: new Set([...activeVisualResponseRunIds, ...failedRunIds]),
+    unfoldedRunIds: activeVisualResponseRunIds,
     runlessWorkActive: input.isWorking && input.runlessWorkActive === true,
     liveSubagentEntryIds: liveSubagentCardEntryIds(timelineEntries),
     completeSupersededReplyEntryIds: completeSupersededReplyEntryIds(timelineEntries),
@@ -1445,7 +1492,7 @@ export function deriveMessagesTimelineRows(input: {
     timelineEntries: timelineEntries,
     terminalAssistantMessageIds,
     latestRun: input.latestRun ?? null,
-    unfoldedRunIds: new Set([...activeVisualResponseRunIds, ...failedRunIds]),
+    unfoldedRunIds: activeVisualResponseRunIds,
     runlessWorkActive,
     liveSubagentEntryIds,
     completeSupersededReplyEntryIds: completeSupersededReplyIds,

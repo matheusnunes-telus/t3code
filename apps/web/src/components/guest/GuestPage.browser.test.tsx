@@ -231,7 +231,9 @@ describe("GuestPage", () => {
 
     await expect.element(screen.getByText("All checks pass.")).toBeVisible();
     // A finished turn folds its work, as it does for the owner; the command is inside.
-    await userEvent.click(screen.getByRole("button", { name: /Worked for/ }));
+    await userEvent.click(
+      screen.getByRole("button", { name: /Completed \d+ steps? in|Worked for/ }),
+    );
     await expect.element(screen.getByText("vp run check:changed")).toBeVisible();
     // Expanding the command shows its output, read through the guest route.
     await userEvent.click(screen.getByText("vp run check:changed"));
