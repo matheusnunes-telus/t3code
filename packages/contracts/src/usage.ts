@@ -82,8 +82,16 @@ export type UsageSourceFingerprint = typeof UsageSourceFingerprint.Type;
 export const UsageSourceStatus = Schema.Literals(["ok", "missing", "partial", "failed"]);
 export type UsageSourceStatus = typeof UsageSourceStatus.Type;
 
+/** The provider instance that owns a source, so two accounts of one provider can be told apart. */
+export const UsageSourceAccount = Schema.Struct({
+  instanceId: TrimmedNonEmptyString,
+  label: TrimmedNonEmptyString,
+});
+export type UsageSourceAccount = typeof UsageSourceAccount.Type;
+
 export const UsageSource = Schema.Struct({
   fingerprint: UsageSourceFingerprint,
+  account: Schema.optionalKey(UsageSourceAccount),
   status: UsageSourceStatus,
   scannedFiles: NonNegativeInt,
   skippedFiles: NonNegativeInt,

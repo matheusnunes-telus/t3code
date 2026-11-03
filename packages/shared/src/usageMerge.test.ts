@@ -44,6 +44,7 @@ function summary(
     homePath: string;
     volumeId?: string;
     distinctSessions?: number;
+    account?: { instanceId: string; label: string };
   }[],
   contractVersion: number = USAGE_CONTRACT_VERSION,
 ): UsageSummary {
@@ -67,6 +68,7 @@ function summary(
       malformedRecords: 0,
       distinctSessions: source.distinctSessions ?? 1,
       message: null,
+      ...(source.account === undefined ? {} : { account: source.account }),
     })),
     pricing: { status: "fresh", source: "litellm", fetchedAt: null, knownModels: 10 },
     scanDurationMs: 1,
@@ -78,6 +80,64 @@ function environment(id: string, usageSummary: UsageSummary): EnvironmentUsage {
 }
 
 describe("mergeUsage", () => {
+  it("splits a provider's totals by account and adds the same account across environments", () => {
+    const work = { instanceId: "claudeAgent", label: "TELUS Claude" };
+    const personal = { instanceId: "claudePersonal", label: "Personal Claude" };
+    const merged = mergeUsage(
+      [
+        environment(
+          "laptop",
+          summary(
+            [
+              bucket({ sourcePath: "/u/.claude/projects", costUsd: 30 }),
+              bucket({ sourcePath: "/u/.claude-personal/projects", costUsd: 5 }),
+            ],
+            [
+              {
+                provider: "claude",
+                hostId: "laptop",
+                homePath: "/u/.claude/projects",
+                distinctSessions: 4,
+                account: work,
+              },
+              {
+                provider: "claude",
+                hostId: "laptop",
+                homePath: "/u/.claude-personal/projects",
+                distinctSessions: 2,
+                account: personal,
+              },
+            ],
+          ),
+        ),
+        environment(
+          "server",
+          summary(
+            [bucket({ sourcePath: "/home/u/.claude/projects", costUsd: 10 })],
+            [
+              {
+                provider: "claude",
+                hostId: "server",
+                homePath: "/home/u/.claude/projects",
+                account: work,
+              },
+            ],
+          ),
+        ),
+      ],
+      USAGE_CONTRACT_VERSION,
+    );
+
+    const claude = merged.providers.find((entry) => entry.provider === "claude");
+    expect(claude?.costUsd).toBe(45);
+    expect(
+      claude?.accounts.map(({ label, costUsd, sessions }) => ({ label, costUsd, sessions })),
+    ).toEqual([
+      { label: "TELUS Claude", costUsd: 40, sessions: 5 },
+      { label: "Personal Claude", costUsd: 5, sessions: 2 },
+    ]);
+  });
+
   it("counts a Cursor account once across servers while retaining each server's other providers", () => {
     const account = {
       provider: "cursor" as const,
