@@ -36,6 +36,10 @@ Last synced with the official `main`: 2026-11-03.
 - The Files panel can search inside files, with match case, whole word and regex options.
 - Auto-save is an option (on by default). With it off, Cmd+S saves, an unsaved dot shows on the tab, and closing asks before throwing edits away.
 
+## Google Cloud
+
+- Finished deploys no longer pop up as toasts or desktop notifications. The deploy banners above the composer and the Cloud panel still show them.
+
 ## Messages
 
 - Edit a user message in place. If the AI edited files in a later turn, you're asked whether to keep or revert them. Files only changed by background processes (dev servers, build output) don't trigger the question.
