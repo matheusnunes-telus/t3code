@@ -21,6 +21,7 @@ import { useMediaQuery } from "~/hooks/useMediaQuery";
 import { setLocalStorageItem } from "~/hooks/useLocalStorage";
 import { resolveSidebarState, type ResponsiveSidebarState } from "./sidebarState";
 import * as Schema from "effect/Schema";
+import { announceSidebarVisibility } from "~/lib/accessibilityAnnouncements";
 
 const SIDEBAR_COOKIE_NAME = "sidebar_state";
 const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7;
@@ -151,6 +152,7 @@ function useSidebarPeekState(enabled: boolean) {
     clearTimer();
     setPeeking(true);
   };
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync, react/exhaustive-effect-dependencies -- clears the peek close timer when the sidebar unmounts.
   React.useEffect(() => clearTimer, []);
 
   // pointerleave alone can miss: window drag regions (the title bar, the rail's top corner)
@@ -170,6 +172,7 @@ function useSidebarPeekState(enabled: boolean) {
     pointerInsideRef.current = false;
     scheduleClose();
   });
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- document pointer and window blur listeners, held only while the peek is open.
   React.useEffect(() => {
     if (!isPeekOpen) return;
     const onPointerMove = (event: PointerEvent) => onDocumentPointerMove(event);
@@ -242,7 +245,7 @@ function useSidebarVisibility() {
   return isMobile ? openMobile : open;
 }
 
-// Same breakpoint as useIsMobile, also read when a shortcut fires.
+// The `max-md` breakpoint, also read when a shortcut fires.
 const SIDEBAR_MOBILE_QUERY = "(max-width: 767px)";
 
 function isMobileViewport(): boolean {
@@ -291,6 +294,7 @@ function createSidebarOpenStore(defaultOpen: boolean, onOpenChange?: (open: bool
       moveFocusOutOfCollapsingSidebar();
     }
     if (open !== state.open) {
+      if (!isMobileViewport()) announceSidebarVisibility(open);
       publish({ ...state, open });
       onOpenChange?.(open);
     }
@@ -475,7 +479,7 @@ function Sidebar({
             }
           >
             <SheetHeader className="sr-only">
-              <SheetTitle>Sidebar</SheetTitle>
+              <SheetTitle>{props["aria-label"] ?? "Sidebar"}</SheetTitle>
               <SheetDescription>Displays the mobile sidebar.</SheetDescription>
             </SheetHeader>
             <div
@@ -828,7 +832,10 @@ function SidebarHeader({ className, ...props }: React.ComponentProps<"div">) {
 function SidebarFooter({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
-      className={cn("flex flex-col gap-2 px-[var(--sidebar-content-inset)] py-1", className)}
+      className={cn(
+        "flex flex-col gap-2 px-[var(--sidebar-content-inset)] pt-1 pb-[var(--sidebar-content-inset)]",
+        className,
+      )}
       data-sidebar="footer"
       data-slot="sidebar-footer"
       {...props}
@@ -918,8 +925,8 @@ const sidebarMenuButtonVariants = cva(
         default:
           "h-8 rounded-[var(--control-radius)] px-[var(--sidebar-row-content-inset)] py-1.5 text-sm",
         icon: "size-8 justify-center rounded-[var(--control-radius)] p-0",
-        lg: "h-12 rounded-lg p-2 text-sm group-data-[collapsible=icon]:p-0!",
-        sm: "h-7 rounded-lg p-2 text-xs",
+        lg: "h-12 rounded-[var(--control-radius)] px-[var(--sidebar-row-content-inset)] py-2 text-sm group-data-[collapsible=icon]:p-0!",
+        sm: "h-7 rounded-[var(--control-radius)] px-[var(--sidebar-row-content-inset)] py-2 text-xs",
       },
       variant: {
         default: "font-medium text-sidebar-muted-foreground/80",

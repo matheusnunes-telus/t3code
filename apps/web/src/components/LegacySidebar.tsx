@@ -108,7 +108,6 @@ import { isMacPlatform } from "../lib/utils";
 import { useSidebarPendingFileDropStore } from "../sidebarPendingFileDropStore";
 import { makeWorkspaceFileDropHandlers } from "./chat/workspaceFileDrop";
 import {
-  readEnvironmentSupportsSettlement,
   readThreadShell,
   useProjects,
   useThreadShells,
@@ -210,27 +209,31 @@ import {
 } from "../threadSelectionStore";
 import { isCommandPaletteOpen, openCommandPalette } from "../commandPaletteBus";
 import {
-  archiveSelectedThreadEntries,
-  buildMultiSelectThreadContextMenuItems,
   deleteSelectedThreadEntries,
   filterSidebarV2VisibleThreads,
-  getSidebarThreadIdsToPrewarm,
   resolveAdjacentThreadId,
-  isContextMenuPointerDown,
   isSidebarNestedLinkClick,
-  isSidebarSubagentThread,
   isTrailingDoubleClick,
-  resolveProjectStatusIndicator,
   resolveThreadLastVisitedAt,
   resolveThreadStatusPill,
   orderItemsByPreferredIds,
-  shouldClearThreadSelectionOnMouseDown,
-  sortProjectsForSidebar,
   useSidebarRowSubscriptionLease,
   setFileDragActive,
   useThreadJumpHintsVisible,
   ThreadStatusPill,
 } from "./Sidebar.logic";
+import {
+  archiveSelectedThreadEntries,
+  buildMultiSelectThreadContextMenuItems,
+  getSidebarThreadIdsToPrewarm,
+  isContextMenuPointerDown,
+  isSidebarSubagentThread,
+  resolveProjectStatusIndicator,
+  shouldClearThreadSelectionOnMouseDown,
+  sortProjectsForSidebar,
+  isSidebarSideChatThread,
+  readEnvironmentSupportsSettlement,
+} from "./LegacySidebar.logic";
 import {
   isThreadPinned,
   isThreadSettled,
@@ -257,10 +260,14 @@ import { canShareWithGuestAtom } from "./chat/guestShareAvailability";
 import { openGuestShareDialog } from "./chat/guestShareDialogState";
 import {
   derivePhysicalProjectKey,
-  deriveProjectGroupingOverrideKey,
   getProjectOrderKey,
   selectProjectGroupingSettings,
-} from "../logicalProject";
+} from "@t3tools/client-runtime/state/project-grouping";
+
+// Upstream made this private; it is the physical key.
+const deriveProjectGroupingOverrideKey = derivePhysicalProjectKey;
+// The legacy sidebar shows delegated threads in place, not under a parent.
+const NO_DELEGATED_PARENTS: ReadonlySet<string> = new Set();
 import type { SidebarThreadSummary } from "../types";
 import {
   buildPhysicalToLogicalProjectKeyMap,
@@ -1543,8 +1550,11 @@ function useProjectThreads(project: SidebarProjectSnapshot) {
     ]),
   );
   const orderedThreads = orderProjectThreads(sidebarThreads, threadSortOrder);
-  // Subagent chats stay out of the list; each hangs off its main chat instead.
-  const visibleProjectThreads = orderedThreads.filter((thread) => !isSidebarSubagentThread(thread));
+  // Subagent chats stay out of the list; each hangs off its main chat instead. Side chats
+  // live in their main chat's right panel.
+  const visibleProjectThreads = orderedThreads.filter(
+    (thread) => !isSidebarSubagentThread(thread) && !isSidebarSideChatThread(thread),
+  );
   const subagentChildrenByParentKey = new Map<string, SidebarThreadSummary[]>();
   for (const thread of orderedThreads) {
     const { parentThreadId } = thread.lineage;
@@ -3924,7 +3934,11 @@ function useSortedLegacySidebarProjects(input: {
     ...project,
     id: project.projectKey,
   }));
-  const sortableThreads = filterSidebarV2VisibleThreads(sidebarThreads, null).map((thread) => {
+  const sortableThreads = filterSidebarV2VisibleThreads(
+    sidebarThreads,
+    null,
+    NO_DELEGATED_PARENTS,
+  ).map((thread) => {
     const physicalKey =
       projectPhysicalKeyByScopedRef.get(
         scopedProjectKey(scopeProjectRef(thread.environmentId, thread.projectId)),
@@ -3997,7 +4011,11 @@ function useLegacySidebarThreads(input: {
   }
   const visibleSidebarThreadKeys = sortedProjects.flatMap((project) => {
     const projectThreads = orderProjectThreads(
-      filterSidebarV2VisibleThreads(threadsByProjectKey.get(project.projectKey) ?? [], null),
+      filterSidebarV2VisibleThreads(
+        threadsByProjectKey.get(project.projectKey) ?? [],
+        null,
+        NO_DELEGATED_PARENTS,
+      ),
       sidebarThreadSortOrder,
     );
     const projectExpanded = resolveProjectExpanded(
@@ -4295,6 +4313,7 @@ export default function LegacySidebar({ routeReveal }: { routeReveal: SidebarRou
     event.stopPropagation();
     navigateToThread(scopeThreadRef(targetThread.environmentId, targetThread.id));
   });
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- a window keydown listener for the sidebar's thread shortcuts, held while it is mounted.
   useEffect(() => {
     const handleWindowKeyDown = (event: globalThis.KeyboardEvent) => onWindowKeyDown(event);
     window.addEventListener("keydown", handleWindowKeyDown);
@@ -4302,7 +4321,7 @@ export default function LegacySidebar({ routeReveal }: { routeReveal: SidebarRou
       window.removeEventListener("keydown", handleWindowKeyDown);
     };
   }, []);
-  // A window listener whose lifetime is the sidebar's: no element owns outside clicks.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- a window mousedown listener whose lifetime is the sidebar's: no element owns outside clicks.
   useEffect(() => {
     window.addEventListener("mousedown", clearThreadSelectionOnOutsideMouseDown);
     return () => window.removeEventListener("mousedown", clearThreadSelectionOnOutsideMouseDown);
@@ -4477,7 +4496,7 @@ export default function LegacySidebar({ routeReveal }: { routeReveal: SidebarRou
         attachProjectListAutoAnimateRef={attachProjectListAutoAnimateRef}
         projectsLength={projectsLength}
       />
-      <SidebarChromeFooter showUndoNotice />
+      <SidebarChromeFooter />
     </RevealActiveRowContext>
   );
 }

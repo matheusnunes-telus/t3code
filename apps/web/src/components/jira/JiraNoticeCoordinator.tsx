@@ -27,7 +27,7 @@ function JiraSignInToast({
   const toastId = useRef<ReturnType<typeof toastManager.add> | null>(null);
   const reconnecting = useRef(false);
 
-  // oxlint-disable-next-line t3code/react-effect-budget -- the toast lives outside React and follows the server's sync status, which no handler here sets.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- the toast lives outside React and follows the server's sync status, which no handler here sets.
   useEffect(() => {
     // A sync in flight says nothing yet about the login.
     if (status === "syncing") return;
@@ -82,7 +82,7 @@ export function JiraNoticeCoordinator() {
   const shown = useRef(new Set<string>());
   const notices = snapshot?.enabled === true ? snapshot.notices : [];
 
-  // oxlint-disable-next-line t3code/react-effect-budget -- notices arrive from the server's sync and become toasts outside React.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- notices arrive from the server's sync and become toasts outside React.
   useEffect(() => {
     for (const notice of notices) {
       const id = `${notice.key}:${notice.at}`;

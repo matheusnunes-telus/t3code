@@ -210,7 +210,7 @@ export function JiraTicketDetails({
     setLoading(false);
   };
   const stale = details === undefined || Date.parse(details.fetchedAt) < now - DETAILS_STALE_MS;
-  // oxlint-disable-next-line t3code/react-effect-budget -- showing a ticket is what asks Jira for its details; the panel can open from the chip, the menu or a restored layout, so no single handler covers it.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- showing a ticket is what asks Jira for its details; the panel can open from the chip, the menu or a restored layout, so no single handler covers it.
   useEffect(() => {
     if (stale) void load();
     // Only a new ticket asks again; staleness is checked when it is shown.

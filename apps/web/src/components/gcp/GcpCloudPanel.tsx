@@ -635,7 +635,7 @@ export function GcpCloudPanel({ threadRef }: { threadRef: ScopedThreadRef }) {
       void command({ type: "loadResources", projectId });
     }
   });
-  // oxlint-disable-next-line t3code/react-effect-budget, react/exhaustive-effect-dependencies -- showing an environment is what reads it from Google Cloud; the panel opens from the menu or a restored layout, so no single handler covers it. Only a newly shown one reads; Refresh covers the rest.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync, react/exhaustive-effect-dependencies -- showing an environment is what reads it from Google Cloud; the panel opens from the menu or a restored layout, so no single handler covers it. Only a newly shown one reads; Refresh covers the rest.
   useEffect(() => loadIfStale(), [projectId]);
 
   if (link === null || environment === null) {

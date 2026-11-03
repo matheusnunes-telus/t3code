@@ -43,7 +43,7 @@ export function FileScratchpad({ draftId, path }: { draftId: string; path: strin
       editorRef.current = null;
     },
   };
-  // oxlint-disable-next-line t3code/react-effect-budget -- the VS Code shortcuts are DOM listeners on the editor's container, installed while it is mounted.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- the VS Code shortcuts are DOM listeners on the editor's container, installed while it is mounted.
   useEffect(() => {
     const root = rootRef.current;
     if (!root) return;

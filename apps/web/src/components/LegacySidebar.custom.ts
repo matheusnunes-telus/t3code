@@ -1,7 +1,7 @@
 import { sortPinnedThreadsByOrderKey } from "@t3tools/client-runtime/state/thread-sort";
 import type { SidebarThreadSortOrder } from "@t3tools/contracts/settings";
 
-import { sortThreads } from "../lib/threadSort";
+import { sortThreads } from "@t3tools/client-runtime/state/thread-sort";
 import type { SidebarThreadSummary } from "../types";
 
 export function isThreadSettled(thread: SidebarThreadSummary): boolean {

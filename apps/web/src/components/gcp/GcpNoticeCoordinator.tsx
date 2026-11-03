@@ -24,7 +24,7 @@ export function GcpNoticeCoordinator() {
   const signingIn = useRef(false);
   const lastCheck = useRef(0);
 
-  // oxlint-disable-next-line t3code/react-effect-budget -- the toast and the desktop notification live outside React and follow the server's login checks.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- the toast and the desktop notification live outside React and follow the server's login checks.
   useEffect(() => {
     if (health === "checking" || health === "signing-in" || health === "hidden") return;
     if (!lostLogin(health)) {
@@ -70,7 +70,7 @@ export function GcpNoticeCoordinator() {
     }
   }, [health, command]);
 
-  // oxlint-disable-next-line t3code/react-effect-budget -- returning to the window is when a login fixed in a terminal shows up; it rechecks only while signed out.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- returning to the window is when a login fixed in a terminal shows up; it rechecks only while signed out.
   useEffect(() => {
     if (!lostLogin(health)) return;
     const recheck = () => {
@@ -82,7 +82,7 @@ export function GcpNoticeCoordinator() {
     return () => window.removeEventListener("focus", recheck);
   }, [health, command]);
 
-  // oxlint-disable-next-line t3code/react-effect-budget -- finished deploys arrive from the server's polling and become toasts outside React.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- finished deploys arrive from the server's polling and become toasts outside React.
   useEffect(() => {
     if (snapshot === null || snapshot.finishedDeploys.length === 0) return;
     for (const id of snapshot.finishedDeploys) {

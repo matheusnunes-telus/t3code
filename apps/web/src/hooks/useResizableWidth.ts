@@ -3,6 +3,7 @@ import { type PointerEvent as ReactPointerEvent, useLayoutEffect, useState } fro
 
 import { getLocalStorageItem, setLocalStorageItem } from "./useLocalStorage";
 import { useResizeDrag } from "./useResizeDrag";
+import { useStableCallback } from "./useStableCallback";
 
 const WidthSchema = Schema.Finite;
 
@@ -31,9 +32,10 @@ export interface ResizableWidthHandlers {
   readonly onLostPointerCapture: (event: ReactPointerEvent<HTMLElement>) => void;
 }
 
-/** Persist on drag end to avoid a storage write on every animation frame. */
+/** Uses the current default until a width is chosen; persists on drag end, not every frame. */
 export function useResizableWidth(options: UseResizableWidthOptions): {
   readonly width: number;
+  readonly setWidth: (width: number) => void;
   readonly handlers: ResizableWidthHandlers;
 } {
   const { storageKey, defaultWidth, minWidth, maxWidth, edge, viewportWidth } = options;
@@ -44,14 +46,14 @@ export function useResizableWidth(options: UseResizableWidthOptions): {
     return Math.max(minWidth, Math.min(maxWidth, value));
   };
 
-  const readWidth = () => {
-    if (typeof window === "undefined") return defaultWidth;
+  const readWidth = (): number | null => {
+    if (typeof window === "undefined") return null;
     try {
       const stored = getLocalStorageItem(storageKey, WidthSchema);
-      return clamp(stored ?? defaultWidth);
+      return stored === null ? null : clamp(stored);
     } catch (error) {
       console.error("Could not read persisted panel width.", error);
-      return defaultWidth;
+      return null;
     }
   };
   const readRatio = () => {
@@ -76,8 +78,24 @@ export function useResizableWidth(options: UseResizableWidthOptions): {
   const clampedWidth = clamp(
     viewportWidth !== undefined && widthState.ratio !== null
       ? Math.round(widthState.ratio * viewportWidth)
-      : widthState.width,
+      : (widthState.width ?? defaultWidth),
   );
+  const restoreWidth = useStableCallback((host: HTMLElement | null) => {
+    host?.style.setProperty(RESIZABLE_WIDTH_PROPERTY, `${clampedWidth}px`);
+  });
+
+  const commitWidth = (nextStorageKey: string, nextWidth: number) => {
+    const ratio =
+      viewportWidth !== undefined && viewportWidth > 0 ? nextWidth / viewportWidth : null;
+    // Resizing remains usable for this session when browser storage is unavailable.
+    setWidthState({ storageKey: nextStorageKey, width: nextWidth, ratio });
+    try {
+      setLocalStorageItem(nextStorageKey, nextWidth, WidthSchema);
+      if (ratio !== null) setLocalStorageItem(`${nextStorageKey}:ratio`, ratio, WidthSchema);
+    } catch (error) {
+      console.error("Could not persist panel width.", error);
+    }
+  };
 
   const drag = useResizeDrag<HTMLElement>((event) => {
     const host = event.currentTarget.parentElement;
@@ -95,16 +113,9 @@ export function useResizableWidth(options: UseResizableWidthOptions): {
         host?.style.setProperty(RESIZABLE_WIDTH_PROPERTY, `${nextWidth}px`);
         return nextWidth;
       },
-      finish(finalWidth) {
-        const ratio =
-          viewportWidth !== undefined && viewportWidth > 0 ? finalWidth / viewportWidth : null;
-        setWidthState({ storageKey: startStorageKey, width: finalWidth, ratio });
-        try {
-          setLocalStorageItem(startStorageKey, finalWidth, WidthSchema);
-          if (ratio !== null) setLocalStorageItem(`${startStorageKey}:ratio`, ratio, WidthSchema);
-        } catch (error) {
-          console.error("Could not persist panel width.", error);
-        }
+      finish(finalWidth, moved) {
+        if (moved) commitWidth(startStorageKey, finalWidth);
+        else restoreWidth(host);
       },
       cleanup(committed) {
         host?.style.removeProperty("transition-property");
@@ -116,10 +127,12 @@ export function useResizableWidth(options: UseResizableWidthOptions): {
   // Bounds can change mid-drag (sidebar opens, window narrows), and the render
   // that carries them rewrites the committed width, so re-apply the live pointer position.
   const { refresh } = drag;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- reapplies the live drag pointer position to the DOM before paint when the bounds change
   useLayoutEffect(() => refresh({ min: minWidth, max: maxWidth }), [refresh, minWidth, maxWidth]);
 
   return {
     width: clampedWidth,
+    setWidth: (value) => commitWidth(storageKey, clamp(value)),
     handlers: {
       ref: drag.ref,
       onPointerDown: drag.onPointerDown,
