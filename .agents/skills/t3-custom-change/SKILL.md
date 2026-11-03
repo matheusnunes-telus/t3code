@@ -56,6 +56,8 @@ Screenshots pasted into the chat often show as "unavailable". They are on disk i
 2. `pnpm exec vp test run <files>` for the tests near your change.
 3. For a UI change, try it in the dev app, including hover, empty and disabled states, and take screenshots. See [references/dev-testing.md](references/dev-testing.md). It also covers two dangers: never run a dev server on real data, and stop what you started.
 
+A UI change is not checked until you have looked at screenshots of it in the dev app. Typecheck and unit tests don't count. Do this before you commit, show the screenshots in your reply (the saved `.png` paths from `preview_snapshot`), and say what you could not reach in the dev app. If you skip it, say so, and don't land the change.
+
 ## Commit it
 
 Commit on your worktree's branch. Make one commit per requested change, so each one is easy to track and revert. Never rebuild or push as part of a change. Those only happen when Matheus asks.
