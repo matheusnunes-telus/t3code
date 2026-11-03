@@ -572,9 +572,10 @@ export function ChatTabsBar() {
               </button>
             </div>
           );
-          if (!thread || draggingTabKey !== null) return tabElement;
+          if (!thread) return tabElement;
+          // Keep the wrapper while dragging: swapping it out remounts the tab and cancels the drag.
           return (
-            <Tooltip key={tab.threadKey}>
+            <Tooltip key={tab.threadKey} disabled={draggingTabKey !== null}>
               <TooltipTrigger delay={600} render={tabElement} />
               <TooltipPopup side="bottom" align="start" className="max-w-72">
                 <ChatTabHoverCard
