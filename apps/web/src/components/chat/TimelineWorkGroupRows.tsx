@@ -1,4 +1,10 @@
-import { WorkLogButton, WorkLogList, WorkLogRow } from "./WorkLog";
+import {
+  COMMAND_CHIP_CLASS_NAME,
+  WorkLogButton,
+  WorkLogList,
+  WorkLogRail,
+  WorkLogRow,
+} from "./WorkLog";
 import type { WorktreeSetupSnapshot } from "@t3tools/contracts";
 import {
   getQuestionAnswerPreview,
@@ -18,9 +24,12 @@ import { Minimize2Icon, XIcon } from "lucide-react";
 import { Button } from "../ui/button";
 import { getVirtualizedScrollFadeClassName } from "../ui/scroll-area";
 import {
+  commandStepTitle,
   liveWorkEntryLabel,
   resolveWorkGroupScrollIndex,
   shouldFollowWorkGroupAppend,
+  thoughtStepTitle,
+  workEntryDisplayLabel,
   workEntryIsVisibleInGroup,
   type MessagesTimelineRow,
 } from "./MessagesTimeline.logic";
@@ -383,10 +392,15 @@ function LiveActivityRow({
 }) {
   const animated = active && !failed;
   const showShimmer = animated && shimmer;
+  const onRail = use(WorkLogRail);
   return (
     <div
       ref={animated ? observeVisibleAnimation : undefined}
-      className="relative min-h-6 w-fit max-w-full min-w-0 overflow-hidden rounded-md text-sm leading-relaxed"
+      className={cn(
+        "relative min-h-6 w-fit max-w-full min-w-0 overflow-hidden rounded-md text-sm leading-relaxed",
+        // The shimmer clips to this box, so on the rail it reaches over the line for the icon.
+        onRail && "-ms-7 ps-7",
+      )}
     >
       <LiveActivityContent
         label={label}
@@ -482,6 +496,7 @@ export function LiveWorkEntryTimelineRow({
     : "";
   const label = questionHeading || liveWorkEntryLabel(row.entry, ctx.workspaceRoot, row.active);
   const threadLabel = threadReadLabel(label, threadTarget);
+  const commandTitle = commandStepTitle(row.entry);
 
   const failed = workEntryDisplayIndicatesToolFailure(row.entry);
 
@@ -510,11 +525,18 @@ export function LiveWorkEntryTimelineRow({
           ) : row.entry.itemType === "reasoning" ? (
             <ChatMarkdown
               inline
-              text={row.entry.detail ?? label}
+              text={row.entry.detail ? thoughtStepTitle(row.entry.detail) : label}
               cwd={ctx.markdownCwd}
               parseRawHtml={false}
               extraRemarkPlugins={[[remarkThoughtPreview, row.active ? "Thinking" : "Thought"]]}
             />
+          ) : commandTitle ? (
+            <span className="flex min-w-0 items-baseline gap-1.5">
+              <span className="min-w-0 shrink truncate">{commandTitle}</span>
+              <code className={COMMAND_CHIP_CLASS_NAME}>
+                {workEntryDisplayLabel(row.entry, ctx.workspaceRoot)}
+              </code>
+            </span>
           ) : threadLabel ? (
             <ThreadReadLabel
               label={threadLabel}

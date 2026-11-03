@@ -10,6 +10,10 @@ import { cn } from "../../lib/utils";
 
 const GroupedRows = createContext(false);
 
+/** The command beside a titled command step, as VS Code's agent view shows it. */
+export const COMMAND_CHIP_CLASS_NAME =
+  "min-w-0 max-w-[60%] truncate rounded-sm bg-warning/10 px-1.5 font-mono text-xs leading-5 text-warning";
+
 /** Rows of an opened or running turn hang off one rail line; their icons sit on that line. */
 export const WorkLogRail = createContext(false);
 

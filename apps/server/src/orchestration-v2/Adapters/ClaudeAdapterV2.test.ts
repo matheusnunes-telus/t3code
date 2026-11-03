@@ -8567,7 +8567,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
                   type: "tool_use",
                   id: bashToolUseId,
                   name: "Bash",
-                  input: { command: "git status" },
+                  input: { command: "git status", description: "Check git status" },
                 },
               ],
             },
@@ -8613,6 +8613,11 @@ describe("ClaudeAdapterV2 background wake turns", () => {
             ? bash.turnItem.output
             : undefined,
           "On branch main\nwarning: dirty",
+        );
+        // The step reads by what the command is for, with the command shown beside it.
+        assert.equal(
+          bash?.type === "turn_item.updated" ? bash.turnItem.title : undefined,
+          "Check git status",
         );
       }).pipe(
         Effect.provide(

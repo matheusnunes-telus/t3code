@@ -24,6 +24,9 @@ import { describe, expect, it } from "vite-plus/test";
 import { EnvironmentId, MessageId, RunId } from "@t3tools/contracts";
 import { serializeAssistantCitation } from "@t3tools/shared/assistantCitations";
 import {
+  commandStepTitle,
+  thoughtStepTitle,
+  turnFoldLabel,
   computeStableMessagesTimelineRows,
   computeMessageDurationStart,
   deriveMessagesTimelineRows,
@@ -4292,5 +4295,52 @@ describe("shouldCollapseUserMessage", () => {
 
     expect(shouldCollapseUserMessage(`${citation} Can you expand on this?`)).toBe(false);
     expect(shouldCollapseUserMessage(`${citation} ${"More text. ".repeat(60)}`)).toBe(true);
+  });
+});
+
+describe("VS Code style step titles", () => {
+  it("names a finished turn by how it ended", () => {
+    expect(turnFoldLabel({ steps: 6, duration: "10s", outcome: "completed" })).toBe(
+      "Completed 6 steps in 10s",
+    );
+    expect(turnFoldLabel({ steps: 0, duration: "4s", outcome: "completed" })).toBe("Worked for 4s");
+    expect(turnFoldLabel({ steps: 1, duration: "18s", outcome: "stopped" })).toBe(
+      "Stopped after 1 step in 18s",
+    );
+    expect(turnFoldLabel({ steps: 3, duration: "2m", outcome: "usage-limit" })).toBe(
+      "Stopped at the usage limit after 3 steps",
+    );
+    expect(turnFoldLabel({ steps: 2, duration: null, outcome: "failed" })).toBe(
+      "Failed after 2 steps",
+    );
+  });
+
+  it("titles a thought by its first sentence, unless that says too little", () => {
+    expect(thoughtStepTitle("Good, git status shows a clean tree. Now list files.")).toBe(
+      "Good, git status shows a clean tree.",
+    );
+    expect(thoughtStepTitle("Perfect. So the repo is clean and small.\nMore.")).toBe(
+      "Perfect. So the repo is clean and small.",
+    );
+    expect(thoughtStepTitle("I see v1.2.3 is pinned in the lockfile. Next.")).toBe(
+      "I see v1.2.3 is pinned in the lockfile.",
+    );
+  });
+
+  it("titles a command by its description, with the command as a chip", () => {
+    const command = {
+      id: "command",
+      createdAt: "2026-01-01T00:00:00Z",
+      label: "Check git status",
+      tone: "tool" as const,
+      itemType: "command_execution" as const,
+      command: "git status",
+    };
+    expect(commandStepTitle({ ...command, toolTitle: "Check git status" })).toBe(
+      "Check git status",
+    );
+    // Without a description (Codex, or older turns) the command is the title.
+    expect(commandStepTitle({ ...command, toolTitle: "Command" })).toBeNull();
+    expect(commandStepTitle({ ...command, toolTitle: "git status" })).toBeNull();
   });
 });

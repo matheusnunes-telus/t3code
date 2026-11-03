@@ -1,4 +1,4 @@
-import { WorkLogDetails, WorkLogRow } from "./WorkLog";
+import { COMMAND_CHIP_CLASS_NAME, WorkLogDetails, WorkLogRow } from "./WorkLog";
 import {
   getQuestionAnswerPreview,
   getQuestionAnswerText,
@@ -35,6 +35,8 @@ import { Button, InlineButton } from "../ui/button";
 import { useAssetUrls } from "../../assets/assetUrls";
 import { useThreadShell } from "../../state/entities";
 import {
+  commandStepTitle,
+  thoughtStepTitle,
   threadReadLabelPrefix,
   threadReadTargetId,
   threadReadTargetTitle,
@@ -281,6 +283,7 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
         ? "Thinking"
         : "Thought"
       : questionHeading || (displayLabel ?? workEntryDisplayLabel(workEntry, workspaceRoot));
+  const commandTitle = commandStepTitle(workEntry);
   const answerPreview =
     workEntry.questionAnswer && hasQuestionAnswer(workEntry.questionAnswer)
       ? getQuestionAnswerPreview(workEntry.questionAnswer)
@@ -407,12 +410,18 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
         <div className="min-w-0 flex-1 overflow-hidden">
           <p className="flex min-w-0 w-full items-baseline gap-1.5 text-sm leading-relaxed">
             <span
-              className={cn(answerPreview ? "min-w-0" : "min-w-0 flex-1", "truncate", headingClass)}
+              className={cn(
+                answerPreview ? "min-w-0" : commandTitle ? "min-w-0 shrink" : "min-w-0 flex-1",
+                "truncate",
+                headingClass,
+              )}
             >
-              {isReasoning && !expanded ? (
+              {commandTitle ? (
+                commandTitle
+              ) : isReasoning && !expanded ? (
                 <ChatMarkdown
                   inline
-                  text={workEntry.detail ?? previewText}
+                  text={workEntry.detail ? thoughtStepTitle(workEntry.detail) : previewText}
                   cwd={ctx.markdownCwd}
                   parseRawHtml={false}
                   extraRemarkPlugins={[
@@ -432,6 +441,7 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
                 previewText
               )}
             </span>
+            {commandTitle ? <code className={COMMAND_CHIP_CLASS_NAME}>{previewText}</code> : null}
             {answerPreview ? (
               <span
                 className={cn(

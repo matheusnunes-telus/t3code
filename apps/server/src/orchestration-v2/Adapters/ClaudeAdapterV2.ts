@@ -5352,6 +5352,11 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                     : undefined,
               })
             : undefined;
+          // Claude's Bash tool says what each command is for; that reads better than the command.
+          const commandDescription =
+            input.classification.itemType === "command_execution"
+              ? firstStringInputField(input.toolInput, ["description"])?.trim() || undefined
+              : undefined;
           const itemBase = {
             ...(input.toolNonExecutionKind === undefined
               ? {}
@@ -5371,6 +5376,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               readPath !== undefined
                 ? formatReadToolLabel(readPath)
                 : (searchTitle ??
+                  commandDescription ??
                   dynamicToolTitle(input.toolName, nativeToolInput) ??
                   input.presentation?.title ??
                   null),

@@ -134,6 +134,28 @@ function workEntryReadPaths(entry: WorkLogEntry, workspaceRoot: string | undefin
   );
 }
 
+/**
+ * A thought's one-line title: its first sentence, like the short summaries VS Code's agent
+ * view shows. Opening the thought shows all of it.
+ */
+export function thoughtStepTitle(detail: string): string {
+  const firstLine = detail.trim().split(/\n\s*\n|\n/u)[0] ?? "";
+  const sentence = /^.+?[.!?](?=\s|$)/u.exec(firstLine)?.[0];
+  // "Perfect." alone says nothing; a short opener keeps the rest of its line.
+  return (sentence !== undefined && sentence.length >= 24 ? sentence : firstLine).trim();
+}
+
+/**
+ * A command's own title, such as Claude's note on what it is for. With one, the step reads
+ * like VS Code's agent view: the title, then the command as a small chip.
+ */
+export function commandStepTitle(entry: WorkLogEntry): string | null {
+  const command = entry.command?.trim();
+  if (entry.itemType !== "command_execution" || !command) return null;
+  const title = entry.toolTitle?.trim();
+  return title && title !== "Command" && title !== commandDisplayText(command) ? title : null;
+}
+
 export function workEntryDisplayLabel(entry: WorkLogEntry, workspaceRoot: string | undefined) {
   if (entry.itemType === "system_notice") return entry.label;
   if (entry.itemType === "reasoning" || entry.tone === "thinking") {
