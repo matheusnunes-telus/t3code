@@ -27,6 +27,9 @@ interface ChatTabsStoreState {
   closedThreadKeys: string[];
   /** The day the tabs were last cleared; null until the first run. */
   lastSweptDay: string | null;
+  /** Left-to-right order of the project groups in the tab strip. */
+  groupOrder: string[];
+  setGroupOrder: (groupOrder: string[]) => void;
   openTab: (threadKey: string, options?: { permanent?: boolean }) => void;
   makePermanent: (threadKey: string) => void;
   /** Closes the tab and returns the tab to show next, if the closed one was showing. */
@@ -53,6 +56,8 @@ export const useChatTabsStore = create<ChatTabsStoreState>()(
       tabs: [],
       closedThreadKeys: [],
       lastSweptDay: null,
+      groupOrder: [],
+      setGroupOrder: (groupOrder) => set({ groupOrder }),
       openTab: (threadKey, options) =>
         set((state) => {
           const permanent = options?.permanent === true;
@@ -142,10 +147,11 @@ export const useChatTabsStore = create<ChatTabsStoreState>()(
         resolveStorage(typeof window !== "undefined" ? window.localStorage : undefined),
       ),
       version: 1,
-      partialize: ({ tabs, closedThreadKeys, lastSweptDay }) => ({
+      partialize: ({ tabs, closedThreadKeys, lastSweptDay, groupOrder }) => ({
         tabs,
         closedThreadKeys,
         lastSweptDay,
+        groupOrder,
       }),
     },
   ),

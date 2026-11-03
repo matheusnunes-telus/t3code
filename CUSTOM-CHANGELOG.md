@@ -30,6 +30,7 @@ Last synced with the official `main`: 2026-11-03.
 - An open tab means an unsettled chat. Closing a tab settles the chat (Cmd+Shift+T reopens it and un-settles it). At the end of each day, open tabs are settled and cleared, like Arc. Pinned and running chats keep their tab.
 - When tabs overflow, a normal wheel or swipe scrolls them sideways. Scrolled tabs stop before the sidebar toggle.
 - The tab strip sits a bit lower, leaving a strip above it to drag the window.
+- Tabs are grouped by project: chats without a project first, then the projects. A line under each group has the project's color, and you can drag it to reorder the groups.
 
 ## Files tabs
 
@@ -50,6 +51,7 @@ Last synced with the official `main`: 2026-11-03.
 - "Mark as unread" button under the latest reply, once the turn is done.
 - The model shows next to an assistant message's time. Hovering the time shows the model and provider ("model not recorded" for imported chats).
 - A queued message's reply now stays below the messages sent while it waited.
+- A "Settle" button sits next to the "Mark as unread" button under the latest reply.
 
 ## Side chats and commands
 
@@ -65,3 +67,4 @@ Last synced with the official `main`: 2026-11-03.
 ## Smaller changes
 
 - The thread details panel starts closed.
+- Chats without a project no longer show the "link a Jira ticket" suggestion.

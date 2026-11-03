@@ -50,6 +50,7 @@ import {
 import { ChatStatsButton } from "./chat/ChatStatsButton";
 import { ChatStatusDialog } from "./chat/ChatStatusDialog";
 import { useThreadActions } from "../hooks/useThreadActions";
+import { settleAndAdvance } from "../settleAndAdvance";
 import { FilesTabView } from "./files/FilesTabView";
 import { convertDraftToFilesTab } from "../filesTabs";
 import { useFilesTabsStore } from "../filesTabsStore";
@@ -446,7 +447,7 @@ export default function ChatView(props: ChatViewProps) {
   const filesTabActive = useFilesTabsStore((state) =>
     draftId ? state.tabsByDraftId[draftId] !== undefined : false,
   );
-  const { markThreadUnread } = useThreadActions();
+  const { markThreadUnread, settleThread } = useThreadActions();
   const handleNewThread = useNewThreadHandler();
   const routeThreadRef = scopeThreadRef(environmentId, threadId);
   const routeThreadKey = scopedThreadKey(routeThreadRef);
@@ -2566,9 +2567,10 @@ export default function ChatView(props: ChatViewProps) {
     isServerThread ? environmentId : null,
     activeThreadShell?.projectId,
   );
+  // Chats without a project never get the "link a Jira ticket" suggestion.
   const jiraBannerItems = useJiraComposerBanners(
     activeThreadShell?.environmentId ?? null,
-    activeThreadShell?.id ?? null,
+    activeProjectIsScratch ? null : (activeThreadShell?.id ?? null),
   );
   const feedbackBannerItems = feedbackSubmissions.flatMap((submission) => {
     const item = feedbackBannerItem(submission, () => {
@@ -2941,6 +2943,12 @@ export default function ChatView(props: ChatViewProps) {
   const onResendMessageStable = useStableCallback(onResendMessage);
   const onMarkThreadUnreadStable = useStableCallback(() => {
     if (activeThreadRef) markThreadUnread(activeThreadRef);
+  });
+  const onSettleThreadStable = useStableCallback(() => {
+    if (!activeThreadRef) return;
+    // Same path as the settle shortcut: the sidebar moves on to the next chat when it can.
+    if (settleAndAdvance(activeThreadRef)) return;
+    void settleThread(activeThreadRef);
   });
 
   const [statusDialogOpen, setStatusDialogOpen] = useState(false);
@@ -3608,7 +3616,9 @@ export default function ChatView(props: ChatViewProps) {
                   onSendAppMessage={sendAppMessageStable}
                   onResendMessage={onResendMessageStable}
                   onEditMessage={onEditMessageStable}
-                  {...(isServerThread ? { onMarkUnread: onMarkThreadUnreadStable } : {})}
+                  {...(isServerThread
+                    ? { onMarkUnread: onMarkThreadUnreadStable, onSettle: onSettleThreadStable }
+                    : {})}
                   isRevertingCheckpoint={isRevertingCheckpoint}
                   onImageExpand={onExpandTimelineImageStable}
                   onFileOpen={openFileAttachmentStable}

@@ -66,6 +66,7 @@ export interface TimelineRowSharedState {
   onResendMessage: ((messageId: MessageId, turnCount?: number) => Promise<void>) | undefined;
   onEditMessage: ((turnCount: number, messageId: MessageId, text: string) => void) | undefined;
   onMarkUnread: (() => void) | undefined;
+  onSettle: (() => void) | undefined;
   onAppFullscreenChange: (rowId: string, fullscreen: boolean) => void;
   onRunShellCommand: ((command: string) => void) | undefined;
   findActive: boolean;

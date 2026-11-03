@@ -283,6 +283,7 @@ interface MessagesTimelineProps {
   onResendMessage?: (messageId: MessageId, turnCount?: number) => Promise<void>;
   onEditMessage?: (turnCount: number, messageId: MessageId, text: string) => void;
   onMarkUnread?: () => void;
+  onSettle?: () => void;
   onRunShellCommand?: (command: string) => void;
   isRevertingCheckpoint: boolean;
   onImageExpand: (preview: ExpandedImagePreview) => void;
@@ -385,6 +386,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   onResendMessage,
   onEditMessage,
   onMarkUnread,
+  onSettle,
   onRunShellCommand,
   isRevertingCheckpoint,
   onImageExpand,
@@ -1041,6 +1043,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
     onResendMessage,
     onEditMessage,
     onMarkUnread,
+    onSettle,
     onAppFullscreenChange,
     onFileDownload,
     openPullRequest,

@@ -6,7 +6,7 @@ import { useAtomValue } from "@effect/atom-react";
 import { serverEnvironment } from "../../state/server";
 import { type ChatMessage, type TurnDiffSummary } from "../../types";
 import ChatMarkdown from "../ChatMarkdown";
-import { GitForkIcon, MailOpenIcon } from "lucide-react";
+import { CheckIcon, GitForkIcon, MailOpenIcon } from "lucide-react";
 import { Button } from "../ui/button";
 import { ProposedPlanCard } from "./ProposedPlanCard";
 import { HtmlRenderFrame } from "./HtmlRenderFrame";
@@ -113,6 +113,40 @@ function MarkUnreadButton({ messageId }: { readonly messageId: ChatMessage["id"]
         <MailOpenIcon className="size-3" />
       </TooltipTrigger>
       <TooltipPopup side="top">Mark as unread</TooltipPopup>
+    </Tooltip>
+  );
+}
+
+/** Settling belongs to the whole chat, so only the latest reply offers it, once the turn ends. */
+function SettleButton({ messageId }: { readonly messageId: ChatMessage["id"] }) {
+  const ctx = use(TimelineRowCtx);
+  const activity = use(TimelineRowActivityCtx);
+  if (
+    ctx.onSettle === undefined ||
+    activity.isWorking ||
+    activity.latestAssistantMessageId !== messageId
+  ) {
+    return null;
+  }
+  const onSettle = ctx.onSettle;
+
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            type="button"
+            size="xs"
+            variant="ghost"
+            onClick={() => onSettle()}
+            aria-label="Settle"
+          />
+        }
+      >
+        <CheckIcon className="size-3" />
+        Settle
+      </TooltipTrigger>
+      <TooltipPopup side="top">Settle this chat</TooltipPopup>
     </Tooltip>
   );
 }
@@ -242,6 +276,7 @@ function AssistantMessageMeta({
         <AssistantForkButton projectedItem={projectedItem} />
       ) : null}
       {message.streaming ? null : <MarkUnreadButton messageId={message.id} />}
+      {message.streaming ? null : <SettleButton messageId={message.id} />}
       {!message.streaming && (
         <Tooltip>
           <TooltipTrigger render={<p className="text-muted-foreground text-xs tabular-nums" />}>
