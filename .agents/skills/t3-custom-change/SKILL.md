@@ -37,11 +37,9 @@ Don't symlink `node_modules`. If the chat already runs in a worktree T3 made (un
 
 ## Starting from a scratch chat
 
-Chats started outside this repo can't load this skill with the Skill tool. Read it with `cat ~/Desktop/matheus/repos/t3code/.agents/skills/t3-custom-change/SKILL.md`.
+Chats started outside this repo can't load this skill with the Skill tool. Read it with `cat ~/Desktop/matheus/repos/t3code/.agents/skills/t3-custom-change/SKILL.md`. The same goes for t3-custom-rebuild and t3-custom-sync.
 
 Screenshots pasted into the chat often show as "unavailable". They are on disk in `~/.t3/custom/userdata/attachments/`, so view the newest `.png` there before asking.
-
-Always start in a new worktree (`git worktree add ../t3code-wt-<topic> -b <topic> custom`), then run `pnpm install --frozen-lockfile --ignore-scripts` in it. When the commits are ready and the main checkout is clean, fast-forward `custom` with `git merge --ff-only <topic>`.
 
 ## Build it
 
