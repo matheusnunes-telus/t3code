@@ -33,11 +33,13 @@ source scripts/custom-env.sh
 pnpm install --frozen-lockfile
 ```
 
-Don't symlink `node_modules`. If the chat already runs in a worktree T3 made (under `~/.t3/worktrees`), use that one. Its setup runs in the background, so wait while `.t3/setup-running` exists.
+Don't symlink `node_modules`. If the chat already runs in a worktree T3 made (under `~/.t3/worktrees`), use that one. Its setup runs in the background, so wait while `.t3/setup-running` exists. Check that it's based on `custom`: this repo's `origin` is the official repo, so T3 can start a worktree from official `main`, which doesn't have the fork.
 
-## Starting from a scratch chat
+## Where chats start
 
-Chats started outside this repo can't load this skill with the Skill tool. Read it with `cat ~/Desktop/matheus/repos/t3code/.agents/skills/t3-custom-change/SKILL.md`. The same goes for t3-custom-rebuild and t3-custom-sync.
+New chats about the fork belong in the **T3 Custom** project, which points at this repo. Skills load on their own there, and its default provider is Personal Claude.
+
+An older chat outside the repo can't load this skill with the Skill tool. Read it with `cat ~/Desktop/matheus/repos/t3code/.agents/skills/t3-custom-change/SKILL.md`. The same goes for t3-custom-rebuild and t3-custom-sync.
 
 Screenshots pasted into the chat often show as "unavailable". They are on disk in `~/.t3/custom/userdata/attachments/`, so view the newest `.png` there before asking.
 
