@@ -773,6 +773,14 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["gcp gcloud sdk binary location install"],
   },
   {
+    id: "gcp-deploy-banners-followed",
+    title: "Show deploys only when followed",
+    to: "/settings/threads",
+    targetId: "google-cloud",
+    scope: "environment-defaults",
+    searchTerms: ["gcp google cloud deploy banner follow pop up composer cloud panel"],
+  },
+  {
     id: "thread-title-instructions",
     title: "Thread title instructions",
     to: "/settings/threads",

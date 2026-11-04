@@ -2567,6 +2567,8 @@ export default function ChatView(props: ChatViewProps) {
   const gcpDeployBannerItems = useGcpDeployBanners(
     isServerThread ? environmentId : null,
     activeThreadShell?.projectId,
+    activeThreadKey,
+    settings.gcpDeployBannersOnlyWhenFollowed,
   );
   // By title too, because older "No project" chats sit outside today's scratch folder.
   const activeChatHasNoProject =

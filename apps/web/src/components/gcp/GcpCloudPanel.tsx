@@ -17,6 +17,7 @@ import {
   SearchIcon,
   XIcon,
 } from "lucide-react";
+import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import { type ReactNode, useEffect, useEffectEvent, useState } from "react";
 
 import { cn } from "~/lib/utils";
@@ -36,6 +37,7 @@ import {
   imageTag,
   personInitials,
 } from "./gcpCloudPanel.logic";
+import { useGcpFollowedDeploysStore } from "./gcpFollowedDeploysStore";
 import { useMinuteClock } from "./useMinuteClock";
 
 /** A panel read older than this is read again when it is shown. */
@@ -512,11 +514,18 @@ function LiveDeploy({
   run,
   environment,
   now,
+  threadKey,
 }: {
   run: GcpDeployRun;
   environment: string;
   now: number;
+  threadKey: string;
 }) {
+  const following = useGcpFollowedDeploysStore((state) =>
+    (state.followedByThreadKey[threadKey] ?? []).includes(run.id),
+  );
+  const follow = useGcpFollowedDeploysStore((state) => state.follow);
+  const unfollow = useGcpFollowedDeploysStore((state) => state.unfollow);
   const finished = run.status === "completed";
   const succeeded = finished && run.conclusion === "success";
   const failed = finished && !succeeded;
@@ -538,6 +547,13 @@ function LiveDeploy({
       <div className="flex items-center gap-2">
         <span className="min-w-0 flex-1 truncate font-medium">{title}</span>
         <span className="shrink-0 text-muted-foreground">{relativeAge(run.createdAt, now)}</span>
+        <Button
+          size="xs"
+          variant="outline"
+          onClick={() => (following ? unfollow(threadKey, run.id) : follow(threadKey, run.id))}
+        >
+          {following ? "Following" : "Follow in this chat"}
+        </Button>
         <IconLink href={run.url} label="Open the run on GitHub" icon={<ExternalLinkIcon />} />
       </div>
       <p className="truncate text-muted-foreground">{run.title}</p>
@@ -724,7 +740,14 @@ export function GcpCloudPanel({ threadRef }: { threadRef: ScopedThreadRef }) {
       <p className="truncate px-1 font-mono text-2xs text-muted-foreground select-all">
         {environment.projectId}
       </p>
-      {liveRun ? <LiveDeploy run={liveRun} environment={environment.name} now={now} /> : null}
+      {liveRun ? (
+        <LiveDeploy
+          run={liveRun}
+          environment={environment.name}
+          now={now}
+          threadKey={scopedThreadKey(threadRef)}
+        />
+      ) : null}
       {resources === undefined ? (
         <ResourcesSkeleton />
       ) : (

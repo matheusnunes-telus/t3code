@@ -6,6 +6,7 @@ import { gcpLinkForProject, useGcpSnapshot } from "~/state/gcp";
 import { relativeAge } from "~/state/jira";
 import type { ComposerBannerStackItem } from "../chat/ComposerBannerStack";
 import { Button } from "../ui/button";
+import { useGcpFollowedDeploysStore } from "./gcpFollowedDeploysStore";
 import { useMinuteClock } from "./useMinuteClock";
 
 /** A finished deploy stays above the composer this long, unless dismissed. */
@@ -26,14 +27,20 @@ const openRun = (run: GcpDeployRun) => (
 
 /**
  * Deploys of the chat's project, above its composer: the ones running now, and for a while the
- * ones that just finished, with whether Google Cloud runs the deployed commit.
+ * ones that just finished, with whether Google Cloud runs the deployed commit. With
+ * `onlyFollowed`, a deploy shows only after the chat followed it from the Cloud panel.
  */
 export function useGcpDeployBanners(
   environmentId: EnvironmentId | null,
   projectId: string | null | undefined,
+  threadKey: string | null,
+  onlyFollowed: boolean,
 ): ComposerBannerStackItem[] {
   const snapshot = useGcpSnapshot(environmentId);
   const now = useMinuteClock();
+  const followed = useGcpFollowedDeploysStore((state) =>
+    threadKey === null ? undefined : state.followedByThreadKey[threadKey],
+  );
   const [dismissed, setDismissed] = useState<ReadonlySet<string>>(() => new Set());
   const link = gcpLinkForProject(snapshot, projectId);
   if (snapshot === null || link === null) return [];
@@ -43,6 +50,7 @@ export function useGcpDeployBanners(
   for (const run of runs) if (!latest.has(run.environment)) latest.set(run.environment, run);
   return [...latest.values()].flatMap((run): ComposerBannerStackItem[] => {
     // A failure has its own key, so closing a running deploy doesn't hide that it later failed.
+    if (onlyFollowed && !followed?.includes(run.id)) return [];
     const failed = run.status === "completed" && run.conclusion !== "success";
     const dismissKey = failed ? `${run.id}:failed` : run.id;
     if (dismissed.has(dismissKey)) return [];

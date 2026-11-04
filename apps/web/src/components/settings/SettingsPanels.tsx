@@ -460,6 +460,10 @@ export function useSettingsRestore(onRestored?: () => void) {
     ...(settings.mathRenderingEnabled !== DEFAULT_UNIFIED_SETTINGS.mathRenderingEnabled
       ? ["Render math"]
       : []),
+    ...(settings.gcpDeployBannersOnlyWhenFollowed !==
+    DEFAULT_UNIFIED_SETTINGS.gcpDeployBannersOnlyWhenFollowed
+      ? ["Show deploys only when followed"]
+      : []),
     ...(settings.panelAnimationDurationMs !== DEFAULT_UNIFIED_SETTINGS.panelAnimationDurationMs
       ? ["Panel animations"]
       : []),
@@ -634,6 +638,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       chatWidth: DEFAULT_UNIFIED_SETTINGS.chatWidth,
       effortDisplay: DEFAULT_UNIFIED_SETTINGS.effortDisplay,
       mathRenderingEnabled: DEFAULT_UNIFIED_SETTINGS.mathRenderingEnabled,
+      gcpDeployBannersOnlyWhenFollowed: DEFAULT_UNIFIED_SETTINGS.gcpDeployBannersOnlyWhenFollowed,
       timestampFormat: DEFAULT_UNIFIED_SETTINGS.timestampFormat,
       notificationMode: DEFAULT_UNIFIED_SETTINGS.notificationMode,
       inAppNotificationsEnabled: DEFAULT_UNIFIED_SETTINGS.inAppNotificationsEnabled,
@@ -2168,6 +2173,35 @@ export function ThreadsSettingsPanel() {
                   const next = event.currentTarget.value.trim();
                   if (next !== settings.gcloudPath) updateSettings({ gcloudPath: next });
                 }}
+              />
+            }
+          />
+        ) : null}
+        {settings.googleCloudEnabled ? (
+          <SettingsRow
+            {...searchableSetting("gcp-deploy-banners-followed")}
+            resetAction={
+              settings.gcpDeployBannersOnlyWhenFollowed !==
+              DEFAULT_UNIFIED_SETTINGS.gcpDeployBannersOnlyWhenFollowed ? (
+                <SettingResetButton
+                  label="show deploys only when followed"
+                  onClick={() =>
+                    updateSettings({
+                      gcpDeployBannersOnlyWhenFollowed:
+                        DEFAULT_UNIFIED_SETTINGS.gcpDeployBannersOnlyWhenFollowed,
+                    })
+                  }
+                />
+              ) : null
+            }
+            description="On: a deploy shows above a chat's composer only after you press Follow on it in the Cloud panel. Off: every deploy of the chat's project shows on its own."
+            control={
+              <Switch
+                checked={settings.gcpDeployBannersOnlyWhenFollowed}
+                onCheckedChange={(checked) =>
+                  updateSettings({ gcpDeployBannersOnlyWhenFollowed: Boolean(checked) })
+                }
+                aria-label="Show deploys only when followed"
               />
             }
           />
