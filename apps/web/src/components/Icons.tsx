@@ -437,6 +437,15 @@ export const AntigravityIcon: Icon = (props) => (
   </svg>
 );
 
+export const FuelIxIcon: Icon = ({ className, ...props }) => (
+  <svg {...props} viewBox="0 0 24 24" fill="none" className={cn("text-foreground", className)}>
+    <rect x="1.5" y="1.5" width="21" height="21" rx="3.5" stroke="currentColor" strokeWidth="2" />
+    <circle cx="7.4" cy="6.9" r="1.5" fill="currentColor" />
+    <rect x="6.1" y="9.4" width="2.6" height="8.9" fill="currentColor" />
+    <path d="M11.2 6.4L18.6 18.3M18.6 6.4L11.2 18.3" stroke="currentColor" strokeWidth="2.6" />
+  </svg>
+);
+
 export const ACPRegistryIcon: Icon = ({ className, ...props }) => (
   <svg
     {...props}
