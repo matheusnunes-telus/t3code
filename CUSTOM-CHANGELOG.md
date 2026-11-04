@@ -74,4 +74,4 @@ Last synced with the official `main`: 2026-11-03.
 ## Smaller changes
 
 - The thread details panel starts closed.
-- Chats without a project no longer show the "link a Jira ticket" suggestion.
+- Chats without a project no longer show the "link a Jira ticket" suggestion, including older chats in `~/.t3/scratch`. "Suggest tickets in No project chats" under Threads > Jira turns it back on. Updates for a ticket you linked by hand still show there.

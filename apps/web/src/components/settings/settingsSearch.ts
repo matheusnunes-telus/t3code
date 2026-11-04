@@ -720,6 +720,14 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["jira ticket match suggest ask automatic new chat first message"],
   },
   {
+    id: "jira-suggest-no-project",
+    title: "Suggest tickets in No project chats",
+    to: "/settings/threads",
+    targetId: "jira",
+    scope: "environment-defaults",
+    searchTerms: ["jira ticket suggest no project scratch chat"],
+  },
+  {
     id: "google-cloud",
     title: "Google Cloud",
     to: "/settings/threads",

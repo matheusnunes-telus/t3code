@@ -614,6 +614,21 @@ describe("JiraService", () => {
     }),
   );
 
+  it.effect("offers nothing to a No project chat by default", () =>
+    Effect.gen(function* () {
+      const calls = yield* Ref.make<ReadonlyArray<ConnectorAgentRun>>([]);
+      yield* Effect.gen(function* () {
+        const jira = yield* JiraService.JiraService;
+        yield* jira.command({ type: "sync" });
+        yield* waitFor(jira, (snapshot) => snapshot.sync.status === "ok");
+        yield* jira.onFirstMessage({ threadId, message: "fix AIPR-1309", noProject: true });
+        yield* jira.onFirstMessage({ threadId, message: "fix the buttons", noProject: true });
+        const snapshot = yield* waitFor(jira, () => true);
+        expect(snapshot.suggestions).toEqual([]);
+      }).pipe(Effect.provide(makeLayer(calls)));
+    }),
+  );
+
   it.effect("links a ticket key typed in the first message without asking or a model", () =>
     Effect.gen(function* () {
       const calls = yield* Ref.make<ReadonlyArray<ConnectorAgentRun>>([]);

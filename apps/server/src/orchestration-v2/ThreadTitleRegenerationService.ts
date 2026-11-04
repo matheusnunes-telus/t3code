@@ -148,13 +148,17 @@ const make = Effect.gen(function* () {
       if (context.message.length === 0 && context.attachments.length === 0) {
         return { type: "complete" as const };
       }
-      // The first message is also when Jira looks for the thread's ticket; it runs on its own,
-      // and for chats without a project too.
+      const project = yield* projects.get(projection.thread.projectId);
+      // The first message is also when Jira looks for the thread's ticket; it runs on its own.
+      // By title, because older "No project" chats sit outside today's scratch folder.
       if (input.kind.type === "initial" && onFirstMessage !== undefined) {
-        yield* onFirstMessage({ threadId: input.threadId, message: context.message });
+        yield* onFirstMessage({
+          threadId: input.threadId,
+          message: context.message,
+          noProject: Option.isNone(project) || project.value.title === "No project",
+        });
       }
 
-      const project = yield* projects.get(projection.thread.projectId);
       if (Option.isNone(project)) {
         return { type: "complete" as const };
       }

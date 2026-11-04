@@ -2047,6 +2047,23 @@ export function ThreadsSettingsPanel() {
             }
           />
         ) : null}
+        {settings.jiraModelSelection !== null ? (
+          <SettingsRow
+            serverScoped
+            settingKeys={["jiraSuggestNoProject"]}
+            {...searchableSetting("jira-suggest-no-project")}
+            description="Off by default, since these chats are rarely ticket work. You can still link a ticket by hand from the chat header."
+            control={
+              <Switch
+                checked={settings.jiraSuggestNoProject}
+                onCheckedChange={(checked) =>
+                  updateSettings({ jiraSuggestNoProject: Boolean(checked) })
+                }
+                aria-label="Suggest tickets in No project chats"
+              />
+            }
+          />
+        ) : null}
       </SettingsSection>
 
       <SettingsSection id="google-cloud-section" title="Google Cloud">

@@ -55,6 +55,7 @@ import { FilesTabView } from "./files/FilesTabView";
 import { convertDraftToFilesTab } from "../filesTabs";
 import { useFilesTabsStore } from "../filesTabsStore";
 import { useJiraComposerBanners } from "./jira/useJiraComposerBanners";
+import { SCRATCH_PROJECT_TITLE } from "./settings/ProjectSettingsPanel.logic";
 import { useJiraSnapshot } from "~/state/jira";
 import { gcpLinkForProject, useGcpSnapshot } from "~/state/gcp";
 import { useGcpDeployBanners } from "./gcp/useGcpDeployBanners";
@@ -2567,10 +2568,13 @@ export default function ChatView(props: ChatViewProps) {
     isServerThread ? environmentId : null,
     activeThreadShell?.projectId,
   );
-  // Chats without a project never get the "link a Jira ticket" suggestion.
+  // By title too, because older "No project" chats sit outside today's scratch folder.
+  const activeChatHasNoProject =
+    activeProjectIsScratch || activeProject?.title === SCRATCH_PROJECT_TITLE;
   const jiraBannerItems = useJiraComposerBanners(
     activeThreadShell?.environmentId ?? null,
-    activeProjectIsScratch ? null : (activeThreadShell?.id ?? null),
+    activeThreadShell?.id ?? null,
+    activeChatHasNoProject && !settings.jiraSuggestNoProject,
   );
   const feedbackBannerItems = feedbackSubmissions.flatMap((submission) => {
     const item = feedbackBannerItem(submission, () => {

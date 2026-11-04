@@ -580,6 +580,7 @@ function changeSetBanner(input: {
 export function useJiraComposerBanners(
   environmentId: EnvironmentId | null,
   threadId: ThreadId | null,
+  hideSuggestion: boolean,
 ): ComposerBannerStackItem[] {
   const snapshot = useJiraSnapshot(environmentId);
   const command = useJiraCommand(environmentId);
@@ -591,7 +592,7 @@ export function useJiraComposerBanners(
   const items: ComposerBannerStackItem[] = [];
   const suggestion = snapshot.suggestions.find((entry) => entry.threadId === threadId);
   const linked = snapshot.links.some((link) => link.threadId === threadId);
-  if (suggestion !== undefined && !linked) {
+  if (suggestion !== undefined && !linked && !hideSuggestion) {
     const item = suggestionBanner({
       environmentId,
       snapshot,

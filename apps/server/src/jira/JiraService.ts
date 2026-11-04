@@ -145,6 +145,8 @@ class JiraCallError extends Data.TaggedError("JiraCallError")<{
 export interface JiraFirstMessage {
   readonly threadId: ThreadId;
   readonly message: string;
+  /** A "No project" chat, which gets no suggestion unless the setting asks for it. */
+  readonly noProject?: boolean;
 }
 
 /** Called when a thread's first message arrives, so Jira can suggest its ticket. */
@@ -918,11 +920,15 @@ export const make = Effect.gen(function* () {
     "JiraService.onFirstMessage",
   )(function* (input) {
     if ((yield* selection) === null || input.message.trim().length === 0) return;
-    const mode = yield* serverSettings.getSettings.pipe(
-      Effect.map((settings) => settings.jiraSuggest),
-      Effect.orElseSucceed(() => "ask" as const),
-    );
+    const settings = yield* serverSettings.getSettings.pipe(Effect.option);
+    const mode = settings._tag === "Some" ? settings.value.jiraSuggest : "ask";
     if (mode === "off") return;
+    if (
+      input.noProject === true &&
+      !(settings._tag === "Some" && settings.value.jiraSuggestNoProject)
+    ) {
+      return;
+    }
     const current = yield* Ref.get(store);
     if (current.issues.length === 0) return;
     if (
