@@ -722,8 +722,8 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Suggest tickets for new chats",
     to: "/settings/threads",
     targetId: "jira",
-    scope: "environment-defaults",
-    searchTerms: ["jira ticket match suggest ask automatic new chat first message"],
+    scope: "project-defaults",
+    searchTerms: ["jira ticket match suggest ask automatic new chat first message project"],
   },
   {
     id: "jira-suggest-no-project",

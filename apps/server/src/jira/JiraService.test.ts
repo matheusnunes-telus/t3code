@@ -2,7 +2,9 @@ import { NodeServices } from "@effect/platform-node";
 import {
   type JiraSnapshot,
   ProviderInstanceId,
+  type ServerSettings as ServerSettingsType,
   TextGenerationError,
+  ProjectId,
   ThreadId,
 } from "@t3tools/contracts";
 import type {
@@ -204,6 +206,7 @@ const makeLayer = (
   calls: Ref.Ref<ReadonlyArray<ConnectorAgentRun>>,
   cli: Layer.Layer<ProcessRunner.ProcessRunner> = missingCli,
   mcp: FakeMcp = { value: "ok" },
+  settings: Partial<ServerSettingsType> = {},
 ) =>
   JiraService.layer.pipe(
     Layer.provide(
@@ -214,6 +217,7 @@ const makeLayer = (
             instanceId: ProviderInstanceId.make("claudeAgent"),
             model: "claude-haiku-5-5",
           },
+          ...settings,
         }),
         Layer.mock(ProviderInstanceRegistry.ProviderInstanceRegistry)({
           getInstance: () =>
@@ -626,6 +630,39 @@ describe("JiraService", () => {
         const snapshot = yield* waitFor(jira, () => true);
         expect(snapshot.suggestions).toEqual([]);
       }).pipe(Effect.provide(makeLayer(calls)));
+    }),
+  );
+
+  it.effect("follows a project that turned suggestions off", () =>
+    Effect.gen(function* () {
+      const calls = yield* Ref.make<ReadonlyArray<ConnectorAgentRun>>([]);
+      const quiet = ProjectId.make("quiet-project");
+      yield* Effect.gen(function* () {
+        const jira = yield* JiraService.JiraService;
+        yield* jira.command({ type: "sync" });
+        yield* waitFor(jira, (snapshot) => snapshot.sync.status === "ok");
+        yield* jira.onFirstMessage({ threadId, message: "fix buttons", projectId: quiet });
+        expect((yield* waitFor(jira, () => true)).suggestions).toEqual([]);
+
+        yield* jira.onFirstMessage({
+          threadId,
+          message: "fix buttons",
+          projectId: ProjectId.make("other-project"),
+        });
+        const offered = yield* waitFor(jira, (snapshot) => snapshot.suggestions.length === 1);
+        expect(offered.suggestions[0]?.state).toBe("offered");
+      }).pipe(
+        Effect.provide(
+          makeLayer(
+            calls,
+            missingCli,
+            { value: "ok" },
+            {
+              projectSettingsOverrides: { [quiet]: { jiraSuggest: "off" } },
+            },
+          ),
+        ),
+      );
     }),
   );
 

@@ -155,6 +155,7 @@ const make = Effect.gen(function* () {
         yield* onFirstMessage({
           threadId: input.threadId,
           message: context.message,
+          projectId: projection.thread.projectId,
           noProject: Option.isNone(project) || project.value.title === "No project",
         });
       }

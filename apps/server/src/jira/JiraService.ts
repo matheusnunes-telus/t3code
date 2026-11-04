@@ -20,8 +20,10 @@ import {
   JiraTicketUpdates,
   type ModelSelection,
   type ServerSettings as ServerSettingsValue,
+  type ProjectId,
   type ThreadId,
 } from "@t3tools/contracts";
+import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import type { ConnectorAgent, ConnectorAgentResult } from "@t3tools/provider-core/server/driver";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
@@ -145,6 +147,8 @@ class JiraCallError extends Data.TaggedError("JiraCallError")<{
 export interface JiraFirstMessage {
   readonly threadId: ThreadId;
   readonly message: string;
+  /** The chat's project, whose settings can turn suggestions off. */
+  readonly projectId?: ProjectId;
   /** A "No project" chat, which gets no suggestion unless the setting asks for it. */
   readonly noProject?: boolean;
 }
@@ -921,7 +925,10 @@ export const make = Effect.gen(function* () {
   )(function* (input) {
     if ((yield* selection) === null || input.message.trim().length === 0) return;
     const settings = yield* serverSettings.getSettings.pipe(Effect.option);
-    const mode = settings._tag === "Some" ? settings.value.jiraSuggest : "ask";
+    const mode =
+      settings._tag === "None"
+        ? "ask"
+        : resolveProjectSettings(settings.value, input.projectId ?? null).settings.jiraSuggest;
     if (mode === "off") return;
     if (
       input.noProject === true &&
