@@ -42,7 +42,11 @@ export function useGcpDeployBanners(
   const latest = new Map<string, GcpDeployRun>();
   for (const run of runs) if (!latest.has(run.environment)) latest.set(run.environment, run);
   return [...latest.values()].flatMap((run): ComposerBannerStackItem[] => {
-    if (dismissed.has(run.id)) return [];
+    // A failure has its own key, so closing a running deploy doesn't hide that it later failed.
+    const failed = run.status === "completed" && run.conclusion !== "success";
+    const dismissKey = failed ? `${run.id}:failed` : run.id;
+    if (dismissed.has(dismissKey)) return [];
+    const dismiss = () => setDismissed((current) => new Set(current).add(dismissKey));
     const commit = run.headSha.slice(0, 7);
     if (run.status !== "completed") {
       return [
@@ -53,12 +57,13 @@ export function useGcpDeployBanners(
           title: `Deploying ${commit} to ${run.environment}`,
           description: `${runLabel(run)} · ${run.status === "waiting" ? "waiting for approval" : (run.currentJob ?? (run.status === "queued" ? "queued" : "running"))} · started ${relativeAge(run.createdAt, now)}`,
           actions: openRun(run),
+          dismissLabel: "Dismiss",
+          onDismiss: dismiss,
         },
       ];
     }
     if (now - Date.parse(run.updatedAt) > FINISHED_VISIBLE_MS) return [];
-    const dismiss = () => setDismissed((current) => new Set(current).add(run.id));
-    if (run.conclusion !== "success") {
+    if (failed) {
       return [
         {
           id: `gcp-deploy:${run.id}`,
