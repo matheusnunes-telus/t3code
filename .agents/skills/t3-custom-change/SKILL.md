@@ -49,9 +49,20 @@ Screenshots pasted into the chat often show as "unavailable". They are on disk i
 - Copy the closest existing component instead of inventing a pattern.
 - Every change Matheus suggests also becomes an option in Settings, in the same commit. Put it in the section where it belongs in the settings menu, as a `SettingsRow` with a description and a `settingsSearch` entry. Don't add a catch-all section.
 - Start from the simplest version that works. List what you cut, so Matheus can ask for it later.
-- For a proposal or a big UI change, show a mock before building it.
+- For a proposal or a big UI change, show a mock before building it, and always show it as a screenshot (a saved `.png` path in your reply), not only a description. If the change touches UI and the real app can't show it (for example it needs live Google Cloud or Jira data), a mock screenshot is the minimum. See "Run a mock" below.
 - If you're unsure about a choice that changes the result, ask. For "it was fine before" bugs, run `git log -S` on the relevant code first: the cause is often one recent fork commit, and its message says what it meant to do.
 - Don't use `try`/`catch` inside `ChatView.tsx` handlers. It caused a render loop (React #301) in the installed app. Use `.then(ok, err)` or the `result._tag === "Failure"` pattern.
+
+## Run a mock
+
+A mock is a small standalone HTML page that looks like the new UI, so Matheus can judge it before or without the real build.
+
+1. Write one `.html` file in your scratchpad. Copy the real colors, spacing and component look from [references/design-language.md](references/design-language.md) and from the closest existing component. Use fake data only, never real names, ticket text or project ids.
+2. Show it with `html_preview`, then `html_render`. Don't start a server for it.
+3. Save a screenshot as a `.png` and put its absolute path in your reply. Show the states that matter: default, hover, empty, disabled, and before/after when it helps.
+4. Say what the mock leaves out, so nobody mistakes it for the built thing.
+
+If the real app can show the change (dev app, see [references/dev-testing.md](references/dev-testing.md)), screenshots of the real app beat a mock.
 
 ## Check it
 
