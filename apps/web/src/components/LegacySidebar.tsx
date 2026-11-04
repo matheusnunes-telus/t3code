@@ -3889,30 +3889,6 @@ function useLegacySidebarProjects() {
   };
 }
 
-/** Top-level sidebar projects in sidebar order, with the refs of their nested folder projects. */
-export function useLegacySidebarRailProjects() {
-  const sidebarProjectSortOrder = useClientSettings((s) => s.sidebarProjectSortOrder);
-  const { physicalToLogicalKey, projectPhysicalKeyByScopedRef, sidebarProjects } =
-    useLegacySidebarProjects();
-  const { sortedProjects } = useSortedLegacySidebarProjects({
-    sidebarProjects,
-    physicalToLogicalKey,
-    projectPhysicalKeyByScopedRef,
-    sidebarProjectSortOrder,
-  });
-  const detachedProjectKeys = useSubProjectStore((store) => store.detachedProjectKeys);
-  const { topLevelProjects, childProjectsByKey } = nestProjectsByFolder(
-    sortedProjects,
-    detachedProjectKeys,
-  );
-  return topLevelProjects.map((project) => ({
-    project,
-    memberProjectRefs: [project, ...(childProjectsByKey.get(project.projectKey) ?? [])].flatMap(
-      (member) => member.memberProjectRefs,
-    ),
-  }));
-}
-
 // Re-sort on thread changes without rebuilding project snapshots used as row keys.
 function useSortedLegacySidebarProjects(input: {
   sidebarProjects: readonly SidebarProjectSnapshot[];

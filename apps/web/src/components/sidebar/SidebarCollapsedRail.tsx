@@ -9,33 +9,25 @@ import {
   TicketIcon,
 } from "lucide-react";
 import type { MouseEvent as ReactMouseEvent, ReactNode } from "react";
-import type { ScopedProjectRef } from "@t3tools/contracts";
-import {
-  scopedProjectKey,
-  scopedThreadKey,
-  scopeThreadRef,
-} from "@t3tools/client-runtime/environment";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 
 import { cn } from "~/lib/utils";
 import { openCommandPalette } from "../../commandPaletteBus";
 import { useHandleNewThread } from "../../hooks/useHandleNewThread";
-import { useThreadRouteTarget } from "../../hooks/useThreadRouteTarget";
 import { startNewThreadFromContext } from "../../lib/chatThreadActions";
 import { useRightPanelStore } from "../../rightPanelStore";
 import { usePrimaryEnvironmentId, usePullRequestsSupported } from "../../state/environments";
-import { useThreadShell, useThreadShellsForProjectRefs } from "../../state/entities";
 import { gcpLinkForProject, gcpLoginHealth, useGcpSnapshot } from "../../state/gcp";
 import { useJiraSnapshot } from "../../state/jira";
 import { useUiStateStore } from "../../uiStateStore";
-import { useChatTabsStore } from "../../chatTabsStore";
-import { useProjects, useThreadShells } from "../../state/entities";
 import { useNavigateToThreadKey } from "../ChatTabsBar";
-import type { SidebarProjectSnapshot } from "../../sidebarProjectGrouping";
-import { useLegacySidebarRailProjects } from "../LegacySidebar";
 import { ProjectFavicon } from "../ProjectFavicon";
-import { resolveProjectStatusIndicator } from "../LegacySidebar.logic";
-import { resolveThreadStatusPill } from "../Sidebar.logic";
+import {
+  resolveThreadLastVisitedAt,
+  resolveThreadStatusPill,
+  type ThreadStatusPill,
+} from "../Sidebar.logic";
+import { useChatTabStrip } from "../useChatTabStrip";
 import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
 import { readPullRequestListPreferences } from "../pullRequest/pullRequestListPreferences";
 import { SidebarMenuButton, useSidebarPeek } from "../ui/sidebar";
@@ -92,30 +84,22 @@ function RailButton({
   );
 }
 
-function RailProject({
-  project,
-  memberProjectRefs,
+/** The rail's copy of a tab: the same icon, status and click as in the top bar. */
+function RailTab({
+  label,
+  icon,
+  dot,
   active,
-  onOpen,
+  faded,
+  onClick,
 }: {
-  project: SidebarProjectSnapshot;
-  memberProjectRefs: readonly ScopedProjectRef[];
+  label: string;
+  icon: ReactNode;
+  dot?: ThreadStatusPill | null;
   active: boolean;
-  onOpen: (projectKey: string) => void;
+  faded: boolean;
+  onClick: () => void;
 }) {
-  const threads = useThreadShellsForProjectRefs(memberProjectRefs);
-  const lastVisitedAtById = useUiStateStore((state) => state.threadLastVisitedAtById);
-  const status = resolveProjectStatusIndicator(
-    threads.map((thread) => {
-      const lastVisitedAt =
-        lastVisitedAtById[scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))];
-      return resolveThreadStatusPill({
-        thread: { ...thread, ...(lastVisitedAt ? { lastVisitedAt } : {}) },
-      });
-    }),
-  );
-  const label = status ? `${project.displayName}: ${status.label}` : project.displayName;
-
   return (
     <Tooltip>
       <TooltipTrigger
@@ -124,8 +108,8 @@ function RailProject({
             type="button"
             aria-label={label}
             aria-current={active || undefined}
-            className="group/rail-project relative flex w-full shrink-0 justify-center py-0.5"
-            onClick={() => onOpen(project.projectKey)}
+            className="group/rail-tab relative flex w-full shrink-0 justify-center py-0.5"
+            onClick={onClick}
           >
             {active ? (
               <span className="absolute inset-y-1.5 left-0 w-0.75 rounded-e-full bg-foreground" />
@@ -133,16 +117,17 @@ function RailProject({
             <span
               className={cn(
                 "relative flex size-7 items-center justify-center rounded-md transition-colors",
-                active ? "bg-accent" : "group-hover/rail-project:bg-accent/60",
+                active ? "bg-accent" : "group-hover/rail-tab:bg-accent/60",
+                faded && "opacity-70",
               )}
             >
-              <ProjectFavicon project={project} className="size-4" />
-              {status ? (
+              {icon}
+              {dot ? (
                 <span
                   className={cn(
                     "absolute -top-0.5 -right-0.5 size-2 rounded-full ring-2 ring-sidebar",
-                    status.dotClass,
-                    status.pulse && "motion-safe:animate-status-pulse",
+                    dot.dotClass,
+                    dot.pulse && "motion-safe:animate-status-pulse",
                   )}
                 />
               ) : null}
@@ -155,114 +140,67 @@ function RailProject({
   );
 }
 
-function RailProjects({ onOpen }: { onOpen: (projectKey: string) => void }) {
-  const projects = useLegacySidebarRailProjects();
-  const routeTarget = useThreadRouteTarget();
-  const routeThread = useThreadShell(routeTarget?.kind === "server" ? routeTarget.threadRef : null);
-  const activeProjectKey = routeThread
-    ? scopedProjectKey({
-        environmentId: routeThread.environmentId,
-        projectId: routeThread.projectId,
-      })
-    : null;
-  if (projects.length === 0) return null;
-
-  return (
-    <div className="flex min-h-0 w-full flex-col items-center gap-0.5 overflow-y-auto py-1 [scrollbar-width:none]">
-      {projects.map(({ project, memberProjectRefs }) => (
-        <RailProject
-          key={project.projectKey}
-          project={project}
-          memberProjectRefs={memberProjectRefs}
-          active={
-            activeProjectKey !== null &&
-            memberProjectRefs.some((ref) => scopedProjectKey(ref) === activeProjectKey)
-          }
-          onOpen={onOpen}
-        />
-      ))}
-    </div>
+const railTabIcon = (project: Parameters<typeof ProjectFavicon>[0]["project"] | undefined) =>
+  project ? (
+    <ProjectFavicon project={project} className="size-4" />
+  ) : (
+    <MessageSquareIcon aria-hidden className="size-4 text-muted-foreground" />
   );
-}
 
-/** The open chat tabs as project icons, in the order of the tab strip. */
+/** The tab strip as a column: same tabs, same order, with a small gap between project groups. */
 function RailTabs() {
-  const tabs = useChatTabsStore((state) => state.tabs);
-  const threads = useThreadShells();
-  const projects = useProjects();
+  const { tabGroups, draftTabs, activeThreadKey, routeDraftId } = useChatTabStrip();
   const lastVisitedAtById = useUiStateStore((state) => state.threadLastVisitedAtById);
-  const routeTarget = useThreadRouteTarget();
+  const navigate = useNavigate();
   const navigateToThreadKey = useNavigateToThreadKey();
-  const activeKey = routeTarget?.kind === "server" ? scopedThreadKey(routeTarget.threadRef) : null;
-  const threadByKey = new Map(
-    threads.map((thread) => [
-      scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
-      thread,
-    ]),
-  );
-  const projectByKey = new Map(
-    projects.map((project) => [`${project.environmentId}:${project.id}`, project] as const),
-  );
-  const items = tabs.flatMap((tab) => {
-    const thread = threadByKey.get(tab.threadKey);
-    if (!thread) return [];
-    const project = projectByKey.get(`${thread.environmentId}:${thread.projectId}`);
-    const lastVisitedAt = lastVisitedAtById[tab.threadKey];
-    const pill = resolveThreadStatusPill({
-      thread: { ...thread, ...(lastVisitedAt ? { lastVisitedAt } : {}) },
-    });
-    return [{ tab, thread, project, pill }];
-  });
-  if (items.length === 0) return null;
+  if (tabGroups.length === 0 && draftTabs.length === 0) return null;
 
   return (
-    <div className="flex min-h-0 w-full flex-col items-center gap-0.5 overflow-y-auto py-1 [scrollbar-width:none]">
-      {items.map(({ tab, thread, project, pill }) => {
-        const active = tab.threadKey === activeKey;
-        const label = pill ? `${thread.title}: ${pill.label}` : thread.title;
-        return (
-          <Tooltip key={tab.threadKey}>
-            <TooltipTrigger
-              render={
-                <button
-                  type="button"
-                  aria-label={label}
-                  aria-current={active || undefined}
-                  className="group/rail-tab relative flex w-full shrink-0 justify-center py-0.5"
-                  onClick={() => void navigateToThreadKey(tab.threadKey)}
-                >
-                  {active ? (
-                    <span className="absolute inset-y-1.5 left-0 w-0.75 rounded-e-full bg-foreground" />
-                  ) : null}
-                  <span
-                    className={cn(
-                      "relative flex size-7 items-center justify-center rounded-md transition-colors",
-                      active ? "bg-accent" : "group-hover/rail-tab:bg-accent/60",
-                      tab.preview && "opacity-70",
-                    )}
-                  >
-                    {project ? (
-                      <ProjectFavicon project={project} className="size-4" />
-                    ) : (
-                      <MessageSquareIcon aria-hidden className="size-4 text-muted-foreground" />
-                    )}
-                    {pill ? (
-                      <span
-                        className={cn(
-                          "absolute -top-0.5 -right-0.5 size-2 rounded-full ring-2 ring-sidebar",
-                          pill.dotClass,
-                          pill.pulse && "motion-safe:animate-status-pulse",
-                        )}
-                      />
-                    ) : null}
-                  </span>
-                </button>
+    <div className="flex min-h-0 w-full flex-col items-center gap-2 overflow-y-auto py-1 [scrollbar-width:none]">
+      {tabGroups.map((group) => (
+        <div key={group.groupId} className="flex w-full shrink-0 flex-col items-center gap-0.5">
+          {group.items.map(({ tab, thread, title, iconProject }) => {
+            const pill = thread
+              ? resolveThreadStatusPill({
+                  thread: {
+                    ...thread,
+                    lastVisitedAt: resolveThreadLastVisitedAt(
+                      thread.lastVisitedAt,
+                      lastVisitedAtById[tab.threadKey],
+                    ),
+                  },
+                })
+              : null;
+            return (
+              <RailTab
+                key={tab.threadKey}
+                label={pill ? `${title}: ${pill.label}` : title}
+                icon={railTabIcon(iconProject)}
+                dot={pill}
+                active={tab.threadKey === activeThreadKey}
+                faded={tab.preview}
+                onClick={() => void navigateToThreadKey(tab.threadKey)}
+              />
+            );
+          })}
+        </div>
+      ))}
+      {draftTabs.length > 0 ? (
+        <div className="flex w-full shrink-0 flex-col items-center gap-0.5">
+          {draftTabs.map((draft) => (
+            <RailTab
+              key={draft.draftId}
+              label={`${draft.title} (unsent)`}
+              icon={railTabIcon(draft.project)}
+              active={draft.draftId === routeDraftId}
+              faded
+              onClick={() =>
+                void navigate({ to: "/draft/$draftId", params: { draftId: draft.draftId } })
               }
             />
-            <TooltipPopup side="right">{label}</TooltipPopup>
-          </Tooltip>
-        );
-      })}
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -312,15 +250,6 @@ export function SidebarCollapsedRail({ showThreadActions }: { showThreadActions:
       });
     });
   };
-  const handleOpenProject = (projectKey: string) => {
-    openPeek?.();
-    requestAnimationFrame(() => {
-      findSidebarControl(`[data-sidebar-project-key="${CSS.escape(projectKey)}"]`)?.scrollIntoView({
-        block: "nearest",
-      });
-    });
-  };
-
   return (
     <div className="flex h-full flex-col items-center pb-1">
       <div className="flex flex-col items-center gap-1 pt-2">
@@ -330,7 +259,6 @@ export function SidebarCollapsedRail({ showThreadActions }: { showThreadActions:
       <div className="my-2 h-px w-5 shrink-0 bg-border" />
       <div className="flex min-h-0 w-full flex-1 flex-col">
         <RailTabs />
-        {showThreadActions ? null : <RailProjects onOpen={handleOpenProject} />}
       </div>
       <div className="flex flex-col items-center gap-1 pt-2">
         {isOnUtilityPage ? (

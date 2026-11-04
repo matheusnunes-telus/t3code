@@ -16,7 +16,7 @@ Last synced with the official `main`: 2026-11-03.
 - Subagent chats are folded under their main chat, with an "N subagents" toggle.
 - Settle and Un-settle in the chat hover actions and the right-click menu.
 - Collapsed mode leaves a narrow icon rail (new chat, search, settings, pull requests, usage). Hovering it floats the full sidebar over the content. The rail starts below the top bar, and the floating sidebar covers the message minimap.
-- The collapsed rail also lists the open chat tabs as project icons, in tab order, with the same status dot. Click one to open that chat.
+- The collapsed rail lists exactly what the tab strip shows, in the same order: chats, files tabs and unsent drafts, as project icons with the same status dot, and a small gap between project groups. Click one to open it. The rail no longer lists projects; those are in the sidebar when you hover.
 
 ## Chat tabs
 

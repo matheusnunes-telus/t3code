@@ -1,8 +1,4 @@
-import {
-  parseScopedThreadKey,
-  scopedThreadKey,
-  scopeThreadRef,
-} from "@t3tools/client-runtime/environment";
+import { parseScopedThreadKey, scopedThreadKey } from "@t3tools/client-runtime/environment";
 import { threadRuntimeCanArchive } from "@t3tools/client-runtime/state/models";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import {
@@ -28,34 +24,26 @@ import {
   startRecentTabCycle,
   stepRecentTabCycle,
 } from "../chatTabCycle";
-import { groupTabs, moveGroupId, SCRATCH_TAB_GROUP_ID } from "../chatTabGroups";
+import { moveGroupId } from "../chatTabGroups";
 import { localDayKey, useChatTabsStore } from "../chatTabsStore";
 import { deriveProjectIdentity } from "../projectIdentity";
 import { projectIconColorClassName } from "../projectIconColors";
-import { isScratchProject } from "@t3tools/client-runtime/state/projects";
-import { useEnvironments } from "../state/environments";
 import { useThreadActions } from "../hooks/useThreadActions";
-import {
-  composerDraftHasUserContent,
-  type DraftId,
-  useComposerDraftStore,
-} from "../composerDraftStore";
+import type { DraftId } from "../composerDraftStore";
 import { useFileAutoSaveStore } from "../fileAutoSaveStore";
 import { closeFileInFilesTab, closeFilesTab, filesDraftIdForThreadKey } from "../filesTabs";
-import { filesTabTitle, isScratchPath, useFilesTabsStore } from "../filesTabsStore";
+import { isScratchPath, useFilesTabsStore } from "../filesTabsStore";
 import { useTheme } from "../hooks/useTheme";
 import { PierreEntryIcon } from "./chat/PierreEntryIcon";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { isCommandPaletteOpen } from "../commandPaletteBus";
 import { isElectron } from "../env";
-import { useThreadRouteTarget } from "../hooks/useThreadRouteTarget";
 import { resolveShortcutCommand } from "../keybindings";
 import { isEditableFocused } from "../lib/editableFocus";
 import { isPreviewFocused } from "../lib/previewFocus";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { cn } from "../lib/utils";
 import { useStableCallback } from "../hooks/useStableCallback";
-import { useProjects, useThreadShells } from "../state/entities";
 import { serverEnvironment } from "../state/server";
 import { useNowMinute } from "../hooks/useNowMinute";
 import {
@@ -70,6 +58,7 @@ import { ProjectFavicon } from "./ProjectFavicon";
 import { primaryServerKeybindingsAtom } from "../state/server";
 import { buildThreadRouteParams } from "../threadRoutes";
 import { useDraftTabsStore } from "../draftTabsStore";
+import { useChatTabStrip } from "./useChatTabStrip";
 import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "../workspaceTitlebar";
 
 const CHAT_TAB_DRAG_TYPE = "application/x-t3-chat-tab";
@@ -212,96 +201,40 @@ export function ChatTabsBar() {
     setDraggingTabKey(null);
     setTabDropTarget(null);
   };
-  const groupOrder = useChatTabsStore((state) => state.groupOrder);
   const setGroupOrder = useChatTabsStore((state) => state.setGroupOrder);
   // Drag a group's colored line to slide the project groups into a new order.
   const [draggingGroupId, setDraggingGroupId] = useState<string | null>(null);
   const groupDragSensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
   );
-  const { environments } = useEnvironments();
-  const threads = useThreadShells();
   const threadLastVisitedAtById = useUiStateStore((state) => state.threadLastVisitedAtById);
-  const projects = useProjects();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const navigateToThreadKey = useNavigateToThreadKey();
   const router = useRouter();
-  const routeTarget = useThreadRouteTarget();
-  const filesTabsByDraftId = useFilesTabsStore((state) => state.tabsByDraftId);
   const filesDirtyByDraftId = useFilesTabsStore((state) => state.dirtyByDraftId);
   const autoSave = useFileAutoSaveStore((state) => state.autoSave);
-  const draftThreadsByThreadKey = useComposerDraftStore((store) => store.draftThreadsByThreadKey);
   const { resolvedTheme } = useTheme();
-  const routeIsFilesTab =
-    routeTarget?.kind === "draft" && filesTabsByDraftId[routeTarget.draftId] !== undefined;
-  const threadByKey = new Map(
-    threads.map((thread) => [
-      scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
-      thread,
-    ]),
-  );
+  const {
+    tabGroups,
+    draftTabs,
+    activeThreadKey,
+    routeDraftId,
+    routeDraftThreadKey,
+    showDraftTab,
+    threadByKey,
+    projectByKey,
+    filesTabByThreadKey,
+  } = useChatTabStrip();
 
-  const projectByKey = new Map(
-    projects.map((project) => [`${project.environmentId}:${project.id}`, project] as const),
-  );
-
-  // Whatever the route shows gets a tab. A draft that just became a real thread
-  // (a new chat) opens permanent; anything else reuses the preview tab.
-  const routeDraftThreadKey = useComposerDraftStore((store) => {
-    if (routeTarget?.kind !== "draft") return null;
-    const draft = store.getDraftSession(routeTarget.draftId);
-    return draft ? scopedThreadKey(scopeThreadRef(draft.environmentId, draft.threadId)) : null;
-  });
-  // A new chat that hasn't been sent yet shows as a temporary "New chat" tab at the
-  // end of the strip. Sending it turns it into the real chat's tab in the same spot.
-  const routeDraftProjectKey = useComposerDraftStore((store) => {
-    if (routeTarget?.kind !== "draft") return null;
-    const draft = store.getDraftSession(routeTarget.draftId);
-    return draft ? (`${draft.environmentId}:${draft.projectId}` as const) : null;
-  });
-  const showDraftTab = routeDraftProjectKey !== null && !routeIsFilesTab;
-  const routeDraftId = routeTarget?.kind === "draft" ? routeTarget.draftId : null;
-  // Unsent chats opened this session keep their tab after you leave them, if something is
-  // typed, so the text is one click away. Closing one hides its tab; the draft stays in the sidebar.
-  const openedDraftIds = useDraftTabsStore((state) => state.draftIds);
   useEffect(() => {
     if (showDraftTab && routeDraftId !== null) useDraftTabsStore.getState().add(routeDraftId);
   }, [showDraftTab, routeDraftId]);
-  const draftsByThreadKey = useComposerDraftStore((store) => store.draftsByThreadKey);
-  const draftTabs = Object.entries(draftThreadsByThreadKey)
-    .filter(([draftId, session]) =>
-      draftId === routeDraftId
-        ? showDraftTab
-        : session.promotedTo == null &&
-          filesTabsByDraftId[draftId] === undefined &&
-          openedDraftIds.has(draftId) &&
-          composerDraftHasUserContent(draftsByThreadKey[draftId]),
-    )
-    .toSorted(([, a], [, b]) => a.createdAt.localeCompare(b.createdAt))
-    .map(([draftId, session]) => ({
-      draftId: draftId as DraftId,
-      project: projectByKey.get(`${session.environmentId}:${session.projectId}`),
-      title: draftsByThreadKey[draftId]?.prompt.trim().split("\n")[0]?.slice(0, 60) || "New chat",
-    }));
-  // A files tab is a draft, so its route is the draft's.
-  const activeThreadKey =
-    routeTarget?.kind === "server"
-      ? scopedThreadKey(routeTarget.threadRef)
-      : routeIsFilesTab
-        ? routeDraftThreadKey
-        : null;
-  const filesTabByThreadKey = new Map(
-    Object.entries(filesTabsByDraftId).flatMap(([draftId, filesTab]) => {
-      const session = draftThreadsByThreadKey[draftId];
-      if (!session) return [];
-      const key = scopedThreadKey(scopeThreadRef(session.environmentId, session.threadId));
-      return [[key, { draftId: draftId as DraftId, session, filesTab }] as const];
-    }),
-  );
   const filesTabCwd = (files: NonNullable<ReturnType<typeof filesTabByThreadKey.get>>) =>
     files.session.worktreePath ??
     projectByKey.get(`${files.session.environmentId}:${files.session.projectId}`)?.workspaceRoot ??
     null;
+  // Whatever the route shows gets a tab. A draft that just became a real thread
+  // (a new chat) opens permanent; anything else reuses the preview tab.
   const lastDraftThreadKeyRef = useRef<string | null>(null);
   useEffect(() => {
     if (routeDraftThreadKey) lastDraftThreadKeyRef.current = routeDraftThreadKey;
@@ -381,7 +314,7 @@ export function ChatTabsBar() {
     for (const key of swept) settleTabThread(key);
     if (activeThreadKey && swept.includes(activeThreadKey)) void navigateToThreadKey(null);
   });
-  const threadsLoaded = threads.length > 0;
+  const threadsLoaded = threadByKey.size > 0;
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- a timer to the next local midnight is outside React; threads must be loaded first so the sweep can tell running and pinned chats apart.
   useEffect(() => {
     if (!threadsLoaded) return;
@@ -489,33 +422,6 @@ export function ChatTabsBar() {
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [onKeyDown]);
 
-  // One group per project; chats without a project (the scratch project) are their own group.
-  const tabGroups = groupTabs(
-    tabs.map((tab, index) => {
-      const thread = threadByKey.get(tab.threadKey);
-      const files = thread ? undefined : filesTabByThreadKey.get(tab.threadKey);
-      const projectRef = thread ?? files?.session;
-      const project = projectRef
-        ? projectByKey.get(`${projectRef.environmentId}:${projectRef.projectId}`)
-        : undefined;
-      const scratchRoot = projectRef
-        ? (environments.find(
-            (environment) => environment.environmentId === projectRef.environmentId,
-          )?.serverConfig?.scratchWorkspaceRoot ?? null)
-        : null;
-      const isScratch = project !== undefined && isScratchProject(project, scratchRoot);
-      const groupId =
-        isScratch || !project || !projectRef
-          ? SCRATCH_TAB_GROUP_ID
-          : `${projectRef.environmentId}:${projectRef.projectId}`;
-      return {
-        groupId,
-        title: isScratch || !project ? "No project" : project.title,
-        item: { tab, index, project: isScratch ? undefined : project },
-      };
-    }),
-    groupOrder,
-  );
   const tabGroupIds = tabGroups.map((group) => group.groupId);
   const handleGroupDragStart = ({ active }: DragStartEvent) =>
     setDraggingGroupId(String(active.id));
@@ -571,8 +477,7 @@ export function ChatTabsBar() {
                   title={group.title}
                   lineColor={lineColor}
                 >
-                  {group.items.map(({ tab, index }) => {
-                    const thread = threadByKey.get(tab.threadKey);
+                  {group.items.map(({ tab, index, thread, files, title, iconProject: project }) => {
                     const isActive = tab.threadKey === activeThreadKey;
                     const isRunning = thread ? !threadRuntimeCanArchive(thread.runtime) : false;
                     const hasUnreadCompletion =
@@ -586,22 +491,8 @@ export function ChatTabsBar() {
                           ),
                         },
                       })?.label === "Completed";
-                    const files = thread ? undefined : filesTabByThreadKey.get(tab.threadKey);
-                    const projectKey = thread
-                      ? (`${thread.environmentId}:${thread.projectId}` as const)
-                      : files
-                        ? (`${files.session.environmentId}:${files.session.projectId}` as const)
-                        : null;
-                    const project = projectKey ? projectByKey.get(projectKey) : undefined;
                     const activePath = files?.filesTab.relativePath ?? null;
                     const filePath = activePath && !isScratchPath(activePath) ? activePath : null;
-                    const title =
-                      thread?.title ??
-                      (files
-                        ? activePath
-                          ? filesTabTitle(activePath)
-                          : `${project?.title ?? "Project"} files`
-                        : "Unavailable thread");
                     const unsaved =
                       files !== undefined &&
                       !autoSave &&
