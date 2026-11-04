@@ -1002,16 +1002,17 @@ export const make = Effect.gen(function* () {
     },
   );
 
-  const noteSprintFailure = Effect.fn("JiraService.noteSprintFailure")(function* (
+  /** A ticket was created, but a step after that failed; the toast says which. */
+  const noteCreateFailure = Effect.fn("JiraService.noteCreateFailure")(function* (
     key: string,
-    message: string,
+    summary: string,
   ) {
     const at = yield* nowIso;
     yield* update((state) => ({
       ...state,
       notices: [
         ...state.notices.filter((notice) => notice.key !== key),
-        { key, at, summary: `Created ${key}, but it could not join the sprint: ${message}` },
+        { key, at, summary },
       ],
     }));
   });
@@ -1105,7 +1106,25 @@ export const make = Effect.gen(function* () {
       }));
       if (sprintLeft && sprintId != null) {
         yield* moveToSprint(key, sprintId).pipe(
-          Effect.catchTags({ JiraCallError: (error) => noteSprintFailure(key, error.message) }),
+          Effect.catchTags({
+            JiraCallError: (error) =>
+              noteCreateFailure(
+                key,
+                `Created ${key}, but it could not join the sprint: ${error.message}`,
+              ),
+          }),
+        );
+      }
+      const status = input.draft.status;
+      if (status !== undefined && status !== "To Do") {
+        yield* moveToStatus(key, status).pipe(
+          Effect.catchTags({
+            JiraCallError: (error) =>
+              noteCreateFailure(
+                key,
+                `Created ${key}, but it could not move to ${status}: ${error.message}`,
+              ),
+          }),
         );
       }
     }).pipe(
@@ -1358,25 +1377,31 @@ export const make = Effect.gen(function* () {
     );
   });
 
+  const moveToStatus = Effect.fn("JiraService.moveToStatus")(function* (
+    key: string,
+    status: (typeof JIRA_STATUSES)[number],
+  ) {
+    yield* applyChanges(key, [{ kind: "status", to: status }]);
+    const statusCategory =
+      status === "Done" ? "done" : status === "To Do" ? "new" : "indeterminate";
+    // Shown at once; the sync that follows confirms it against Jira.
+    yield* update((state) => ({
+      ...state,
+      issues: state.issues.map((issue) =>
+        issue.key === key ? { ...issue, status, statusCategory } : issue,
+      ),
+    }));
+    yield* fork(sync({}).pipe(Effect.ignore));
+  });
+
   const setStatus = Effect.fn("JiraService.setStatus")(function* (input: {
     readonly key: string;
     readonly status: (typeof JIRA_STATUSES)[number];
   }) {
     if ((yield* selection) === null) return yield* jiraError("Jira is off.");
-    const key = input.key.toUpperCase();
-    yield* applyChanges(key, [{ kind: "status", to: input.status }]).pipe(
+    yield* moveToStatus(input.key.toUpperCase(), input.status).pipe(
       Effect.mapError((error) => jiraError(error.message)),
     );
-    const statusCategory =
-      input.status === "Done" ? "done" : input.status === "To Do" ? "new" : "indeterminate";
-    // Shown at once; the sync that follows confirms it against Jira.
-    yield* update((state) => ({
-      ...state,
-      issues: state.issues.map((issue) =>
-        issue.key === key ? { ...issue, status: input.status, statusCategory } : issue,
-      ),
-    }));
-    yield* fork(sync({}).pipe(Effect.ignore));
   });
 
   const loadDetails = Effect.fn("JiraService.loadDetails")(function* (input: {

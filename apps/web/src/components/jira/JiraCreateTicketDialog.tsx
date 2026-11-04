@@ -1,6 +1,7 @@
 import type {
   EnvironmentId,
   JiraSnapshot,
+  JiraStatusName,
   JiraTicketFormDraft,
   ThreadId,
 } from "@t3tools/contracts";
@@ -24,6 +25,10 @@ import { Textarea } from "../ui/textarea";
 import { JiraKey } from "./JiraTicketBits";
 
 const BACKLOG = "backlog";
+
+/** A ticket made from a chat is usually for the work happening now. */
+export const NEW_TICKET_STATUS: JiraStatusName = "In Progress";
+export const NEW_TICKET_STATUSES: ReadonlyArray<JiraStatusName> = ["To Do", "In Progress"];
 
 /** The model's draft for the dialog, started by the click that opens it. */
 export type JiraDraftRequest =
@@ -133,6 +138,7 @@ function CreateTicketForm({
     return active === undefined ? BACKLOG : String(active.id);
   });
   const sprint = snapshot.sprints.find((candidate) => String(candidate.id) === sprintValue);
+  const [status, setStatus] = useState<JiraStatusName>(NEW_TICKET_STATUS);
   // When the draft lands, it fills only the fields the user hasn't typed into yet.
   const [appliedRequest, setAppliedRequest] = useState<JiraDraftRequest | null>(null);
   if (appliedRequest !== request) {
@@ -162,6 +168,7 @@ function CreateTicketForm({
         summary: summary.trim(),
         description: description.trim(),
         sprintId: sprint?.id ?? null,
+        status,
       },
     });
     onDone();
@@ -258,6 +265,24 @@ function CreateTicketForm({
                 <SelectItem hideIndicator value={BACKLOG}>
                   Backlog
                 </SelectItem>
+              </SelectPopup>
+            </Select>
+          </label>
+          <label className="flex flex-col gap-1.5 text-sm">
+            <span className="text-muted-foreground">Status</span>
+            <Select
+              value={status}
+              onValueChange={(value) => setStatus(value ?? NEW_TICKET_STATUS)}
+            >
+              <SelectTrigger size="sm" aria-label="Status">
+                <SelectValue>{status}</SelectValue>
+              </SelectTrigger>
+              <SelectPopup>
+                {NEW_TICKET_STATUSES.map((candidate) => (
+                  <SelectItem key={candidate} hideIndicator value={candidate}>
+                    {candidate}
+                  </SelectItem>
+                ))}
               </SelectPopup>
             </Select>
           </label>

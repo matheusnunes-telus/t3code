@@ -114,6 +114,8 @@ export const JiraTicketDraft = Schema.Struct({
   description: Schema.String,
   /** Null or missing leaves the ticket in the backlog. */
   sprintId: Schema.optionalKey(Schema.NullOr(Schema.Int)),
+  /** Where the ticket goes once created. Missing leaves it in Jira's first status, To Do. */
+  status: Schema.optionalKey(JiraStatusName),
 });
 export type JiraTicketDraft = typeof JiraTicketDraft.Type;
 

@@ -44,6 +44,10 @@ Last synced with the official `main`: 2026-11-03.
 - Finished deploys no longer pop up as toasts or desktop notifications. The deploy banners above the composer and the Cloud panel still show them.
 - Deploy banners can be closed while the deploy is running. A closed deploy stays hidden when it finishes, unless it fails.
 
+## Jira
+
+- New tickets get a status when you create them from a chat, In Progress by default, or To Do.
+
 ## Messages
 
 - Steps the agent took before writing a message fold into one line ("Ran 3 commands"). Steps after its last message stay one per line while it works.

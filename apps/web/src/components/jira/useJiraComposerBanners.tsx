@@ -16,9 +16,14 @@ import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
 import { Input } from "../ui/input";
+import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Spinner } from "../ui/spinner";
 import { Textarea } from "../ui/textarea";
-import { useJiraCreateTicket } from "./JiraCreateTicketDialog";
+import {
+  NEW_TICKET_STATUS,
+  NEW_TICKET_STATUSES,
+  useJiraCreateTicket,
+} from "./JiraCreateTicketDialog";
 import { JiraKey, JiraStatusBadge, JiraTicketPath } from "./JiraTicketBits";
 
 type Command = ReturnType<typeof useJiraCommand>;
@@ -97,7 +102,7 @@ function DraftEditor({
   return (
     <div className="flex flex-col gap-2 text-sm">
       <JiraTicketPath snapshot={snapshot} issueKey={draft.parentKey} />
-      <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+      <div className="grid gap-2 sm:grid-cols-[1fr_auto_auto]">
         <Input
           size="sm"
           aria-label="New ticket title"
@@ -125,6 +130,21 @@ function DraftEditor({
             </option>
           ))}
         </select>
+        <Select
+          value={draft.status ?? NEW_TICKET_STATUS}
+          onValueChange={(status) => onChange({ ...draft, status: status ?? NEW_TICKET_STATUS })}
+        >
+          <SelectTrigger size="sm" aria-label="New ticket status" className="w-32">
+            <SelectValue>{draft.status ?? NEW_TICKET_STATUS}</SelectValue>
+          </SelectTrigger>
+          <SelectPopup>
+            {NEW_TICKET_STATUSES.map((status) => (
+              <SelectItem key={status} hideIndicator value={status}>
+                {status}
+              </SelectItem>
+            ))}
+          </SelectPopup>
+        </Select>
       </div>
       <Textarea
         size="sm"
@@ -294,7 +314,13 @@ function suggestionBanner(input: {
             <Button
               size="xs"
               disabled={draft.summary.trim().length === 0}
-              onClick={() => void command({ type: "createTicket", threadId, draft })}
+              onClick={() =>
+                void command({
+                  type: "createTicket",
+                  threadId,
+                  draft: { ...draft, status: draft.status ?? NEW_TICKET_STATUS },
+                })
+              }
             >
               Create and link
             </Button>

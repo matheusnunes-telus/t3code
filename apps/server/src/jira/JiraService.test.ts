@@ -518,6 +518,63 @@ describe("JiraService", () => {
     }),
   );
 
+  it.effect("moves a new ticket to the status chosen for it", () =>
+    Effect.gen(function* () {
+      const calls = yield* Ref.make<ReadonlyArray<ConnectorAgentRun>>([]);
+      yield* Effect.gen(function* () {
+        const jira = yield* JiraService.JiraService;
+        yield* jira.command({
+          type: "createTicket",
+          threadId,
+          draft: {
+            parentKey: "AIPR-1309",
+            type: "Sub-task",
+            summary: "Dark mode toggle",
+            description: "Add a theme toggle.",
+            status: "In Progress",
+          },
+        });
+        const moved = yield* waitFor(jira, (snapshot) =>
+          snapshot.issues.some(
+            (issue) => issue.key === "AIPR-1400" && issue.status === "In Progress",
+          ),
+        );
+        expect(moved.issues.find((issue) => issue.key === "AIPR-1400")?.statusCategory).toBe(
+          "indeterminate",
+        );
+        expect(
+          (yield* Ref.get(calls)).some((call) => call.prompt.includes("transitionJiraIssue")),
+        ).toBe(true);
+      }).pipe(Effect.provide(makeLayer(calls)));
+    }),
+  );
+
+  it.effect("leaves a new ticket alone when To Do is chosen", () =>
+    Effect.gen(function* () {
+      const calls = yield* Ref.make<ReadonlyArray<ConnectorAgentRun>>([]);
+      yield* Effect.gen(function* () {
+        const jira = yield* JiraService.JiraService;
+        yield* jira.command({
+          type: "createTicket",
+          threadId,
+          draft: {
+            parentKey: "AIPR-1309",
+            type: "Sub-task",
+            summary: "Dark mode toggle",
+            description: "Add a theme toggle.",
+            status: "To Do",
+          },
+        });
+        yield* waitFor(jira, (snapshot) =>
+          snapshot.links.some((entry) => entry.key === "AIPR-1400"),
+        );
+        expect(
+          (yield* Ref.get(calls)).some((call) => call.prompt.includes("transitionJiraIssue")),
+        ).toBe(false);
+      }).pipe(Effect.provide(makeLayer(calls)));
+    }),
+  );
+
   it.effect("links a ticket key typed in the first message without asking or a model", () =>
     Effect.gen(function* () {
       const calls = yield* Ref.make<ReadonlyArray<ConnectorAgentRun>>([]);
