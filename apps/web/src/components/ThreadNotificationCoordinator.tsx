@@ -55,6 +55,8 @@ interface ThreadAlert {
   readonly threadTitle: string;
   readonly title: string;
   readonly sound: ThreadNotificationKind;
+  /** False for input, failure and PR alerts; used when "sound only for completion" is on. */
+  readonly playSound: boolean;
   readonly type: "success" | "error" | "warning" | "info";
   readonly icon: ReactNode;
   readonly requireInteraction: boolean;
@@ -134,12 +136,16 @@ export function startThreadNotifications(
         .has(threadKey({ environmentId, threadId: alert.threadId }))
     )
       return;
-    const { notificationMode: mode, inAppNotificationsEnabled } = getClientSettings();
+    const {
+      notificationMode: mode,
+      inAppNotificationsEnabled,
+      soundOnlyForCompletion,
+    } = getClientSettings();
     const active = (router.state.matches.at(-1)?.params ?? {}) as {
       environmentId?: string;
       threadId?: string;
     };
-    if (hasNotificationSound(mode)) {
+    if ((alert.playSound || !soundOnlyForCompletion) && hasNotificationSound(mode)) {
       void playNotificationSound(alert.sound, () =>
         hasNotificationSound(getClientSettings().notificationMode),
       );
@@ -223,6 +229,7 @@ export function startThreadNotifications(
       threadTitle: thread.title,
       title,
       sound: kind,
+      playSound: kind === "completion",
       type: kind === "completion" ? "success" : status === "failed" ? "error" : "warning",
       icon:
         kind === "completion" ? (
@@ -250,6 +257,7 @@ export function startThreadNotifications(
       threadTitle: state.thread.title,
       title: `Pull request ${notice.summary.replace(/^(#\d+):/, "$1")}`,
       sound: "completion",
+      playSound: false,
       type: notice.outcome === "failed" ? "error" : "info",
       icon: (
         <NoticeGlyph

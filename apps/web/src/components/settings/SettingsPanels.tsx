@@ -476,6 +476,9 @@ export function useSettingsRestore(onRestored?: () => void) {
     ...(settings.inAppNotificationsEnabled !== DEFAULT_UNIFIED_SETTINGS.inAppNotificationsEnabled
       ? ["In-app notifications"]
       : []),
+    ...(settings.soundOnlyForCompletion !== DEFAULT_UNIFIED_SETTINGS.soundOnlyForCompletion
+      ? ["Sound only when finished"]
+      : []),
     ...(settings.sidebarProjectGroupingMode !== DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode
       ? ["Project Grouping"]
       : []),
@@ -634,6 +637,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       timestampFormat: DEFAULT_UNIFIED_SETTINGS.timestampFormat,
       notificationMode: DEFAULT_UNIFIED_SETTINGS.notificationMode,
       inAppNotificationsEnabled: DEFAULT_UNIFIED_SETTINGS.inAppNotificationsEnabled,
+      soundOnlyForCompletion: DEFAULT_UNIFIED_SETTINGS.soundOnlyForCompletion,
       wordWrap: DEFAULT_UNIFIED_SETTINGS.wordWrap,
       persistComposerContextStrip: DEFAULT_UNIFIED_SETTINGS.persistComposerContextStrip,
       diffFilesCollapsed: DEFAULT_UNIFIED_SETTINGS.diffFilesCollapsed,
@@ -804,6 +808,17 @@ export function GeneralSettingsPanel() {
     <SettingsPageContainer>
       <SettingsSection id="notifications" title="Notifications">
         <NotificationSettings />
+        <SettingsRow
+          {...searchableSetting("sound-only-for-completion")}
+          description="Play the sound only when a thread finishes. Input, approval, failure and pull request alerts stay silent."
+          control={
+            <Switch
+              checked={settings.soundOnlyForCompletion}
+              onCheckedChange={(checked) => updateSettings({ soundOnlyForCompletion: checked })}
+              aria-label="Sound only when a thread finishes"
+            />
+          }
+        />
         <SettingsRow
           {...searchableSetting("in-app-notifications")}
           description="Show a toast when another thread finishes, fails, or needs input or approval while this app has focus."

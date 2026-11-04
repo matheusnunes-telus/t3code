@@ -543,6 +543,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["notification sound alert completion input approval desktop"],
   },
   {
+    id: "sound-only-for-completion",
+    title: "Sound only when a thread finishes",
+    to: "/settings/general",
+    searchTerms: ["notification sound alert quiet silent intermediate input approval failure"],
+  },
+  {
     id: "in-app-notifications",
     title: "In-app notifications",
     to: "/settings/general",

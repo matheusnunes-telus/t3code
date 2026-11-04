@@ -75,3 +75,4 @@ Last synced with the official `main`: 2026-11-03.
 
 - The thread details panel starts closed.
 - Chats without a project no longer show the "link a Jira ticket" suggestion, including older chats in `~/.t3/scratch`. "Suggest tickets in No project chats" under Threads > Jira turns it back on. Updates for a ticket you linked by hand still show there.
+- New setting, "Sound only when a thread finishes" (Settings → General → Notifications). With it on, the alert sound plays only for a finished thread, not for input, approval, failure or pull request alerts. Off by default.
