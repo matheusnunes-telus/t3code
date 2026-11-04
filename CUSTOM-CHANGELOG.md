@@ -8,6 +8,7 @@ Last synced with the official `main`: 2026-11-03.
 
 - Packaged as **T3 Code (Custom)**, with its own bundle ID (`com.t3tools.t3code.custom`), Electron profile and data folder (`~/.t3/custom`). It never shares state with the official app, so both can be installed side by side.
 - `scripts/rebuild-custom.sh` builds, signs and installs the app into `~/Applications`, keeps the last 3 builds as backups, and records the built commit. It runs pnpm 12 through npx, because corepack can't start it.
+- T3 Code (Custom) work now has its own **T3 Custom** project, so new chats about the fork start there instead of in No project.
 
 ## Sidebar
 
