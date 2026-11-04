@@ -8,6 +8,8 @@ import {
   type DragStartEvent,
   type Modifier,
   PointerSensor,
+  type SensorDescriptor,
+  type SensorOptions,
   useSensor,
   useSensors,
 } from "@dnd-kit/core";
@@ -16,7 +18,14 @@ import { CSS } from "@dnd-kit/utilities";
 import { useAtomValue } from "@effect/atom-react";
 import { useRouter } from "@tanstack/react-router";
 import { ClockIcon, FolderIcon, MessageSquareIcon, PlusIcon, XIcon } from "lucide-react";
-import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  type ReactNode,
+  type RefObject,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 
 import {
   moveToFront,
@@ -61,8 +70,6 @@ import { useDraftTabsStore } from "../draftTabsStore";
 import { useChatTabStrip } from "./useChatTabStrip";
 import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "../workspaceTitlebar";
 
-const CHAT_TAB_DRAG_TYPE = "application/x-t3-chat-tab";
-
 /**
  * Keeps a dragged group on the x axis and inside the tab strip. Unlike dnd-kit's
  * restrictToFirstScrollableAncestor, a group that is partly scrolled out doesn't jump to the edge.
@@ -79,6 +86,15 @@ const restrictTabGroupToStrip: Modifier = ({
   return { ...transform, x: Math.min(Math.max(transform.x, minX), maxX), y: 0 };
 };
 const TAB_GROUP_DRAG_MODIFIERS = [restrictTabGroupToStrip];
+
+/** Keeps a dragged tab on the x axis and inside its own group. */
+const restrictTabToGroup: Modifier = ({ transform, draggingNodeRect, containerNodeRect }) => {
+  if (!draggingNodeRect || !containerNodeRect) return { ...transform, y: 0 };
+  const minX = Math.min(0, containerNodeRect.left - draggingNodeRect.left);
+  const maxX = Math.max(0, containerNodeRect.right - draggingNodeRect.right);
+  return { ...transform, x: Math.min(Math.max(transform.x, minX), maxX), y: 0 };
+};
+const TAB_DRAG_MODIFIERS = [restrictTabToGroup];
 
 /**
  * Lets a plain (vertical) wheel or trackpad swipe scroll overflowing tabs sideways,
@@ -118,19 +134,14 @@ export function openThreadInPermanentTab(threadRef: ScopedThreadRef) {
   useChatTabsStore.getState().openTab(scopedThreadKey(threadRef), { permanent: true });
 }
 
-/** A project's tabs, and the colored line under them that slides the whole group sideways. */
-function SortableTabGroup(props: {
-  groupId: string;
-  title: string;
-  lineColor: string;
-  children: ReactNode;
-}) {
-  const { listeners, node, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } =
-    useSortable({ id: props.groupId });
-  // dnd-kit drops the group into its slot at once, so slide it there from where it was let go.
+/**
+ * dnd-kit drops an item into its slot at once, so this slides it there from where it was let go.
+ * Returns true until the slide ends.
+ */
+function useSlideIntoSlot(node: RefObject<HTMLElement | null>, isDragging: boolean) {
   const [isSettling, setIsSettling] = useState(false);
   const lastDragLeft = useRef<number | null>(null);
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- keeps the group's DOM node in step with the drag; it must measure before the drop paints
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- keeps the DOM node in step with the drag; it must measure before the drop paints
   useLayoutEffect(() => {
     const element = node.current;
     if (!element || (!isDragging && lastDragLeft.current === null)) return;
@@ -151,6 +162,50 @@ function SortableTabGroup(props: {
     slide.onfinish = settle;
     slide.oncancel = settle;
   });
+  return isSettling;
+}
+
+/** One tab in a group. Dragging it slides it along the group while its neighbours make room. */
+function SortableChatTab(props: { threadKey: string; children: ReactNode }) {
+  const { listeners, node, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: props.threadKey,
+  });
+  const isSettling = useSlideIntoSlot(node, isDragging);
+  return (
+    <div
+      ref={setNodeRef}
+      role="presentation"
+      className={cn(
+        "relative shrink-0 rounded-t-md",
+        // Tabs are see-through, so the moving tab needs a solid back to pass over the others.
+        (isDragging || isSettling) && "z-10 bg-sidebar",
+      )}
+      style={{ transform: CSS.Translate.toString(transform), transition }}
+      {...listeners}
+    >
+      {props.children}
+    </div>
+  );
+}
+
+/**
+ * A project's tabs, and the colored line under them that slides the whole group sideways.
+ * Each group has its own drag context, so a tab can only land among its own group's tabs.
+ */
+function SortableTabGroup(props: {
+  groupId: string;
+  title: string;
+  lineColor: string;
+  tabKeys: string[];
+  sensors: SensorDescriptor<SensorOptions>[];
+  onTabDragStart: (event: DragStartEvent) => void;
+  onTabDragEnd: (event: DragEndEvent) => void;
+  onTabDragCancel: () => void;
+  children: ReactNode;
+}) {
+  const { listeners, node, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } =
+    useSortable({ id: props.groupId });
+  const isSettling = useSlideIntoSlot(node, isDragging);
   return (
     <div
       ref={setNodeRef}
@@ -161,7 +216,18 @@ function SortableTabGroup(props: {
       )}
       style={{ transform: CSS.Translate.toString(transform), transition }}
     >
-      <div className="flex items-end gap-0.5">{props.children}</div>
+      <DndContext
+        sensors={props.sensors}
+        collisionDetection={closestCenter}
+        modifiers={TAB_DRAG_MODIFIERS}
+        onDragStart={props.onTabDragStart}
+        onDragEnd={props.onTabDragEnd}
+        onDragCancel={props.onTabDragCancel}
+      >
+        <SortableContext items={props.tabKeys} strategy={horizontalListSortingStrategy}>
+          <div className="flex items-end gap-0.5">{props.children}</div>
+        </SortableContext>
+      </DndContext>
       <div
         ref={setActivatorNodeRef}
         role="presentation"
@@ -192,19 +258,12 @@ export function ChatTabsBar() {
   const sweepTabs = useChatTabsStore((state) => state.sweepTabs);
   const { settleThread, unsettleThread } = useThreadActions();
   const moveTab = useChatTabsStore((state) => state.moveTab);
-  // Drag a tab sideways to reorder; the drop indicator sits on the hovered tab's near edge.
+  // Drag a tab sideways to reorder it inside its group.
   const [draggingTabKey, setDraggingTabKey] = useState<string | null>(null);
-  const [tabDropTarget, setTabDropTarget] = useState<{ index: number; after: boolean } | null>(
-    null,
-  );
-  const endTabDrag = () => {
-    setDraggingTabKey(null);
-    setTabDropTarget(null);
-  };
   const setGroupOrder = useChatTabsStore((state) => state.setGroupOrder);
   // Drag a group's colored line to slide the project groups into a new order.
   const [draggingGroupId, setDraggingGroupId] = useState<string | null>(null);
-  const groupDragSensors = useSensors(
+  const dragSensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
   );
   const threadLastVisitedAtById = useUiStateStore((state) => state.threadLastVisitedAtById);
@@ -430,6 +489,15 @@ export function ChatTabsBar() {
     if (!over || active.id === over.id) return;
     setGroupOrder(moveGroupId(tabGroupIds, String(active.id), String(over.id)));
   };
+  const handleTabDragStart = ({ active }: DragStartEvent) => setDraggingTabKey(String(active.id));
+  const handleTabDragEnd = ({ active, over }: DragEndEvent) => {
+    setDraggingTabKey(null);
+    if (!over || active.id === over.id) return;
+    moveTab(
+      String(active.id),
+      tabs.findIndex((tab) => tab.threadKey === over.id),
+    );
+  };
 
   if (tabs.length === 0 && draftTabs.length === 0) return null;
 
@@ -449,11 +517,12 @@ export function ChatTabsBar() {
         className={cn(
           "flex min-w-0 flex-1 items-end gap-0.5 overflow-x-auto [scrollbar-width:none]",
           // Tabs ignore the pointer mid-drag, so they don't light up or open tooltips in passing.
-          draggingGroupId !== null && "cursor-grabbing **:pointer-events-none",
+          (draggingGroupId !== null || draggingTabKey !== null) &&
+            "cursor-grabbing **:pointer-events-none",
         )}
       >
         <DndContext
-          sensors={groupDragSensors}
+          sensors={dragSensors}
           collisionDetection={closestCenter}
           modifiers={TAB_GROUP_DRAG_MODIFIERS}
           onDragStart={handleGroupDragStart}
@@ -476,8 +545,13 @@ export function ChatTabsBar() {
                   groupId={group.groupId}
                   title={group.title}
                   lineColor={lineColor}
+                  tabKeys={group.items.map(({ tab }) => tab.threadKey)}
+                  sensors={dragSensors}
+                  onTabDragStart={handleTabDragStart}
+                  onTabDragEnd={handleTabDragEnd}
+                  onTabDragCancel={() => setDraggingTabKey(null)}
                 >
-                  {group.items.map(({ tab, index, thread, files, title, iconProject: project }) => {
+                  {group.items.map(({ tab, thread, files, title, iconProject: project }) => {
                     const isActive = tab.threadKey === activeThreadKey;
                     const isRunning = thread ? !threadRuntimeCanArchive(thread.runtime) : false;
                     const hasUnreadCompletion =
@@ -499,10 +573,8 @@ export function ChatTabsBar() {
                       Object.keys(filesDirtyByDraftId[files.draftId] ?? {}).length > 0;
                     const tabElement = (
                       <div
-                        key={tab.threadKey}
                         role="tab"
                         tabIndex={0}
-                        draggable
                         aria-selected={isActive}
                         aria-label={tab.preview ? `${title} (preview)` : title}
                         className={cn(
@@ -510,37 +582,7 @@ export function ChatTabsBar() {
                           isActive
                             ? "border-border bg-background text-foreground"
                             : "border-transparent text-muted-foreground hover:bg-accent/60 hover:text-foreground",
-                          draggingTabKey === tab.threadKey && "opacity-50",
                         )}
-                        onDragStart={(event) => {
-                          event.dataTransfer.effectAllowed = "move";
-                          event.dataTransfer.setData(CHAT_TAB_DRAG_TYPE, tab.threadKey);
-                          setDraggingTabKey(tab.threadKey);
-                        }}
-                        onDragOver={(event) => {
-                          if (!draggingTabKey) return;
-                          event.preventDefault();
-                          event.dataTransfer.dropEffect = "move";
-                          const rect = event.currentTarget.getBoundingClientRect();
-                          const after = event.clientX > rect.left + rect.width / 2;
-                          if (tabDropTarget?.index !== index || tabDropTarget.after !== after) {
-                            setTabDropTarget({ index, after });
-                          }
-                        }}
-                        onDragLeave={() => setTabDropTarget(null)}
-                        onDrop={(event) => {
-                          if (!draggingTabKey) return;
-                          event.preventDefault();
-                          const fromIndex = tabs.findIndex(
-                            (candidate) => candidate.threadKey === draggingTabKey,
-                          );
-                          const after = tabDropTarget?.after ?? false;
-                          let toIndex = index + (after ? 1 : 0);
-                          if (fromIndex !== -1 && fromIndex < toIndex) toIndex -= 1;
-                          moveTab(draggingTabKey, toIndex);
-                          endTabDrag();
-                        }}
-                        onDragEnd={endTabDrag}
                         onClick={() => {
                           if (!isActive) void navigateToThreadKey(tab.threadKey);
                         }}
@@ -561,15 +603,6 @@ export function ChatTabsBar() {
                           <span
                             aria-hidden
                             className="pointer-events-none absolute inset-x-2 -top-px h-0.5 rounded-full bg-primary"
-                          />
-                        ) : null}
-                        {tabDropTarget?.index === index ? (
-                          <span
-                            aria-hidden
-                            className={cn(
-                              "pointer-events-none absolute inset-y-1 w-0.5 rounded-full bg-primary",
-                              tabDropTarget.after ? "-right-px" : "-left-px",
-                            )}
                           />
                         ) : null}
                         {/* One status slot: a dot on the project icon, the same signal the sidebar rail uses. */}
@@ -637,26 +670,30 @@ export function ChatTabsBar() {
                         </button>
                       </div>
                     );
-                    if (!thread) return tabElement;
-                    // Keep the wrapper while dragging: swapping it out remounts the tab and cancels the drag.
                     return (
-                      <Tooltip key={tab.threadKey} disabled={draggingTabKey !== null}>
-                        <TooltipTrigger delay={600} render={tabElement} />
-                        <TooltipPopup side="bottom" align="start" className="max-w-72">
-                          <ChatTabHoverCard
-                            thread={thread}
-                            title={title}
-                            projectTitle={project?.title ?? null}
-                            status={
-                              isRunning
-                                ? "Working"
-                                : hasUnreadCompletion
-                                  ? "Finished, not read yet"
-                                  : null
-                            }
-                          />
-                        </TooltipPopup>
-                      </Tooltip>
+                      <SortableChatTab key={tab.threadKey} threadKey={tab.threadKey}>
+                        {thread ? (
+                          <Tooltip disabled={draggingTabKey !== null}>
+                            <TooltipTrigger delay={600} render={tabElement} />
+                            <TooltipPopup side="bottom" align="start" className="max-w-72">
+                              <ChatTabHoverCard
+                                thread={thread}
+                                title={title}
+                                projectTitle={project?.title ?? null}
+                                status={
+                                  isRunning
+                                    ? "Working"
+                                    : hasUnreadCompletion
+                                      ? "Finished, not read yet"
+                                      : null
+                                }
+                              />
+                            </TooltipPopup>
+                          </Tooltip>
+                        ) : (
+                          tabElement
+                        )}
+                      </SortableChatTab>
                     );
                   })}
                 </SortableTabGroup>

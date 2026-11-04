@@ -91,7 +91,7 @@ export function useChatTabStrip() {
 
   // One group per project; chats without a project (the scratch project) are their own group.
   const tabGroups = groupTabs(
-    tabs.map((tab, index) => {
+    tabs.map((tab) => {
       const thread = threadByKey.get(tab.threadKey);
       const files = thread ? undefined : filesTabByThreadKey.get(tab.threadKey);
       const projectRef = thread ?? files?.session;
@@ -121,7 +121,6 @@ export function useChatTabStrip() {
         title: isScratch || !iconProject ? "No project" : iconProject.title,
         item: {
           tab,
-          index,
           thread,
           files,
           title,
