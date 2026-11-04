@@ -159,26 +159,25 @@ function DraftEditor({
   );
 }
 
-/** The pre-filled new ticket dialog, opened from the banner when nothing matched. */
-function NoMatchActions({
+/** Opens the pre-filled new ticket dialog from a banner. */
+function CreateTicketButton({
   environmentId,
   snapshot,
   threadId,
-  onDismiss,
+  variant,
+  children,
 }: {
   environmentId: EnvironmentId;
   snapshot: JiraSnapshot;
   threadId: ThreadId;
-  onDismiss: () => void;
+  variant?: "outline";
+  children: string;
 }) {
   const create = useJiraCreateTicket({ environmentId, threadId, snapshot });
   return (
     <>
-      <Button size="xs" onClick={create.open}>
-        Create one…
-      </Button>
-      <Button size="xs" variant="ghost" onClick={onDismiss}>
-        Not a ticket
+      <Button size="xs" {...(variant === undefined ? {} : { variant })} onClick={create.open}>
+        {children}
       </Button>
       {create.dialog}
     </>
@@ -259,9 +258,11 @@ function suggestionBanner(input: {
       if (best !== undefined) {
         return {
           id,
-          variant: "info",
+          variant: suggestion.message ? "warning" : "info",
           icon: <TicketIcon />,
           title: `Likely ticket · ${best.confidence} match`,
+          // A failed create comes back here with what went wrong.
+          description: suggestion.message ?? undefined,
           children: <MatchDetails snapshot={snapshot} suggestion={suggestion} command={command} />,
           actions: (
             <>
@@ -273,6 +274,14 @@ function suggestionBanner(input: {
               >
                 Link {best.key}
               </Button>
+              <CreateTicketButton
+                environmentId={input.environmentId}
+                snapshot={snapshot}
+                threadId={threadId}
+                variant="outline"
+              >
+                Create new…
+              </CreateTicketButton>
               <Button size="xs" variant="ghost" onClick={dismiss}>
                 Not a ticket
               </Button>
@@ -289,12 +298,18 @@ function suggestionBanner(input: {
           title: "No matching Jira ticket",
           description: "Nothing in your open tickets fits this chat.",
           actions: (
-            <NoMatchActions
-              environmentId={input.environmentId}
-              snapshot={snapshot}
-              threadId={threadId}
-              onDismiss={dismiss}
-            />
+            <>
+              <CreateTicketButton
+                environmentId={input.environmentId}
+                snapshot={snapshot}
+                threadId={threadId}
+              >
+                Create one…
+              </CreateTicketButton>
+              <Button size="xs" variant="ghost" onClick={dismiss}>
+                Not a ticket
+              </Button>
+            </>
           ),
         };
       }
@@ -422,11 +437,7 @@ function StatusChange({
       </MenuTrigger>
       <MenuPopup align="start">
         {JIRA_STATUSES.map((status) => (
-          <MenuItem
-            key={status}
-            disabled={status === currentStatus}
-            onClick={() => onPick(status)}
-          >
+          <MenuItem key={status} disabled={status === currentStatus} onClick={() => onPick(status)}>
             {status}
           </MenuItem>
         ))}

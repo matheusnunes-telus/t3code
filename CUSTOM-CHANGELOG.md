@@ -48,6 +48,7 @@ Last synced with the official `main`: 2026-11-03.
 
 - New tickets get a status when you create them from a chat, In Progress by default, or To Do.
 - When a pull request merges, the Jira update card also suggests a status, Done unless the model picks another. You can change it from the status badge on the card, or untick it.
+- The "Likely ticket" card has a "Create new…" button, for when the suggested ticket isn't the right one.
 
 ## Messages
 

@@ -270,10 +270,7 @@ function CreateTicketForm({
           </label>
           <label className="flex flex-col gap-1.5 text-sm">
             <span className="text-muted-foreground">Status</span>
-            <Select
-              value={status}
-              onValueChange={(value) => setStatus(value ?? NEW_TICKET_STATUS)}
-            >
+            <Select value={status} onValueChange={(value) => setStatus(value ?? NEW_TICKET_STATUS)}>
               <SelectTrigger size="sm" aria-label="Status">
                 <SelectValue>{status}</SelectValue>
               </SelectTrigger>

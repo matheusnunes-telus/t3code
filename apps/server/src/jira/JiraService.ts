@@ -1012,10 +1012,7 @@ export const make = Effect.gen(function* () {
     const at = yield* nowIso;
     yield* update((state) => ({
       ...state,
-      notices: [
-        ...state.notices.filter((notice) => notice.key !== key),
-        { key, at, summary },
-      ],
+      notices: [...state.notices.filter((notice) => notice.key !== key), { key, at, summary }],
     }));
   });
 
