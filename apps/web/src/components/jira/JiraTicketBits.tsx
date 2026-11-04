@@ -1,7 +1,7 @@
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentId, JiraIssue, JiraSnapshot, ThreadId } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
-import { ChevronRightIcon, MessageSquareIcon } from "lucide-react";
+import { ChevronDownIcon, ChevronRightIcon, MessageSquareIcon } from "lucide-react";
 
 import { cn } from "~/lib/utils";
 import { useThreadShells } from "~/state/entities";
@@ -26,12 +26,15 @@ export function JiraKey({ value, className }: { value: string; className?: strin
 
 export function JiraStatusBadge({
   issue,
+  chevron = false,
 }: {
   issue: Pick<JiraIssue, "status" | "statusCategory">;
+  chevron?: boolean;
 }) {
   return (
     <Badge size="sm" variant={STATUS_VARIANT[issue.statusCategory]}>
       {issue.status}
+      {chevron ? <ChevronDownIcon className="size-3 opacity-70" /> : null}
     </Badge>
   );
 }

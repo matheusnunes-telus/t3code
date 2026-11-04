@@ -173,6 +173,8 @@ export class JiraService extends Context.Service<
       readonly draft: JiraTicketDraft;
     }) => Effect.Effect<void, JiraError>;
     readonly proposeChanges: (input: {
+      /** A merge always offers a status change, even when the model suggests none. */
+      readonly merged?: boolean;
       readonly threadId: ThreadId;
       readonly key: string;
       readonly reason?: string | undefined;
@@ -1190,6 +1192,7 @@ export const make = Effect.gen(function* () {
     threadId: ThreadId,
     key: string,
     reason: string,
+    merged: boolean,
   ) {
     // The ticket is read here, so the model that drafts needs no tools.
     const currentDescription = yield* readIssue(key, ["description"]).pipe(
@@ -1224,8 +1227,11 @@ export const make = Effect.gen(function* () {
     const output = (result.output ?? {}) as Record<string, unknown>;
     const proposed: Array<JiraChange> = [];
     const status = typeof output.status === "string" ? output.status.trim() : "";
-    if (status.length > 0 && status !== issue?.status)
+    if (status.length > 0 && status !== issue?.status) {
       proposed.push({ kind: "status", to: status });
+    } else if (merged && issue !== undefined && issue.statusCategory !== "done") {
+      proposed.push({ kind: "status", to: "Done" });
+    }
     const comment = typeof output.comment === "string" ? output.comment.trim() : "";
     // Only links to this chat's pull requests, so the model cannot invent one.
     const knownUrls = new Set(context.pullRequestUrls);
@@ -1258,7 +1264,7 @@ export const make = Effect.gen(function* () {
     if ((yield* selection) === null) return yield* jiraError("Jira is off.");
     const key = input.key.trim().toUpperCase();
     const reason = input.reason ?? "You asked for an update";
-    const proposed = yield* draftChanges(input.threadId, key, reason);
+    const proposed = yield* draftChanges(input.threadId, key, reason, input.merged === true);
     const createdAt = yield* nowIso;
     const id = `${key}:${createdAt}`;
     yield* update((state) => ({
@@ -1541,6 +1547,7 @@ export const make = Effect.gen(function* () {
       const seen = current.pullRequests[threadId];
       const now: Record<string, string> = {};
       const events: Array<string> = [];
+      let merged = false;
       for (const pr of records.value.thread.pullRequests ?? []) {
         if (pr.source === "stack-dismissed") continue;
         const id = `${pr.repository}#${pr.number}`;
@@ -1550,6 +1557,7 @@ export const make = Effect.gen(function* () {
         if (seen[id] === undefined) events.push(`Pull request ${id} was opened`);
         else if (seen[id] !== state && state === "merged") {
           events.push(`Pull request ${id} was merged`);
+          merged = true;
         }
       }
       if (seen === undefined || encodeJson(seen) !== encodeJson(now)) {
@@ -1560,7 +1568,9 @@ export const make = Effect.gen(function* () {
       }
       if (events.length === 0) continue;
       for (const entry of current.links.filter((candidate) => candidate.threadId === threadId)) {
-        yield* fork(proposeChanges({ threadId, key: entry.key, reason: events.join("; ") }));
+        yield* fork(
+          proposeChanges({ threadId, key: entry.key, reason: events.join("; "), merged }),
+        );
       }
     }
   });

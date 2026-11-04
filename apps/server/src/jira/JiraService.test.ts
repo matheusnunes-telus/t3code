@@ -101,6 +101,20 @@ const makeFakeAgent = (
           },
         } satisfies ConnectorAgentResult;
       }
+      if (operation === "jira.draftChanges") {
+        return {
+          toolResults: [],
+          availableTools: [],
+          mcpServers: [],
+          output: {
+            currentDescription: "Fix the buttons.",
+            status: null,
+            comment: "The buttons are fixed.",
+            links: [],
+            description: null,
+          },
+        } satisfies ConnectorAgentResult;
+      }
       if (prompt.includes("getAccessibleAtlassianResources")) {
         return reply("getAccessibleAtlassianResources", {
           resources: [{ cloudId: "cloud-1", url: "https://example.atlassian.net" }],
@@ -571,6 +585,31 @@ describe("JiraService", () => {
         expect(
           (yield* Ref.get(calls)).some((call) => call.prompt.includes("transitionJiraIssue")),
         ).toBe(false);
+      }).pipe(Effect.provide(makeLayer(calls)));
+    }),
+  );
+
+  it.effect("offers Done for a merge when the model suggests no status", () =>
+    Effect.gen(function* () {
+      const calls = yield* Ref.make<ReadonlyArray<ConnectorAgentRun>>([]);
+      yield* Effect.gen(function* () {
+        const jira = yield* JiraService.JiraService;
+        yield* jira.command({ type: "sync" });
+        yield* waitFor(jira, (snapshot) => snapshot.sync.status === "ok");
+        yield* jira.proposeChanges({ threadId, key: "AIPR-1309", merged: true });
+        const merged = yield* waitFor(jira, (snapshot) => snapshot.changeSets.length === 1);
+        expect(merged.changeSets[0]?.changes.map((change) => change.kind)).toEqual([
+          "status",
+          "comment",
+        ]);
+        expect(merged.changeSets[0]?.changes[0]).toEqual({ kind: "status", to: "Done" });
+
+        // A newer draft for the ticket replaces the waiting one.
+        yield* jira.proposeChanges({ threadId, key: "AIPR-1309" });
+        const opened = yield* waitFor(jira, (snapshot) =>
+          snapshot.changeSets.some((set) => set.changes.length === 1),
+        );
+        expect(opened.changeSets[0]?.changes.map((change) => change.kind)).toEqual(["comment"]);
       }).pipe(Effect.provide(makeLayer(calls)));
     }),
   );

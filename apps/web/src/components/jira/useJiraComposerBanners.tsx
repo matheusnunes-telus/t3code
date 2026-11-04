@@ -16,6 +16,7 @@ import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
 import { Input } from "../ui/input";
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Spinner } from "../ui/spinner";
 import { Textarea } from "../ui/textarea";
@@ -25,6 +26,7 @@ import {
   useJiraCreateTicket,
 } from "./JiraCreateTicketDialog";
 import { JiraKey, JiraStatusBadge, JiraTicketPath } from "./JiraTicketBits";
+import { JIRA_STATUSES } from "./JiraTicketDetails";
 
 type Command = ReturnType<typeof useJiraCommand>;
 
@@ -397,12 +399,50 @@ function CommentChange({
   );
 }
 
+/** The suggested status on its badge; picking another one also ticks the row. */
+function StatusChange({
+  ticketKey,
+  to,
+  currentStatus,
+  onPick,
+}: {
+  ticketKey: string;
+  to: string;
+  currentStatus: string | undefined;
+  onPick: (status: string) => void;
+}) {
+  const statusCategory = to === "Done" ? "done" : to === "To Do" ? "new" : "indeterminate";
+  return (
+    <Menu>
+      <MenuTrigger
+        aria-label={`Change suggested status for ${ticketKey}`}
+        render={<button type="button" className="cursor-pointer rounded-md" />}
+      >
+        <JiraStatusBadge issue={{ status: to, statusCategory }} chevron />
+      </MenuTrigger>
+      <MenuPopup align="start">
+        {JIRA_STATUSES.map((status) => (
+          <MenuItem
+            key={status}
+            disabled={status === currentStatus}
+            onClick={() => onPick(status)}
+          >
+            {status}
+          </MenuItem>
+        ))}
+      </MenuPopup>
+    </Menu>
+  );
+}
+
 function ChangeList({
   set,
+  currentStatus,
   chosen,
   onChange,
 }: {
   set: JiraChangeSet;
+  currentStatus: string | undefined;
   chosen: ReadonlyArray<JiraChange>;
   onChange: (changes: ReadonlyArray<JiraChange>) => void;
 }) {
@@ -421,21 +461,29 @@ function ChangeList({
         const current = chosen.find((entry) => entry.kind === change.kind) ?? change;
         return (
           <li key={changeKey(change)} className="flex flex-col gap-1.5 py-1.5">
-            <label className="flex items-center gap-2">
-              <Checkbox
-                checked={isChosen(change)}
-                onCheckedChange={(checked) => toggle(current, checked === true)}
-              />
-              {change.kind === "status" ? (
-                <span>
-                  Status → <span className="font-medium">{change.to}</span>
-                </span>
-              ) : change.kind === "comment" ? (
-                <span>Comment</span>
-              ) : (
-                <span>Description</span>
-              )}
-            </label>
+            <div className="flex items-center gap-2">
+              <label className="flex items-center gap-2">
+                <Checkbox
+                  checked={isChosen(change)}
+                  onCheckedChange={(checked) => toggle(current, checked === true)}
+                />
+                {change.kind === "status" ? (
+                  <span>Status →</span>
+                ) : change.kind === "comment" ? (
+                  <span>Comment</span>
+                ) : (
+                  <span>Description</span>
+                )}
+              </label>
+              {current.kind === "status" ? (
+                <StatusChange
+                  ticketKey={set.key}
+                  to={current.to}
+                  currentStatus={currentStatus}
+                  onPick={(to) => toggle({ ...current, to }, true)}
+                />
+              ) : null}
+            </div>
             {current.kind === "comment" ? (
               <CommentChange change={current} enabled={isChosen(change)} onEdit={edit} />
             ) : null}
@@ -457,6 +505,7 @@ function ChangeList({
 }
 
 function changeSetBanner(input: {
+  snapshot: JiraSnapshot;
   set: JiraChangeSet;
   command: Command;
   chosen: ReadonlyArray<JiraChange>;
@@ -493,7 +542,14 @@ function changeSetBanner(input: {
     icon: <TicketIcon />,
     title: `Jira changes for ${set.key}`,
     description: set.state === "failed" ? (set.message ?? "The update failed.") : set.reason,
-    children: <ChangeList set={set} chosen={chosen} onChange={input.setChosen} />,
+    children: (
+      <ChangeList
+        set={set}
+        currentStatus={issueByKey(input.snapshot, set.key)?.status}
+        chosen={chosen}
+        onChange={input.setChosen}
+      />
+    ),
     actions: (
       <>
         <Button size="xs" disabled={chosen.length === 0} onClick={apply}>
@@ -538,6 +594,7 @@ export function useJiraComposerBanners(
   for (const set of snapshot.changeSets) {
     if (set.threadId !== threadId) continue;
     const item = changeSetBanner({
+      snapshot,
       set,
       command,
       chosen: chosen[set.id] ?? set.changes,

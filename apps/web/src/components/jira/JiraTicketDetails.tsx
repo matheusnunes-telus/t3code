@@ -23,7 +23,7 @@ import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { Skeleton } from "../ui/skeleton";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
-const STATUSES: ReadonlyArray<JiraStatusName> = ["To Do", "In Progress", "Blocked", "Done"];
+export const JIRA_STATUSES: ReadonlyArray<JiraStatusName> = ["To Do", "In Progress", "Blocked", "Done"];
 
 /** Details older than this are read again when the ticket is shown. */
 const DETAILS_STALE_MS = 10 * 60 * 1000;
@@ -69,7 +69,7 @@ export function JiraStatusMenu({
         </Badge>
       </MenuTrigger>
       <MenuPopup align="start">
-        {STATUSES.map((status) => (
+        {JIRA_STATUSES.map((status) => (
           <MenuItem
             key={status}
             disabled={status === issue.status}
