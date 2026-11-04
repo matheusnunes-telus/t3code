@@ -185,6 +185,7 @@ export class JiraService extends Context.Service<
       readonly key: string;
       readonly reason?: string | undefined;
     }) => Effect.Effect<void, JiraError>;
+    readonly suggestDoneOnSettle: (input: { readonly threadId: ThreadId }) => Effect.Effect<void>;
     readonly resolveChanges: (input: {
       readonly id: string;
       readonly action: "apply" | "dismiss";
@@ -1532,6 +1533,53 @@ export const make = Effect.gen(function* () {
     yield* fork(work);
   });
 
+  /**
+   * Settling a chat whose ticket is still To Do or In Progress offers to move it to Done, as the
+   * usual "Jira changes" card plus a toast, since the settled chat leaves the screen. Nothing is
+   * sent to Jira until the user applies it.
+   */
+  const suggestDoneOnSettle: JiraService["Service"]["suggestDoneOnSettle"] = Effect.fn(
+    "JiraService.suggestDoneOnSettle",
+  )(function* (input) {
+    if ((yield* selection) === null) return;
+    const settings = yield* serverSettings.getSettings.pipe(Effect.option);
+    if (settings._tag === "Some" && !settings.value.jiraSuggestDoneOnSettle) return;
+    const current = yield* Ref.get(store);
+    const at = yield* nowIso;
+    for (const entry of current.links.filter((link) => link.threadId === input.threadId)) {
+      const key = entry.key;
+      const issue = current.issues.find((candidate) => candidate.key === key);
+      if (issue === undefined || issue.statusCategory === "done") continue;
+      const waiting = current.changeSets.find((set) => set.key === key && set.state === "pending");
+      if (waiting?.changes.some((change) => change.kind === "status") === true) continue;
+      yield* update((state) => ({
+        ...state,
+        changeSets: [
+          ...state.changeSets.filter((set) => set !== waiting),
+          {
+            id: waiting?.id ?? `${key}:${at}`,
+            threadId: input.threadId,
+            key,
+            createdAt: waiting?.createdAt ?? at,
+            reason: waiting?.reason ?? "You settled this chat",
+            changes: [...(waiting?.changes ?? []), { kind: "status" as const, to: "Done" }],
+            state: "pending" as const,
+            message: null,
+          },
+        ],
+        notices: [
+          ...state.notices.filter((notice) => notice.key !== key),
+          {
+            key,
+            at,
+            summary: `${key} is still ${issue.status}. Mark it Done?`,
+            threadId: input.threadId,
+          },
+        ],
+      }));
+    }
+  });
+
   const setTicketUpdates: JiraService["Service"]["setTicketUpdates"] = (input) =>
     update((state) => ({
       ...state,
@@ -1550,6 +1598,9 @@ export const make = Effect.gen(function* () {
    */
   const watchPullRequests = Effect.gen(function* () {
     const current = yield* Ref.get(store);
+    const settings = yield* serverSettings.getSettings.pipe(Effect.option);
+    // Off by default: an opened pull request is only the start of the work, so only merges draft.
+    const updateOnOpen = settings._tag === "Some" && settings.value.jiraUpdateOnPullRequestOpen;
     const threadIds = [...new Set(current.links.map((entry) => entry.threadId))];
     for (const threadId of threadIds) {
       const records = yield* threads.getThreadRecords(threadId, []).pipe(Effect.option);
@@ -1564,8 +1615,9 @@ export const make = Effect.gen(function* () {
         const state = pr.snapshot?.state ?? "open";
         now[id] = state;
         if (seen === undefined) continue;
-        if (seen[id] === undefined) events.push(`Pull request ${id} was opened`);
-        else if (seen[id] !== state && state === "merged") {
+        if (seen[id] === undefined) {
+          if (updateOnOpen) events.push(`Pull request ${id} was opened`);
+        } else if (seen[id] !== state && state === "merged") {
           events.push(`Pull request ${id} was merged`);
           merged = true;
         }
@@ -1640,6 +1692,8 @@ export const make = Effect.gen(function* () {
         return done(createTicket(input));
       case "proposeChanges":
         return done(proposeChanges(input));
+      case "suggestDoneOnSettle":
+        return done(suggestDoneOnSettle(input));
       case "resolveChanges":
         return done(resolveChanges(input));
       case "ticketUpdates":
@@ -1664,6 +1718,7 @@ export const make = Effect.gen(function* () {
     suggestion,
     createTicket,
     proposeChanges,
+    suggestDoneOnSettle,
     resolveChanges,
     setTicketUpdates,
     clearNotice,

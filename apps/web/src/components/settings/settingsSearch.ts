@@ -734,6 +734,22 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["jira ticket suggest no project scratch chat"],
   },
   {
+    id: "jira-update-on-pull-request-open",
+    title: "Draft Jira updates when a pull request opens",
+    to: "/settings/threads",
+    targetId: "jira",
+    scope: "environment-defaults",
+    searchTerms: ["jira ticket update comment pull request opened merged merge banner"],
+  },
+  {
+    id: "jira-suggest-done-on-settle",
+    title: "Suggest Done when settling a chat",
+    to: "/settings/threads",
+    targetId: "jira",
+    scope: "environment-defaults",
+    searchTerms: ["jira ticket status done settle in progress to do close"],
+  },
+  {
     id: "google-cloud",
     title: "Google Cloud",
     to: "/settings/threads",

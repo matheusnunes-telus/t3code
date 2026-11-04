@@ -31,6 +31,8 @@ import { environmentServerConfigsAtom } from "../state/server";
 import { isScratchProject } from "@t3tools/client-runtime/state/projects";
 import { orchestrationEnvironment } from "../state/orchestration";
 import { projectEnvironment } from "../state/projects";
+import { usePrimaryEnvironmentId } from "../state/environments";
+import { useJiraCommand } from "../state/jira";
 import { threadEnvironment } from "../state/threads";
 import { vcsEnvironment } from "../state/vcs";
 import { useNewThreadHandler } from "./useHandleNewThread";
@@ -275,6 +277,7 @@ function threadOperationFailure(target: ScopedThreadRef) {
 }
 
 export function useThreadActions() {
+  const jiraCommand = useJiraCommand(usePrimaryEnvironmentId());
   const archiveThreadMutation = useOrchestrationCommand(threadEnvironment.archive, {
     reportFailure: false,
   });
@@ -789,6 +792,8 @@ export function useThreadActions() {
     if (wokeAt !== null) {
       markThreadVisited(scopedThreadKey(target), wokeAt);
     }
+    // The server checks its setting and the ticket, and does nothing for chats without one.
+    void jiraCommand({ type: "suggestDoneOnSettle", threadId: target.threadId });
     showThreadUndoNotice({
       action: "Settled",
       claim: action,

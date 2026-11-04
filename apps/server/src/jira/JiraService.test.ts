@@ -618,6 +618,28 @@ describe("JiraService", () => {
     }),
   );
 
+  it.effect("offers Done when a chat is settled and its ticket is still open", () =>
+    Effect.gen(function* () {
+      const calls = yield* Ref.make<ReadonlyArray<ConnectorAgentRun>>([]);
+      yield* Effect.gen(function* () {
+        const jira = yield* JiraService.JiraService;
+        yield* jira.command({ type: "sync" });
+        yield* waitFor(jira, (snapshot) => snapshot.sync.status === "ok");
+        yield* jira.command({ type: "link", threadId, key: "AIPR-1309", linked: true });
+        yield* jira.command({ type: "suggestDoneOnSettle", threadId });
+        // A second settle adds no second card or second status change.
+        yield* jira.command({ type: "suggestDoneOnSettle", threadId });
+        const settled = yield* waitFor(jira, (snapshot) => snapshot.changeSets.length === 1);
+        expect(settled.changeSets[0]?.changes).toEqual([{ kind: "status", to: "Done" }]);
+        expect(settled.notices[0]?.threadId).toBe(threadId);
+        // It only drafts: no model call and nothing sent to Jira.
+        expect((yield* Ref.get(calls)).some((call) => call.operation === "jira.transition")).toBe(
+          false,
+        );
+      }).pipe(Effect.provide(makeLayer(calls)));
+    }),
+  );
+
   it.effect("offers nothing to a No project chat by default", () =>
     Effect.gen(function* () {
       const calls = yield* Ref.make<ReadonlyArray<ConnectorAgentRun>>([]);

@@ -1381,6 +1381,12 @@ export const ServerSettings = Schema.Struct({
   ),
   /** Whether "No project" chats get ticket suggestions too; they are rarely ticket work. */
   jiraSuggestNoProject: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  /** Also draft a Jira update when a linked chat opens a pull request; off drafts only on merges. */
+  jiraUpdateOnPullRequestOpen: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(false)),
+  ),
+  /** Settling a chat whose ticket is To Do or In Progress offers to move it to Done. */
+  jiraSuggestDoneOnSettle: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
 
   /** Watches the gcloud login and shows linked Google Cloud projects; it stays idle without gcloud. */
   googleCloudEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
@@ -1735,6 +1741,8 @@ export const ServerSettingsPatch = Schema.Struct({
   jiraSite: Schema.optionalKey(TrimmedString),
   jiraSuggest: Schema.optionalKey(Schema.Literals(["ask", "always", "off"])),
   jiraSuggestNoProject: Schema.optionalKey(Schema.Boolean),
+  jiraUpdateOnPullRequestOpen: Schema.optionalKey(Schema.Boolean),
+  jiraSuggestDoneOnSettle: Schema.optionalKey(Schema.Boolean),
   googleCloudEnabled: Schema.optionalKey(Schema.Boolean),
   gcloudPath: Schema.optionalKey(TrimmedString),
   reviewGuideInstructions: Schema.optionalKey(TrimmedString),

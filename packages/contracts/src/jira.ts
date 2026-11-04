@@ -181,6 +181,8 @@ export const JiraTicketNotice = Schema.Struct({
   key: JiraIssueKey,
   at: IsoDateTime,
   summary: Schema.String,
+  /** The chat to open from the toast, when the notice is about one. */
+  threadId: Schema.optional(ThreadId),
 });
 export type JiraTicketNotice = typeof JiraTicketNotice.Type;
 
@@ -245,6 +247,8 @@ export const JiraCommand = Schema.Union([
     key: JiraIssueKey,
     reason: Schema.optional(Schema.String),
   }),
+  /** A chat was settled: drafts a "Done" status change when its ticket is still open. */
+  Schema.Struct({ type: Schema.Literal("suggestDoneOnSettle"), threadId: ThreadId }),
   Schema.Struct({
     type: Schema.Literal("resolveChanges"),
     id: TrimmedNonEmptyString,

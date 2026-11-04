@@ -1,4 +1,5 @@
 import type { EnvironmentId, JiraSnapshot, JiraSyncStatus } from "@t3tools/contracts";
+import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
 
 import { usePrimaryEnvironmentId } from "~/state/environments";
@@ -79,6 +80,7 @@ export function JiraNoticeCoordinator() {
   const environmentId = usePrimaryEnvironmentId();
   const snapshot = useJiraSnapshot(environmentId);
   const command = useJiraCommand(environmentId);
+  const navigate = useNavigate();
   const shown = useRef(new Set<string>());
   const notices = snapshot?.enabled === true ? snapshot.notices : [];
 
@@ -88,11 +90,28 @@ export function JiraNoticeCoordinator() {
       const id = `${notice.key}:${notice.at}`;
       if (shown.current.has(id)) continue;
       shown.current.add(id);
-      toastManager.add({ type: "info", title: "Jira", description: notice.summary });
+      const { threadId } = notice;
+      toastManager.add({
+        type: "info",
+        title: "Jira",
+        description: notice.summary,
+        ...(threadId !== undefined && environmentId !== null
+          ? {
+              actionProps: {
+                children: "Open chat",
+                onClick: () =>
+                  void navigate({
+                    to: "/$environmentId/$threadId",
+                    params: { environmentId, threadId },
+                  }),
+              },
+            }
+          : {}),
+      });
       void command({ type: "clearNotice", key: notice.key });
     }
     // The set of shown notices makes extra runs harmless.
-  }, [notices, command]);
+  }, [notices, command, environmentId, navigate]);
 
   if (environmentId === null) return null;
   return (

@@ -2079,6 +2079,40 @@ export function ThreadsSettingsPanel() {
             }
           />
         ) : null}
+        {settings.jiraModelSelection !== null ? (
+          <SettingsRow
+            serverScoped
+            settingKeys={["jiraUpdateOnPullRequestOpen"]}
+            {...searchableSetting("jira-update-on-pull-request-open")}
+            description="Off by default: a linked chat drafts a Jira update only when its pull request is merged. Turn on to draft one when a pull request opens too."
+            control={
+              <Switch
+                checked={settings.jiraUpdateOnPullRequestOpen}
+                onCheckedChange={(checked) =>
+                  updateSettings({ jiraUpdateOnPullRequestOpen: Boolean(checked) })
+                }
+                aria-label="Draft Jira updates when a pull request opens"
+              />
+            }
+          />
+        ) : null}
+        {settings.jiraModelSelection !== null ? (
+          <SettingsRow
+            serverScoped
+            settingKeys={["jiraSuggestDoneOnSettle"]}
+            {...searchableSetting("jira-suggest-done-on-settle")}
+            description="When you settle a chat whose ticket is To Do or In Progress, offer to move the ticket to Done. Nothing changes in Jira until you apply it."
+            control={
+              <Switch
+                checked={settings.jiraSuggestDoneOnSettle}
+                onCheckedChange={(checked) =>
+                  updateSettings({ jiraSuggestDoneOnSettle: Boolean(checked) })
+                }
+                aria-label="Suggest Done when settling a chat"
+              />
+            }
+          />
+        ) : null}
       </SettingsSection>
 
       <SettingsSection id="google-cloud-section" title="Google Cloud">
