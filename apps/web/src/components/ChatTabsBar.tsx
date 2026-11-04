@@ -5,10 +5,22 @@ import {
 } from "@t3tools/client-runtime/environment";
 import { threadRuntimeCanArchive } from "@t3tools/client-runtime/state/models";
 import type { ScopedThreadRef } from "@t3tools/contracts";
+import {
+  closestCenter,
+  DndContext,
+  type DragEndEvent,
+  type DragStartEvent,
+  type Modifier,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
+import { horizontalListSortingStrategy, SortableContext, useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { useAtomValue } from "@effect/atom-react";
 import { useRouter } from "@tanstack/react-router";
 import { ClockIcon, FolderIcon, MessageSquareIcon, PlusIcon, XIcon } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import {
   moveToFront,
@@ -61,7 +73,23 @@ import { useDraftTabsStore } from "../draftTabsStore";
 import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "../workspaceTitlebar";
 
 const CHAT_TAB_DRAG_TYPE = "application/x-t3-chat-tab";
-const CHAT_TAB_GROUP_DRAG_TYPE = "application/x-t3-chat-tab-group";
+
+/**
+ * Keeps a dragged group on the x axis and inside the tab strip. Unlike dnd-kit's
+ * restrictToFirstScrollableAncestor, a group that is partly scrolled out doesn't jump to the edge.
+ */
+const restrictTabGroupToStrip: Modifier = ({
+  transform,
+  draggingNodeRect,
+  scrollableAncestorRects,
+}) => {
+  const strip = scrollableAncestorRects[0];
+  if (!draggingNodeRect || !strip) return { ...transform, y: 0 };
+  const minX = Math.min(0, strip.left - draggingNodeRect.left);
+  const maxX = Math.max(0, strip.right - draggingNodeRect.right);
+  return { ...transform, x: Math.min(Math.max(transform.x, minX), maxX), y: 0 };
+};
+const TAB_GROUP_DRAG_MODIFIERS = [restrictTabGroupToStrip];
 
 /**
  * Lets a plain (vertical) wheel or trackpad swipe scroll overflowing tabs sideways,
@@ -101,6 +129,70 @@ export function openThreadInPermanentTab(threadRef: ScopedThreadRef) {
   useChatTabsStore.getState().openTab(scopedThreadKey(threadRef), { permanent: true });
 }
 
+/** A project's tabs, and the colored line under them that slides the whole group sideways. */
+function SortableTabGroup(props: {
+  groupId: string;
+  title: string;
+  lineColor: string;
+  children: ReactNode;
+}) {
+  const { listeners, node, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } =
+    useSortable({ id: props.groupId });
+  // dnd-kit drops the group into its slot at once, so slide it there from where it was let go.
+  const [isSettling, setIsSettling] = useState(false);
+  const lastDragLeft = useRef<number | null>(null);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- keeps the group's DOM node in step with the drag; it must measure before the drop paints
+  useLayoutEffect(() => {
+    const element = node.current;
+    if (!element || (!isDragging && lastDragLeft.current === null)) return;
+    const left = element.getBoundingClientRect().left;
+    if (isDragging) {
+      lastDragLeft.current = left;
+      return;
+    }
+    const distance = (lastDragLeft.current ?? left) - left;
+    lastDragLeft.current = null;
+    if (distance === 0) return;
+    setIsSettling(true);
+    const slide = element.animate(
+      [{ transform: `translateX(${distance}px)` }, { transform: "translateX(0)" }],
+      { duration: 200, easing: "ease" },
+    );
+    const settle = () => setIsSettling(false);
+    slide.onfinish = settle;
+    slide.oncancel = settle;
+  });
+  return (
+    <div
+      ref={setNodeRef}
+      className={cn(
+        "relative flex shrink-0 flex-col rounded-t-md",
+        // Tabs are see-through, so the moving group needs a solid back to pass over the others.
+        (isDragging || isSettling) && "z-10 bg-sidebar",
+      )}
+      style={{ transform: CSS.Translate.toString(transform), transition }}
+    >
+      <div className="flex items-end gap-0.5">{props.children}</div>
+      <div
+        ref={setActivatorNodeRef}
+        role="presentation"
+        aria-label={`Move the ${props.title} tabs`}
+        className="group/tab-group-line flex h-1.5 cursor-grab items-center active:cursor-grabbing [-webkit-app-region:no-drag]"
+        {...listeners}
+      >
+        <span
+          aria-hidden
+          className={cn(
+            "h-0.5 w-full rounded-full bg-current transition-[height] duration-150 group-hover/tab-group-line:h-1",
+            props.lineColor,
+            isDragging && "h-1",
+          )}
+        />
+      </div>
+    </div>
+  );
+}
+
 export function ChatTabsBar() {
   const tabs = useChatTabsStore((state) => state.tabs);
   const openTab = useChatTabsStore((state) => state.openTab);
@@ -122,13 +214,11 @@ export function ChatTabsBar() {
   };
   const groupOrder = useChatTabsStore((state) => state.groupOrder);
   const setGroupOrder = useChatTabsStore((state) => state.setGroupOrder);
-  // Drag a group's colored line to reorder the project groups.
+  // Drag a group's colored line to slide the project groups into a new order.
   const [draggingGroupId, setDraggingGroupId] = useState<string | null>(null);
-  const [groupDropTargetId, setGroupDropTargetId] = useState<string | null>(null);
-  const endGroupDrag = () => {
-    setDraggingGroupId(null);
-    setGroupDropTargetId(null);
-  };
+  const groupDragSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+  );
   const { environments } = useEnvironments();
   const threads = useThreadShells();
   const threadLastVisitedAtById = useUiStateStore((state) => state.threadLastVisitedAtById);
@@ -426,15 +516,13 @@ export function ChatTabsBar() {
     }),
     groupOrder,
   );
-  const dropTabGroup = (targetId: string) => {
-    if (!draggingGroupId) return;
-    const order = moveGroupId(
-      tabGroups.map((group) => group.groupId),
-      draggingGroupId,
-      targetId,
-    );
-    setGroupOrder(order);
-    endGroupDrag();
+  const tabGroupIds = tabGroups.map((group) => group.groupId);
+  const handleGroupDragStart = ({ active }: DragStartEvent) =>
+    setDraggingGroupId(String(active.id));
+  const handleGroupDragEnd = ({ active, over }: DragEndEvent) => {
+    setDraggingGroupId(null);
+    if (!over || active.id === over.id) return;
+    setGroupOrder(moveGroupId(tabGroupIds, String(active.id), String(over.id)));
   };
 
   if (tabs.length === 0 && draftTabs.length === 0) return null;
@@ -452,259 +540,239 @@ export function ChatTabsBar() {
     >
       <div
         ref={scrollTabsWithWheel}
-        className="flex min-w-0 flex-1 items-end gap-0.5 overflow-x-auto [scrollbar-width:none]"
+        className={cn(
+          "flex min-w-0 flex-1 items-end gap-0.5 overflow-x-auto [scrollbar-width:none]",
+          // Tabs ignore the pointer mid-drag, so they don't light up or open tooltips in passing.
+          draggingGroupId !== null && "cursor-grabbing **:pointer-events-none",
+        )}
       >
-        {tabGroups.map((group) => {
-          const groupProject = group.items[0]?.project;
-          const lineColor = groupProject
-            ? projectIconColorClassName(
-                groupProject.projectIcon && "color" in groupProject.projectIcon
-                  ? groupProject.projectIcon.color
-                  : deriveProjectIdentity(groupProject.title).color,
-              )
-            : "text-muted-foreground/50";
-          return (
-            <div key={group.groupId} className="flex shrink-0 flex-col">
-              <div className="flex items-end gap-0.5">
-                {group.items.map(({ tab, index }) => {
-                  const thread = threadByKey.get(tab.threadKey);
-                  const isActive = tab.threadKey === activeThreadKey;
-                  const isRunning = thread ? !threadRuntimeCanArchive(thread.runtime) : false;
-                  const hasUnreadCompletion =
-                    thread !== undefined &&
-                    resolveThreadStatusPill({
-                      thread: {
-                        ...thread,
-                        lastVisitedAt: resolveThreadLastVisitedAt(
-                          thread.lastVisitedAt,
-                          threadLastVisitedAtById[tab.threadKey],
-                        ),
-                      },
-                    })?.label === "Completed";
-                  const files = thread ? undefined : filesTabByThreadKey.get(tab.threadKey);
-                  const projectKey = thread
-                    ? (`${thread.environmentId}:${thread.projectId}` as const)
-                    : files
-                      ? (`${files.session.environmentId}:${files.session.projectId}` as const)
-                      : null;
-                  const project = projectKey ? projectByKey.get(projectKey) : undefined;
-                  const activePath = files?.filesTab.relativePath ?? null;
-                  const filePath = activePath && !isScratchPath(activePath) ? activePath : null;
-                  const title =
-                    thread?.title ??
-                    (files
-                      ? activePath
-                        ? filesTabTitle(activePath)
-                        : `${project?.title ?? "Project"} files`
-                      : "Unavailable thread");
-                  const unsaved =
-                    files !== undefined &&
-                    !autoSave &&
-                    Object.keys(filesDirtyByDraftId[files.draftId] ?? {}).length > 0;
-                  const tabElement = (
-                    <div
-                      key={tab.threadKey}
-                      role="tab"
-                      tabIndex={0}
-                      draggable
-                      aria-selected={isActive}
-                      aria-label={tab.preview ? `${title} (preview)` : title}
-                      className={cn(
-                        "group/chat-tab relative flex h-8 max-w-56 min-w-24 shrink-0 cursor-pointer items-center gap-1.5 rounded-t-md border border-b-0 px-2.5 text-xs select-none [-webkit-app-region:no-drag]",
-                        isActive
-                          ? "border-border bg-background text-foreground"
-                          : "border-transparent text-muted-foreground hover:bg-accent/60 hover:text-foreground",
-                        draggingTabKey === tab.threadKey && "opacity-50",
-                      )}
-                      onDragStart={(event) => {
-                        event.dataTransfer.effectAllowed = "move";
-                        event.dataTransfer.setData(CHAT_TAB_DRAG_TYPE, tab.threadKey);
-                        setDraggingTabKey(tab.threadKey);
-                      }}
-                      onDragOver={(event) => {
-                        if (!draggingTabKey) return;
-                        event.preventDefault();
-                        event.dataTransfer.dropEffect = "move";
-                        const rect = event.currentTarget.getBoundingClientRect();
-                        const after = event.clientX > rect.left + rect.width / 2;
-                        if (tabDropTarget?.index !== index || tabDropTarget.after !== after) {
-                          setTabDropTarget({ index, after });
-                        }
-                      }}
-                      onDragLeave={() => setTabDropTarget(null)}
-                      onDrop={(event) => {
-                        if (!draggingTabKey) return;
-                        event.preventDefault();
-                        const fromIndex = tabs.findIndex(
-                          (candidate) => candidate.threadKey === draggingTabKey,
-                        );
-                        const after = tabDropTarget?.after ?? false;
-                        let toIndex = index + (after ? 1 : 0);
-                        if (fromIndex !== -1 && fromIndex < toIndex) toIndex -= 1;
-                        moveTab(draggingTabKey, toIndex);
-                        endTabDrag();
-                      }}
-                      onDragEnd={endTabDrag}
-                      onClick={() => {
-                        if (!isActive) void navigateToThreadKey(tab.threadKey);
-                      }}
-                      onDoubleClick={() => makePermanent(tab.threadKey)}
-                      onAuxClick={(event) => {
-                        if (event.button !== 1) return;
-                        event.preventDefault();
-                        handleCloseTab(tab.threadKey);
-                      }}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          void navigateToThreadKey(tab.threadKey);
-                        }
-                      }}
-                    >
-                      {isActive ? (
-                        <span
-                          aria-hidden
-                          className="pointer-events-none absolute inset-x-2 -top-px h-0.5 rounded-full bg-primary"
-                        />
-                      ) : null}
-                      {tabDropTarget?.index === index ? (
-                        <span
-                          aria-hidden
-                          className={cn(
-                            "pointer-events-none absolute inset-y-1 w-0.5 rounded-full bg-primary",
-                            tabDropTarget.after ? "-right-px" : "-left-px",
-                          )}
-                        />
-                      ) : null}
-                      {/* One status slot: a dot on the project icon, the same signal the sidebar rail uses. */}
-                      <span className="relative flex shrink-0">
-                        {project ? (
-                          <ProjectFavicon project={project} className="size-3.5 shrink-0" />
-                        ) : isRunning || hasUnreadCompletion ? (
-                          <MessageSquareIcon
-                            aria-hidden
-                            className="size-3.5 text-muted-foreground"
-                          />
-                        ) : null}
-                        {isRunning ? (
-                          <span
-                            role="img"
-                            aria-label="Working"
-                            className="absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-info ring-2 ring-background motion-safe:animate-status-pulse"
-                          />
-                        ) : hasUnreadCompletion ? (
-                          <span
-                            role="img"
-                            aria-label="Completed"
-                            className="absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-success ring-2 ring-background"
-                          />
-                        ) : null}
-                      </span>
-                      {files ? (
-                        // A folder marks a files tab apart from chats, then the open file's type.
-                        <>
-                          <FolderIcon className="size-3 shrink-0 text-muted-foreground" />
-                          {filePath ? (
-                            <PierreEntryIcon
-                              pathValue={filePath}
-                              kind="file"
-                              theme={resolvedTheme}
-                              className="size-3.5 shrink-0"
-                            />
-                          ) : null}
-                        </>
-                      ) : null}
-                      <span className={cn("min-w-0 flex-1 truncate", tab.preview && "italic")}>
-                        {title}
-                      </span>
-                      {thread ? <ChatTabCacheBadge thread={thread} /> : null}
-                      {unsaved ? (
-                        <span
-                          role="img"
-                          aria-label="Unsaved changes"
-                          className="size-1.5 shrink-0 rounded-full bg-foreground/80"
-                        />
-                      ) : null}
-                      <button
-                        type="button"
-                        aria-label={`Close ${title}`}
+        <DndContext
+          sensors={groupDragSensors}
+          collisionDetection={closestCenter}
+          modifiers={TAB_GROUP_DRAG_MODIFIERS}
+          onDragStart={handleGroupDragStart}
+          onDragEnd={handleGroupDragEnd}
+          onDragCancel={() => setDraggingGroupId(null)}
+        >
+          <SortableContext items={tabGroupIds} strategy={horizontalListSortingStrategy}>
+            {tabGroups.map((group) => {
+              const groupProject = group.items[0]?.project;
+              const lineColor = groupProject
+                ? projectIconColorClassName(
+                    groupProject.projectIcon && "color" in groupProject.projectIcon
+                      ? groupProject.projectIcon.color
+                      : deriveProjectIdentity(groupProject.title).color,
+                  )
+                : "text-muted-foreground/50";
+              return (
+                <SortableTabGroup
+                  key={group.groupId}
+                  groupId={group.groupId}
+                  title={group.title}
+                  lineColor={lineColor}
+                >
+                  {group.items.map(({ tab, index }) => {
+                    const thread = threadByKey.get(tab.threadKey);
+                    const isActive = tab.threadKey === activeThreadKey;
+                    const isRunning = thread ? !threadRuntimeCanArchive(thread.runtime) : false;
+                    const hasUnreadCompletion =
+                      thread !== undefined &&
+                      resolveThreadStatusPill({
+                        thread: {
+                          ...thread,
+                          lastVisitedAt: resolveThreadLastVisitedAt(
+                            thread.lastVisitedAt,
+                            threadLastVisitedAtById[tab.threadKey],
+                          ),
+                        },
+                      })?.label === "Completed";
+                    const files = thread ? undefined : filesTabByThreadKey.get(tab.threadKey);
+                    const projectKey = thread
+                      ? (`${thread.environmentId}:${thread.projectId}` as const)
+                      : files
+                        ? (`${files.session.environmentId}:${files.session.projectId}` as const)
+                        : null;
+                    const project = projectKey ? projectByKey.get(projectKey) : undefined;
+                    const activePath = files?.filesTab.relativePath ?? null;
+                    const filePath = activePath && !isScratchPath(activePath) ? activePath : null;
+                    const title =
+                      thread?.title ??
+                      (files
+                        ? activePath
+                          ? filesTabTitle(activePath)
+                          : `${project?.title ?? "Project"} files`
+                        : "Unavailable thread");
+                    const unsaved =
+                      files !== undefined &&
+                      !autoSave &&
+                      Object.keys(filesDirtyByDraftId[files.draftId] ?? {}).length > 0;
+                    const tabElement = (
+                      <div
+                        key={tab.threadKey}
+                        role="tab"
+                        tabIndex={0}
+                        draggable
+                        aria-selected={isActive}
+                        aria-label={tab.preview ? `${title} (preview)` : title}
                         className={cn(
-                          "inline-flex size-4 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground",
-                          isActive ? "opacity-100" : "opacity-0 group-hover/chat-tab:opacity-100",
+                          "group/chat-tab relative flex h-8 max-w-56 min-w-24 shrink-0 cursor-pointer items-center gap-1.5 rounded-t-md border border-b-0 px-2.5 text-xs select-none [-webkit-app-region:no-drag]",
+                          isActive
+                            ? "border-border bg-background text-foreground"
+                            : "border-transparent text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+                          draggingTabKey === tab.threadKey && "opacity-50",
                         )}
-                        onClick={(event) => {
-                          event.stopPropagation();
+                        onDragStart={(event) => {
+                          event.dataTransfer.effectAllowed = "move";
+                          event.dataTransfer.setData(CHAT_TAB_DRAG_TYPE, tab.threadKey);
+                          setDraggingTabKey(tab.threadKey);
+                        }}
+                        onDragOver={(event) => {
+                          if (!draggingTabKey) return;
+                          event.preventDefault();
+                          event.dataTransfer.dropEffect = "move";
+                          const rect = event.currentTarget.getBoundingClientRect();
+                          const after = event.clientX > rect.left + rect.width / 2;
+                          if (tabDropTarget?.index !== index || tabDropTarget.after !== after) {
+                            setTabDropTarget({ index, after });
+                          }
+                        }}
+                        onDragLeave={() => setTabDropTarget(null)}
+                        onDrop={(event) => {
+                          if (!draggingTabKey) return;
+                          event.preventDefault();
+                          const fromIndex = tabs.findIndex(
+                            (candidate) => candidate.threadKey === draggingTabKey,
+                          );
+                          const after = tabDropTarget?.after ?? false;
+                          let toIndex = index + (after ? 1 : 0);
+                          if (fromIndex !== -1 && fromIndex < toIndex) toIndex -= 1;
+                          moveTab(draggingTabKey, toIndex);
+                          endTabDrag();
+                        }}
+                        onDragEnd={endTabDrag}
+                        onClick={() => {
+                          if (!isActive) void navigateToThreadKey(tab.threadKey);
+                        }}
+                        onDoubleClick={() => makePermanent(tab.threadKey)}
+                        onAuxClick={(event) => {
+                          if (event.button !== 1) return;
+                          event.preventDefault();
                           handleCloseTab(tab.threadKey);
                         }}
-                      >
-                        <XIcon className="size-3" />
-                      </button>
-                    </div>
-                  );
-                  if (!thread) return tabElement;
-                  // Keep the wrapper while dragging: swapping it out remounts the tab and cancels the drag.
-                  return (
-                    <Tooltip key={tab.threadKey} disabled={draggingTabKey !== null}>
-                      <TooltipTrigger delay={600} render={tabElement} />
-                      <TooltipPopup side="bottom" align="start" className="max-w-72">
-                        <ChatTabHoverCard
-                          thread={thread}
-                          title={title}
-                          projectTitle={project?.title ?? null}
-                          status={
-                            isRunning
-                              ? "Working"
-                              : hasUnreadCompletion
-                                ? "Finished, not read yet"
-                                : null
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            void navigateToThreadKey(tab.threadKey);
                           }
-                        />
-                      </TooltipPopup>
-                    </Tooltip>
-                  );
-                })}
-              </div>
-              {/* The group's line: the project's color, and the handle to drag the group sideways. */}
-              <div
-                role="presentation"
-                draggable
-                aria-label={`Move the ${group.title} tabs`}
-                className={cn(
-                  "flex h-1.5 cursor-grab items-center active:cursor-grabbing [-webkit-app-region:no-drag]",
-                  draggingGroupId === group.groupId && "opacity-50",
-                )}
-                onDragStart={(event) => {
-                  event.dataTransfer.effectAllowed = "move";
-                  event.dataTransfer.setData(CHAT_TAB_GROUP_DRAG_TYPE, group.groupId);
-                  setDraggingGroupId(group.groupId);
-                }}
-                onDragOver={(event) => {
-                  if (!draggingGroupId) return;
-                  event.preventDefault();
-                  event.dataTransfer.dropEffect = "move";
-                  if (groupDropTargetId !== group.groupId) setGroupDropTargetId(group.groupId);
-                }}
-                onDragLeave={() => setGroupDropTargetId(null)}
-                onDrop={(event) => {
-                  event.preventDefault();
-                  dropTabGroup(group.groupId);
-                }}
-                onDragEnd={endGroupDrag}
-              >
-                <span
-                  aria-hidden
-                  className={cn(
-                    "h-0.5 w-full rounded-full bg-current",
-                    lineColor,
-                    groupDropTargetId === group.groupId &&
-                      draggingGroupId !== group.groupId &&
-                      "h-1",
-                  )}
-                />
-              </div>
-            </div>
-          );
-        })}
+                        }}
+                      >
+                        {isActive ? (
+                          <span
+                            aria-hidden
+                            className="pointer-events-none absolute inset-x-2 -top-px h-0.5 rounded-full bg-primary"
+                          />
+                        ) : null}
+                        {tabDropTarget?.index === index ? (
+                          <span
+                            aria-hidden
+                            className={cn(
+                              "pointer-events-none absolute inset-y-1 w-0.5 rounded-full bg-primary",
+                              tabDropTarget.after ? "-right-px" : "-left-px",
+                            )}
+                          />
+                        ) : null}
+                        {/* One status slot: a dot on the project icon, the same signal the sidebar rail uses. */}
+                        <span className="relative flex shrink-0">
+                          {project ? (
+                            <ProjectFavicon project={project} className="size-3.5 shrink-0" />
+                          ) : isRunning || hasUnreadCompletion ? (
+                            <MessageSquareIcon
+                              aria-hidden
+                              className="size-3.5 text-muted-foreground"
+                            />
+                          ) : null}
+                          {isRunning ? (
+                            <span
+                              role="img"
+                              aria-label="Working"
+                              className="absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-info ring-2 ring-background motion-safe:animate-status-pulse"
+                            />
+                          ) : hasUnreadCompletion ? (
+                            <span
+                              role="img"
+                              aria-label="Completed"
+                              className="absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-success ring-2 ring-background"
+                            />
+                          ) : null}
+                        </span>
+                        {files ? (
+                          // A folder marks a files tab apart from chats, then the open file's type.
+                          <>
+                            <FolderIcon className="size-3 shrink-0 text-muted-foreground" />
+                            {filePath ? (
+                              <PierreEntryIcon
+                                pathValue={filePath}
+                                kind="file"
+                                theme={resolvedTheme}
+                                className="size-3.5 shrink-0"
+                              />
+                            ) : null}
+                          </>
+                        ) : null}
+                        <span className={cn("min-w-0 flex-1 truncate", tab.preview && "italic")}>
+                          {title}
+                        </span>
+                        {thread ? <ChatTabCacheBadge thread={thread} /> : null}
+                        {unsaved ? (
+                          <span
+                            role="img"
+                            aria-label="Unsaved changes"
+                            className="size-1.5 shrink-0 rounded-full bg-foreground/80"
+                          />
+                        ) : null}
+                        <button
+                          type="button"
+                          aria-label={`Close ${title}`}
+                          className={cn(
+                            "inline-flex size-4 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground",
+                            isActive ? "opacity-100" : "opacity-0 group-hover/chat-tab:opacity-100",
+                          )}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleCloseTab(tab.threadKey);
+                          }}
+                        >
+                          <XIcon className="size-3" />
+                        </button>
+                      </div>
+                    );
+                    if (!thread) return tabElement;
+                    // Keep the wrapper while dragging: swapping it out remounts the tab and cancels the drag.
+                    return (
+                      <Tooltip key={tab.threadKey} disabled={draggingTabKey !== null}>
+                        <TooltipTrigger delay={600} render={tabElement} />
+                        <TooltipPopup side="bottom" align="start" className="max-w-72">
+                          <ChatTabHoverCard
+                            thread={thread}
+                            title={title}
+                            projectTitle={project?.title ?? null}
+                            status={
+                              isRunning
+                                ? "Working"
+                                : hasUnreadCompletion
+                                  ? "Finished, not read yet"
+                                  : null
+                            }
+                          />
+                        </TooltipPopup>
+                      </Tooltip>
+                    );
+                  })}
+                </SortableTabGroup>
+              );
+            })}
+          </SortableContext>
+        </DndContext>
         {draftTabs.map((draft) => {
           const isActive = draft.draftId === routeDraftId;
           return (
