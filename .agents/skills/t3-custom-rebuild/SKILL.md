@@ -7,6 +7,8 @@ description: How to rebuild and install the custom T3 Code desktop app (`T3 Code
 
 Only rebuild when Matheus asks. Committing doesn't mean rebuilding.
 
+**Read the t3-custom-change skill first**, before any edit or rebuild, even when the rebuild is just one step of a small change. It covers how changes are made and landed on `custom`: your own worktree, typecheck, dev-app screenshots, commit style and the pre-commit hook. This skill assumes that's done and only installs what has landed. From a chat outside this repo, read it with `cat ~/Desktop/matheus/repos/t3code/.agents/skills/t3-custom-change/SKILL.md`.
+
 ## Before
 
 Run these from the main checkout (`~/Desktop/matheus/repos/t3code`), not a worktree.
