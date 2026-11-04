@@ -45,6 +45,7 @@ Screenshots pasted into the chat often show as "unavailable". They are on disk i
 
 - For UI work, read [references/design-language.md](references/design-language.md) first. It has the fork's layout choices and the rules lint won't catch.
 - Copy the closest existing component instead of inventing a pattern.
+- Every change Matheus suggests also becomes an option in Settings, in the same commit. Put it in the section where it belongs in the settings menu, as a `SettingsRow` with a description and a `settingsSearch` entry. Don't add a catch-all section.
 - Start from the simplest version that works. List what you cut, so Matheus can ask for it later.
 - For a proposal or a big UI change, show a mock before building it.
 - If you're unsure about a choice that changes the result, ask. For "it was fine before" bugs, run `git log -S` on the relevant code first: the cause is often one recent fork commit, and its message says what it meant to do.
