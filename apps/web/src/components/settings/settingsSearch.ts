@@ -750,6 +750,14 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["jira ticket status done settle in progress to do close"],
   },
   {
+    id: "jira-keep-open-ticket-tabs",
+    title: "Keep tabs of chats with open tickets",
+    to: "/settings/threads",
+    targetId: "jira",
+    scope: "environment-defaults",
+    searchTerms: ["jira ticket tab sweep end of day midnight clean up open in progress"],
+  },
+  {
     id: "google-cloud",
     title: "Google Cloud",
     to: "/settings/threads",

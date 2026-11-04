@@ -2113,6 +2113,23 @@ export function ThreadsSettingsPanel() {
             }
           />
         ) : null}
+        {settings.jiraModelSelection !== null ? (
+          <SettingsRow
+            serverScoped
+            settingKeys={["jiraKeepOpenTicketTabs"]}
+            {...searchableSetting("jira-keep-open-ticket-tabs")}
+            description="The end-of-day clean-up leaves the tab of a chat open while its Jira ticket is not Done. Closing a tab yourself still settles the chat."
+            control={
+              <Switch
+                checked={settings.jiraKeepOpenTicketTabs}
+                onCheckedChange={(checked) =>
+                  updateSettings({ jiraKeepOpenTicketTabs: Boolean(checked) })
+                }
+                aria-label="Keep tabs of chats with open tickets"
+              />
+            }
+          />
+        ) : null}
       </SettingsSection>
 
       <SettingsSection id="google-cloud-section" title="Google Cloud">

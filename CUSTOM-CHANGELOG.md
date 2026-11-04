@@ -53,6 +53,7 @@ Last synced with the official `main`: 2026-11-03.
 - The "Likely ticket" card has a "Create new…" button, for when the suggested ticket isn't the right one.
 - A linked chat now drafts a Jira update only when its pull request merges, not when it opens. "Draft Jira updates when a pull request opens" under Threads > Jira turns the old behavior back on.
 - Settling a chat whose ticket is To Do or In Progress offers to move it to Done: the usual Jira update card (Status → Done) on that chat, plus a toast with "Open chat". Nothing is sent until you apply it. "Suggest Done when settling a chat" under Threads > Jira turns it off.
+- The end-of-day tab clean-up now leaves open the tab of any chat whose Jira ticket is not Done. "Keep tabs of chats with open tickets" under Threads > Jira turns it off.
 
 ## Messages
 

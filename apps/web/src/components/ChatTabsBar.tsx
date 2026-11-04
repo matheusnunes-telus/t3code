@@ -54,6 +54,9 @@ import { isTerminalFocused } from "../lib/terminalFocus";
 import { cn } from "../lib/utils";
 import { useStableCallback } from "../hooks/useStableCallback";
 import { serverEnvironment } from "../state/server";
+import { usePrimaryEnvironmentId } from "../state/environments";
+import { issueByKey, threadTicketKeys, useJiraSnapshot } from "../state/jira";
+import { usePrimarySettings } from "../hooks/useSettings";
 import { useNowMinute } from "../hooks/useNowMinute";
 import {
   formatPromptCacheRemaining,
@@ -257,6 +260,10 @@ export function ChatTabsBar() {
   const removeTabs = useChatTabsStore((state) => state.removeTabs);
   const sweepTabs = useChatTabsStore((state) => state.sweepTabs);
   const { settleThread, unsettleThread } = useThreadActions();
+  const keepOpenTicketTabs = usePrimarySettings((settings) => settings.jiraKeepOpenTicketTabs);
+  const jiraSnapshot = useJiraSnapshot(usePrimaryEnvironmentId());
+  // The sweep waits for the ticket list, or it would not know which chats still have open tickets.
+  const jiraReady = !keepOpenTicketTabs || jiraSnapshot !== null;
   const moveTab = useChatTabsStore((state) => state.moveTab);
   // Drag a tab sideways to reorder it inside its group.
   const [draggingTabKey, setDraggingTabKey] = useState<string | null>(null);
@@ -362,18 +369,27 @@ export function ChatTabsBar() {
   };
 
   // End of the day (local time) settles the open tabs and clears the strip, like Arc. A window
-  // that was closed over midnight does it on startup. Pinned and running chats keep their tab.
+  // that was closed over midnight does it on startup. Pinned and running chats keep their tab,
+  // and so do chats whose Jira ticket is not Done.
   const sweepTabsOfTheDay = useStableCallback(() => {
     const swept = sweepTabs(localDayKey(new Date()), (key) => {
       const thread = threadByKey.get(key);
-      return (
-        thread !== undefined && thread.pinnedAt == null && threadRuntimeCanArchive(thread.runtime)
+      if (
+        thread === undefined ||
+        thread.pinnedAt != null ||
+        !threadRuntimeCanArchive(thread.runtime)
+      ) {
+        return false;
+      }
+      if (!keepOpenTicketTabs || jiraSnapshot?.enabled !== true) return true;
+      return !threadTicketKeys(jiraSnapshot, thread.id).some(
+        (ticket) => issueByKey(jiraSnapshot, ticket)?.statusCategory !== "done",
       );
     });
     for (const key of swept) settleTabThread(key);
     if (activeThreadKey && swept.includes(activeThreadKey)) void navigateToThreadKey(null);
   });
-  const threadsLoaded = threadByKey.size > 0;
+  const threadsLoaded = threadByKey.size > 0 && jiraReady;
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- a timer to the next local midnight is outside React; threads must be loaded first so the sweep can tell running and pinned chats apart.
   useEffect(() => {
     if (!threadsLoaded) return;
