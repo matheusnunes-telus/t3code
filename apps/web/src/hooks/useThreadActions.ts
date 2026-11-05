@@ -12,6 +12,7 @@ import {
   AuthSourceControlWriteScope,
   EnvironmentAuthorizationError,
   EnvironmentId,
+  type ProjectId,
   type ScopedThreadRef,
   ThreadId,
   sessionGrantsScope,
@@ -315,6 +316,9 @@ export function useThreadActions() {
     reportFailure: false,
   });
   const markThreadUnread = useMarkThreadUnread();
+  const moveThreadToProjectMutation = useOrchestrationCommand(threadEnvironment.moveToProject, {
+    reportFailure: false,
+  });
   const createProjectFromThread = useAtomCommand(projectEnvironment.createFromThread, {
     reportFailure: false,
   });
@@ -704,6 +708,15 @@ export function useThreadActions() {
     });
   };
 
+  const moveThreadToProject = async (target: ScopedThreadRef, projectId: ProjectId) => {
+    const permissionFailure = threadOperationFailure(target);
+    if (permissionFailure) return permissionFailure;
+    return moveThreadToProjectMutation({
+      environmentId: target.environmentId,
+      input: { threadId: target.threadId, projectId },
+    });
+  };
+
   const pinThread = async (target: ScopedThreadRef, opts: { orderKey?: string } = {}) => {
     if (!readEnvironmentServerConfigLoaded(target.environmentId)) {
       return AsyncResult.failure(
@@ -983,6 +996,7 @@ export function useThreadActions() {
     reorderPinnedThread,
     reorderActiveThread,
     markThreadUnread,
+    moveThreadToProject,
     setThreadAutoSettle,
     turnThreadIntoProject: (target: ScopedThreadRef) =>
       createProjectFromThread({

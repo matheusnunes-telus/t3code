@@ -173,7 +173,9 @@ import { cn } from "~/lib/utils";
 import { ProjectEnvironmentBadge } from "./ProjectEnvironmentBadge";
 import {
   buildDraftActionMenuItems,
+  buildMoveToProjectChoices,
   buildThreadActionMenuItems,
+  parseMoveToProjectAction,
   threadActionRequiresOperate,
 } from "./threadActionMenu.logic";
 import {
@@ -930,6 +932,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   const confirmThreadDelete = useClientSettings((s) => s.confirmThreadDelete);
   const confirmThreadArchive = useClientSettings((s) => s.confirmThreadArchive);
   const timestampFormat = useClientSettings((s) => s.timestampFormat);
+  const threadMenuMoveToProject = useClientSettings((s) => s.threadMenuMoveToProject);
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
   const {
     settleThread,
@@ -940,6 +943,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     unpinThread,
     confirmAndUnpinThread,
     setThreadAutoSettle,
+    moveThreadToProject,
     turnThreadIntoProject,
     reorderPinnedThread,
     reorderActiveThread,
@@ -2618,6 +2622,11 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                 projectRef.projectId === thread.projectId,
             ),
           ) ?? null;
+        const moveToProject = buildMoveToProjectChoices({
+          enabled: threadMenuMoveToProject,
+          thread,
+          projects,
+        });
         const clicked = await settlePromise(() =>
           api.contextMenu.show(
             buildThreadActionMenuItems({
@@ -2625,6 +2634,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                 threadRef.environmentId,
                 AuthOrchestrationOperateScope,
               ),
+              moveToProject,
               branch: thread.branch ?? null,
               // An archived project is not a filter choice.
               projectFilter:
@@ -2659,6 +2669,27 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         );
         if (clicked._tag === "Failure" || clicked.value === null) return;
         if (threadActionRequiresOperate(clicked.value) && !checkThreadOperations([thread])) return;
+        const moveTargetId = clicked.value ? parseMoveToProjectAction(clicked.value) : null;
+        if (moveTargetId !== null) {
+          const result = await moveThreadToProject(threadRef, moveTargetId);
+          if (result._tag === "Success") {
+            toastManager.add({
+              type: "success",
+              title: "Thread moved",
+              description: moveToProject.find((choice) => choice.projectId === moveTargetId)?.label,
+            });
+          } else if (!isAtomCommandInterrupted(result)) {
+            const error = squashAtomCommandFailure(result);
+            toastManager.add(
+              stackedThreadToast({
+                type: "error",
+                title: "Could not move thread",
+                description: error instanceof Error ? error.message : "An error occurred.",
+              }),
+            );
+          }
+          return;
+        }
         if (clicked.value?.startsWith("snooze:")) {
           const preset =
             clicked.value === "snooze:custom"

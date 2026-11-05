@@ -492,6 +492,9 @@ export function useSettingsRestore(onRestored?: () => void) {
     ...(settings.sidebarWorkingShelfEnabled !== DEFAULT_UNIFIED_SETTINGS.sidebarWorkingShelfEnabled
       ? ["Working section"]
       : []),
+    ...(settings.threadMenuMoveToProject !== DEFAULT_UNIFIED_SETTINGS.threadMenuMoveToProject
+      ? ["Move to project menu"]
+      : []),
     ...(settings.sidebarAutoSettleAfterDays !== DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleAfterDays
       ? ["Auto-settle inactive threads"]
       : []),
@@ -660,6 +663,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       sidebarProjectGroupingMode: DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode,
       sidebarProjectSortOrder: DEFAULT_UNIFIED_SETTINGS.sidebarProjectSortOrder,
       sidebarWorkingShelfEnabled: DEFAULT_UNIFIED_SETTINGS.sidebarWorkingShelfEnabled,
+      threadMenuMoveToProject: DEFAULT_UNIFIED_SETTINGS.threadMenuMoveToProject,
       sidebarAutoSettleAfterDays: DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleAfterDays,
       sidebarAutoSettleKeepPullRequests: DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleKeepPullRequests,
       sidebarAutoSettleOnMerge: DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleOnMerge,
@@ -936,6 +940,32 @@ export function GeneralSettingsPanel() {
                 updateSettings({ sidebarWorkingShelfEnabled: Boolean(checked) })
               }
               aria-label="Working section"
+            />
+          }
+        />
+        <SettingsRow
+          {...searchableSetting("move-to-project-menu")}
+          description="Show Move to project in a thread's right-click menu. A moved thread keeps working in the folder it already uses."
+          resetAction={
+            settings.threadMenuMoveToProject !==
+            DEFAULT_UNIFIED_SETTINGS.threadMenuMoveToProject ? (
+              <SettingResetButton
+                label="move to project menu"
+                onClick={() =>
+                  updateSettings({
+                    threadMenuMoveToProject: DEFAULT_UNIFIED_SETTINGS.threadMenuMoveToProject,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Switch
+              checked={settings.threadMenuMoveToProject}
+              onCheckedChange={(checked) =>
+                updateSettings({ threadMenuMoveToProject: Boolean(checked) })
+              }
+              aria-label="Show Move to project in the thread menu"
             />
           }
         />

@@ -17,7 +17,9 @@ import { useRouter } from "@tanstack/react-router";
 
 import { pickSnoozePreset, resolveSnoozePresets } from "../components/Sidebar.snooze";
 import {
+  buildMoveToProjectChoices,
   buildThreadActionMenuItems,
+  parseMoveToProjectAction,
   threadActionRequiresOperate,
   type ThreadActionMenuId,
 } from "../components/threadActionMenu.logic";
@@ -85,6 +87,7 @@ export function useThreadActionMenu(input: {
     archiveThread,
     deleteThread,
     markThreadUnread,
+    moveThreadToProject,
     turnThreadIntoProject,
   } = useThreadActions();
   const updateThreadMetadata = useOrchestrationCommand(threadEnvironment.updateMetadata, {
@@ -94,6 +97,7 @@ export function useThreadActionMenu(input: {
   const confirmThreadDelete = useClientSettings((s) => s.confirmThreadDelete);
   const confirmThreadArchive = useClientSettings((s) => s.confirmThreadArchive);
   const timestampFormat = useClientSettings((s) => s.timestampFormat);
+  const threadMenuMoveToProject = useClientSettings((s) => s.threadMenuMoveToProject);
   const { copyToClipboard: copyPathToClipboard } = useCopyToClipboard<{ path: string }>({
     onCopy: ({ path }) => {
       toastManager.add({ type: "success", title: "Path copied", description: path });
@@ -132,6 +136,11 @@ export function useThreadActionMenu(input: {
       };
       const isRegeneratingTitle = thread.titleRegeneration != null;
       const snoozePresets = resolveSnoozePresets(now, timestampFormat, threadRef.environmentId);
+      const moveToProject = buildMoveToProjectChoices({
+        enabled: threadMenuMoveToProject,
+        thread,
+        projects,
+      });
       const items = buildThreadActionMenuItems({
         canOperate: readEnvironmentScope(threadRef.environmentId, AuthOrchestrationOperateScope),
         canFind: onFind !== undefined,
@@ -148,6 +157,7 @@ export function useThreadActionMenu(input: {
         snoozePresets,
         canShareWithGuest,
         canTurnIntoProject: canTurnThreadIntoProject(threadRef),
+        moveToProject,
       });
       const clicked = await settlePromise(() => api.contextMenu.show(items, position));
       if (clicked._tag === "Failure" || clicked.value === null) return;
@@ -160,6 +170,20 @@ export function useThreadActionMenu(input: {
           "Thread action unavailable",
           new Error("This connection cannot change threads."),
         );
+        return;
+      }
+      const moveTargetId = parseMoveToProjectAction(action);
+      if (moveTargetId !== null) {
+        const result = await moveThreadToProject(threadRef, moveTargetId);
+        if (result._tag === "Success") {
+          toastManager.add({
+            type: "success",
+            title: "Thread moved",
+            description: moveToProject.find((choice) => choice.projectId === moveTargetId)?.label,
+          });
+        } else if (!isAtomCommandInterrupted(result)) {
+          failureToast("Could not move thread", squashAtomCommandFailure(result));
+        }
         return;
       }
       if (action.startsWith("snooze:")) {

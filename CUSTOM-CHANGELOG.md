@@ -16,6 +16,7 @@ Last synced with the official `main`: 2026-11-03.
 - Sub-projects, either folder-nested or named. You can reorder them, create one from a project row, start a new chat from a sub-project header, and drag chats between sub-projects. Long chat lists are cut short, with a "Show all" button.
 - Subagent chats are folded under their main chat, with an "N subagents" toggle.
 - Settle and Un-settle in the chat hover actions and the right-click menu.
+- Move to project in a chat's right-click menu sends it to another project, for example from No project to T3 Custom. The chat keeps working in the folder it already uses, so its history still resumes. Turn it off in Settings, General.
 - Collapsed mode leaves a narrow icon rail (new chat, search, settings, pull requests, usage). Hovering it floats the full sidebar over the content. The rail starts below the top bar, and the floating sidebar covers the message minimap.
 - The collapsed rail lists exactly what the tab strip shows, in the same order: chats, files tabs and unsent drafts, as project icons with the same status dot, and a small gap between project groups. Click one to open it. The rail no longer lists projects; those are in the sidebar when you hover.
 

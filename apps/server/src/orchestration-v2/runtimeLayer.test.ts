@@ -7448,6 +7448,97 @@ it.layer(layerScratchPromotionTest)("turning a No project thread into a project"
   );
 });
 
+it.layer(layerSharedApplicationDataPlaneTest)("thread project move", (it) => {
+  const makeProject = (name: string, workspaceRoot: string) =>
+    Effect.gen(function* () {
+      const projects = yield* ProjectService.ProjectService;
+      const project = yield* projects.create({
+        commandId: CommandId.make(`move-${name}-project`),
+        projectId: ProjectId.make(`move-${name}-project`),
+        title: name,
+        workspaceRoot,
+      });
+      return project.id;
+    });
+  const makeThread = (name: string, projectId: ProjectId) =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const threadId = ThreadId.make(`move-${name}-thread`);
+      yield* orchestrator.dispatch({
+        type: "thread.create",
+        createdBy: "user",
+        creationSource: "web",
+        commandId: CommandId.make(`move-${name}-thread-create`),
+        threadId,
+        projectId,
+        title: name,
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: null,
+      });
+      return threadId;
+    });
+  const move = (name: string, threadId: ThreadId, projectId: ProjectId) =>
+    Orchestrator.OrchestratorV2.pipe(
+      Effect.flatMap((orchestrator) =>
+        orchestrator.dispatch({
+          type: "thread.project.move",
+          commandId: CommandId.make(`move-${name}-command`),
+          threadId,
+          projectId,
+        }),
+      ),
+    );
+  const shellOf = (threadId: ThreadId) =>
+    Orchestrator.OrchestratorV2.pipe(
+      Effect.flatMap((orchestrator) => orchestrator.getThreadShell(threadId)),
+    );
+
+  it.effect("moves a thread to a project rooted elsewhere and keeps its folder", () =>
+    Effect.gen(function* () {
+      const from = yield* makeProject("keep-from", "/tmp/move-keep-from");
+      const to = yield* makeProject("keep-to", "/tmp/move-keep-to");
+      const threadId = yield* makeThread("keep", from);
+
+      yield* move("keep", threadId, to);
+
+      const shell = yield* shellOf(threadId);
+      assert.equal(shell?.projectId, to);
+      assert.equal(shell?.worktreePath, "/tmp/move-keep-from");
+    }),
+  );
+
+  it.effect("drops the pinned folder when the target project is rooted there", () =>
+    Effect.gen(function* () {
+      const from = yield* makeProject("same-from", "/tmp/move-same-folder");
+      const to = yield* makeProject("same-to", "/tmp/move-same-folder-other");
+      const threadId = yield* makeThread("same", from);
+      yield* move("same-out", threadId, to);
+      assert.equal((yield* shellOf(threadId))?.worktreePath, "/tmp/move-same-folder");
+
+      yield* move("same-back", threadId, from);
+
+      const shell = yield* shellOf(threadId);
+      assert.equal(shell?.projectId, from);
+      assert.equal(shell?.worktreePath, null);
+    }),
+  );
+
+  it.effect("refuses a missing project and leaves the thread alone", () =>
+    Effect.gen(function* () {
+      const from = yield* makeProject("missing-from", "/tmp/move-missing-from");
+      const threadId = yield* makeThread("missing", from);
+
+      // The dispatcher wraps the reason, so the proof is that the command fails and nothing moves.
+      yield* move("missing", threadId, ProjectId.make("move-no-such-project")).pipe(Effect.flip);
+
+      assert.equal((yield* shellOf(threadId))?.projectId, from);
+    }),
+  );
+});
+
 it.layer(layerSharedApplicationDataPlaneTest)("snooze projection", (it) => {
   it.effect("carries snooze, settle and title state through the V2 shell projection", () =>
     Effect.gen(function* () {

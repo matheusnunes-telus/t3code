@@ -1,11 +1,15 @@
-import type { ContextMenuItem } from "@t3tools/contracts";
+import type { ContextMenuItem, ProjectId } from "@t3tools/contracts";
 import type { SnoozePreset } from "@t3tools/client-runtime/state/thread-settled";
+
+import { SCRATCH_PROJECT_TITLE } from "./settings/ProjectSettingsPanel.logic";
 
 export type ThreadActionMenuId =
   | "find"
   | "new-thread-on-branch"
   | "filter-by-project"
   | "turn-into-project"
+  | "move-to-project"
+  | `move-to-project:${string}`
   | "project-settings"
   | "pin"
   | "unpin"
@@ -95,6 +99,57 @@ export interface ThreadActionMenuState {
   readonly canShareWithGuest?: boolean;
   /** A No project thread with its own folder, on a server that can promote it. */
   readonly canTurnIntoProject?: boolean;
+  /** Projects this thread can move to. Leave empty to hide the menu. */
+  readonly moveToProject?: ReadonlyArray<MoveToProjectChoice>;
+}
+
+export interface MoveToProjectChoice {
+  readonly projectId: ProjectId;
+  readonly label: string;
+  readonly isCurrent: boolean;
+}
+
+const MOVE_TO_PROJECT_PREFIX = "move-to-project:";
+
+/** Projects in the thread's environment that it can move to: not archived, not No project. */
+export function buildMoveToProjectChoices(input: {
+  readonly enabled: boolean;
+  readonly thread: { readonly environmentId: string; readonly projectId: ProjectId };
+  readonly projects: ReadonlyArray<{
+    readonly environmentId: string;
+    readonly id: ProjectId;
+    readonly title: string;
+    readonly archivedAt?: string | null | undefined;
+    readonly isScratch?: true | undefined;
+  }>;
+}): ReadonlyArray<MoveToProjectChoice> {
+  if (!input.enabled) return [];
+  return input.projects
+    .filter(
+      (project) =>
+        project.environmentId === input.thread.environmentId &&
+        project.isScratch !== true &&
+        // Older No project folders are not flagged as scratch, so the title decides.
+        project.title !== SCRATCH_PROJECT_TITLE &&
+        (project.archivedAt == null || project.id === input.thread.projectId),
+    )
+    .map((project) => ({
+      projectId: project.id,
+      label: project.title,
+      isCurrent: project.id === input.thread.projectId,
+    }))
+    .toSorted((left, right) => left.label.localeCompare(right.label));
+}
+
+export function moveToProjectActionId(projectId: ProjectId): `move-to-project:${string}` {
+  return `${MOVE_TO_PROJECT_PREFIX}${projectId}`;
+}
+
+/** The project id inside a `move-to-project:<id>` action, or null for any other action. */
+export function parseMoveToProjectAction(action: string): ProjectId | null {
+  return action.startsWith(MOVE_TO_PROJECT_PREFIX)
+    ? (action.slice(MOVE_TO_PROJECT_PREFIX.length) as ProjectId)
+    : null;
 }
 
 /** Local navigation, read markers, and copying remain available to read-only clients. */
@@ -199,6 +254,22 @@ export function buildThreadActionMenuItems(
             label: "Turn into project",
             icon: "folder-plus",
             disabled: state.isRunning,
+          },
+        ]
+      : []),
+    ...(state.moveToProject && state.moveToProject.length > 0
+      ? [
+          {
+            id: "move-to-project" as const,
+            label: "Move to project",
+            icon: "folder",
+            disabled: state.isRunning,
+            children: state.moveToProject.map((choice) => ({
+              id: moveToProjectActionId(choice.projectId),
+              label: choice.label,
+              checked: choice.isCurrent,
+              disabled: choice.isCurrent,
+            })),
           },
         ]
       : []),
