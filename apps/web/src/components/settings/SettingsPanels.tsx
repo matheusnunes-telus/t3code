@@ -495,6 +495,9 @@ export function useSettingsRestore(onRestored?: () => void) {
     ...(settings.threadMenuMoveToProject !== DEFAULT_UNIFIED_SETTINGS.threadMenuMoveToProject
       ? ["Move to project menu"]
       : []),
+    ...(settings.enableAgentThreadMove !== DEFAULT_UNIFIED_SETTINGS.enableAgentThreadMove
+      ? ["Agents can move threads"]
+      : []),
     ...(settings.sidebarAutoSettleAfterDays !== DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleAfterDays
       ? ["Auto-settle inactive threads"]
       : []),
@@ -664,6 +667,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       sidebarProjectSortOrder: DEFAULT_UNIFIED_SETTINGS.sidebarProjectSortOrder,
       sidebarWorkingShelfEnabled: DEFAULT_UNIFIED_SETTINGS.sidebarWorkingShelfEnabled,
       threadMenuMoveToProject: DEFAULT_UNIFIED_SETTINGS.threadMenuMoveToProject,
+      enableAgentThreadMove: DEFAULT_UNIFIED_SETTINGS.enableAgentThreadMove,
       sidebarAutoSettleAfterDays: DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleAfterDays,
       sidebarAutoSettleKeepPullRequests: DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleKeepPullRequests,
       sidebarAutoSettleOnMerge: DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleOnMerge,
@@ -966,6 +970,34 @@ export function GeneralSettingsPanel() {
                 updateSettings({ threadMenuMoveToProject: Boolean(checked) })
               }
               aria-label="Show Move to project in the thread menu"
+            />
+          }
+        />
+        <SettingsRow
+          serverScoped
+          settingKeys={["enableAgentThreadMove"]}
+          {...searchableSetting("agent-thread-move")}
+          description="Let agents move a thread to another project with the t3_thread_organize tool."
+          resetAction={
+            settings.enableAgentThreadMove !== DEFAULT_UNIFIED_SETTINGS.enableAgentThreadMove ? (
+              <SettingResetButton
+                label="agents can move threads"
+                onClick={() =>
+                  updateSettings({
+                    enableAgentThreadMove: DEFAULT_UNIFIED_SETTINGS.enableAgentThreadMove,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <ScopedSwitch
+              settingKeys={["enableAgentThreadMove"]}
+              checked={settings.enableAgentThreadMove}
+              onCheckedChange={(checked) =>
+                updateSettings({ enableAgentThreadMove: Boolean(checked) })
+              }
+              aria-label="Let agents move threads"
             />
           }
         />

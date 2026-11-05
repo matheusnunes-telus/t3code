@@ -1,7 +1,7 @@
 import * as DocumentText from "../../provider/DocumentText.ts";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { expect, it } from "@effect/vitest";
+import { describe, expect, it } from "@effect/vitest";
 import {
   DEFAULT_SERVER_SETTINGS,
   ChatImageAttachment,
@@ -75,13 +75,16 @@ import { htmlRenderFromToolItem } from "@t3tools/shared/toolOutput";
 const decodeMcpAttachmentInput = Schema.decodeUnknownEffect(McpAttachmentInput);
 const decodeThreadReadResult = Schema.decodeUnknownEffect(OrchestratorMcpThreadReadResult);
 
-const layerThreadToolkit = McpHttpServer.layerThreadToolkit.pipe(
-  Layer.provide(Layer.mock(ThreadSearch.ThreadSearch)({})),
-  Layer.provide(Layer.mock(ScheduledTaskService.ScheduledTaskService)({})),
-  Layer.provide(Layer.mock(PeerForwarding.PeerForwarding)({})),
-  Layer.provide(Layer.mock(PeerLinkRequests.PeerLinkRequests)({})),
-  Layer.provide(Layer.mock(PeerLinks.PeerLinks)({})),
-);
+const threadToolkitWithSettings = (settings: Parameters<typeof ServerSettings.layerTest>[0]) =>
+  McpHttpServer.layerThreadToolkit.pipe(
+    Layer.provide(ServerSettings.layerTest(settings)),
+    Layer.provide(Layer.mock(ThreadSearch.ThreadSearch)({})),
+    Layer.provide(Layer.mock(ScheduledTaskService.ScheduledTaskService)({})),
+    Layer.provide(Layer.mock(PeerForwarding.PeerForwarding)({})),
+    Layer.provide(Layer.mock(PeerLinkRequests.PeerLinkRequests)({})),
+    Layer.provide(Layer.mock(PeerLinks.PeerLinks)({})),
+  );
+const layerThreadToolkit = threadToolkitWithSettings(undefined);
 
 const threadId = ThreadId.make("mcp-core-thread");
 const scope: McpInvocationContext.McpInvocationScope = {
@@ -353,6 +356,76 @@ it.effect("records only failed calls of tools that hand off no work", () => {
         ),
       ),
     ),
+  );
+});
+
+describe("t3_thread_organize move_to_project", () => {
+  const moveWith = (
+    settings: Parameters<typeof ServerSettings.layerTest>[0],
+    args: Record<string, unknown>,
+  ) => {
+    const dispatched: Array<unknown> = [];
+    return Effect.gen(function* () {
+      const server = yield* McpServer.McpServer;
+      const result = yield* server
+        .callTool({ name: "t3_thread_organize", arguments: { action: "move_to_project", ...args } })
+        .pipe(
+          Effect.provideService(McpInvocationContext.McpInvocationContext, scope),
+          Effect.provideService(McpSchema.McpServerClient, client),
+        );
+      return { result, dispatched };
+    }).pipe(
+      Effect.provide(
+        threadToolkitWithSettings(settings).pipe(
+          Layer.provideMerge(McpHttpServer.layerInProcessMcpServer),
+          Layer.provide(NodeCrypto.layer),
+          Layer.provide(
+            Layer.mock(ThreadManagement.ThreadManagementService)({
+              getThreadShell: (id) => Effect.succeed(McpToolAccessTestkit.liveThreadShell(id)),
+              getProjectThreadRecords: ({ threadId: id }) =>
+                Effect.succeed(
+                  McpToolAccessTestkit.idleThreadProjection(
+                    McpToolAccessTestkit.liveThreadShell(id),
+                  ),
+                ),
+              dispatch: (command) => {
+                dispatched.push(command);
+                return Effect.succeed({ sequence: 1 } as never);
+              },
+            }),
+          ),
+        ),
+      ),
+    );
+  };
+
+  it.effect("dispatches the move", () =>
+    Effect.gen(function* () {
+      const { result, dispatched } = yield* moveWith(undefined, { projectId: "target-project" });
+      expect(result.isError).toBe(false);
+      expect(dispatched).toMatchObject([
+        { type: "thread.project.move", threadId, projectId: "target-project" },
+      ]);
+    }),
+  );
+
+  it.effect("needs a projectId", () =>
+    Effect.gen(function* () {
+      const { result, dispatched } = yield* moveWith(undefined, {});
+      expect(declaredFailure(result)).toMatchObject({ code: "invalid_request" });
+      expect(dispatched).toEqual([]);
+    }),
+  );
+
+  it.effect("refuses when the setting is off", () =>
+    Effect.gen(function* () {
+      const { result, dispatched } = yield* moveWith(
+        { enableAgentThreadMove: false },
+        { projectId: "target-project" },
+      );
+      expect(declaredFailure(result)).toMatchObject({ code: "capability_denied" });
+      expect(dispatched).toEqual([]);
+    }),
   );
 });
 
@@ -767,6 +840,7 @@ it.effect.each([
       McpHttpServer.layerThreadToolkit.pipe(
         Layer.provideMerge(McpHttpServer.layerInProcessMcpServer),
         Layer.provide(NodeCrypto.layer),
+        Layer.provide(ServerSettings.layerTest()),
         Layer.provide(Layer.mock(ThreadManagement.ThreadManagementService)({})),
         Layer.provide(Layer.mock(ThreadSearch.ThreadSearch)({})),
         Layer.provide(Layer.mock(PeerForwarding.PeerForwarding)({})),

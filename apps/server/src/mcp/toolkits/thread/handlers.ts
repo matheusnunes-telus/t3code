@@ -21,6 +21,7 @@ import {
 } from "../../threadAccess.ts";
 import * as ThreadSearch from "../../../orchestration-v2/ThreadSearch.ts";
 import * as ScheduledTasks from "../../../scheduledTasks/ScheduledTaskService.ts";
+import * as ServerSettings from "../../../serverSettings.ts";
 import { queuedRunsInDeliveryOrder } from "../../../orchestration-v2/QueuedRunOrder.ts";
 import { ThreadToolkit } from "./tools.ts";
 
@@ -359,6 +360,21 @@ export const layer = McpToolAccess.toLayer(ThreadToolkit, {
         case "mark_unread":
           command = { ...common, type: "thread.mark-unread" };
           break;
+        case "move_to_project": {
+          const projectId = yield* required(input.projectId, "projectId");
+          const settings = yield* ServerSettings.ServerSettingsService.pipe(
+            Effect.flatMap((service) => service.getSettings),
+            Effect.mapError(unavailable),
+          );
+          if (!settings.enableAgentThreadMove) {
+            return yield* new OrchestratorMcpFailure({
+              code: "capability_denied",
+              message: "Moving threads is turned off for agents in Settings.",
+            });
+          }
+          command = { ...common, type: "thread.project.move", projectId };
+          break;
+        }
         default:
           command = { ...common, type: `thread.${input.action}` };
       }

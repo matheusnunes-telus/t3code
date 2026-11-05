@@ -460,6 +460,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["thread right-click context menu move chat another project no project"],
   },
   {
+    id: "agent-thread-move",
+    title: "Agents can move threads",
+    to: "/settings/general",
+    searchTerms: ["agent tool move chat thread another project t3_thread_organize"],
+  },
+  {
     id: "boring-sidebar",
     title: "Boring sidebar (group by project)",
     to: "/settings/labs",
