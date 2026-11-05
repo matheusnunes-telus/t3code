@@ -45,6 +45,7 @@ Screenshots pasted into the chat often show as "unavailable". They are on disk i
 
 ## Build it
 
+- Read [references/pitfalls.md](references/pitfalls.md) before you start. It lists mistakes that cost Matheus a round trip. When he corrects you, or a tool fails twice for the same reason, add a line there in the same commit.
 - For UI work, read [references/design-language.md](references/design-language.md) first. It has the fork's layout choices and the rules lint won't catch.
 - Copy the closest existing component instead of inventing a pattern.
 - Every change Matheus suggests also becomes an option in Settings, in the same commit. Put it in the section where it belongs in the settings menu, as a `SettingsRow` with a description and a `settingsSearch` entry. Don't add a catch-all section.
