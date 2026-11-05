@@ -44,6 +44,7 @@ Last synced with the official `main`: 2026-11-03.
 
 ## Google Cloud
 
+- The expanded sidebar shows the Google Cloud login as a cloud icon next to Usage, like the collapsed sidebar. The account is in its tooltip, and a dot shows when something needs you. "Show login as a sidebar icon" brings the line of text back.
 - Deploy banners above the composer only show for deploys you follow. Press "Follow in this chat" on a deploy in the Cloud panel. A setting ("Show deploys only when followed") turns this off to show every deploy of the project again.
 - Finished deploys no longer pop up as toasts or desktop notifications. The deploy banners above the composer and the Cloud panel still show them.
 - Deploy banners can be closed while the deploy is running. A closed deploy stays hidden when it finishes, unless it fails.

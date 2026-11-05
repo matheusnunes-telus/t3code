@@ -4,7 +4,7 @@ import { memo } from "react";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 
 import { useAtomValue } from "@effect/atom-react";
-import { useEnvironmentIdentificationMode } from "../../hooks/useSettings";
+import { useClientSettings, useEnvironmentIdentificationMode } from "../../hooks/useSettings";
 import { shortcutLabelForCommand } from "../../keybindings";
 import {
   navigateHistory,
@@ -14,7 +14,7 @@ import {
 import { primaryServerKeybindingsAtom } from "../../state/server";
 import { cn } from "../../lib/utils";
 import { usePrimaryEnvironmentId, usePullRequestsSupported } from "../../state/environments";
-import { GcpLoginStatus } from "../gcp/GcpLoginStatus";
+import { GcpLoginSidebarItem, GcpLoginStatus } from "../gcp/GcpLoginStatus";
 import { T3Wordmark } from "../T3Wordmark";
 import {
   resolveEnvironmentIdentificationPillLabel,
@@ -227,6 +227,8 @@ const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
     select: (location) => isSidebarUtilityPage(location.pathname),
   });
   const pullRequestsSupported = usePullRequestsSupported();
+  const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const gcpLoginAsIcon = useClientSettings((settings) => settings.gcpLoginAsSidebarIcon);
   const closeMobileSidebar = () => {
     if (isMobile) {
       setOpenMobile(false);
@@ -286,6 +288,9 @@ const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
           />
         </>
       )}
+      {gcpLoginAsIcon && primaryEnvironmentId !== null ? (
+        <GcpLoginSidebarItem environmentId={primaryEnvironmentId} onOpen={closeMobileSidebar} />
+      ) : null}
       <SidebarThreadUndoNotice />
       <SidebarUpdatePill />
     </SidebarMenu>
@@ -294,9 +299,10 @@ const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
 
 export const SidebarChromeFooter = memo(function SidebarChromeFooter() {
   const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const gcpLoginAsIcon = useClientSettings((settings) => settings.gcpLoginAsSidebarIcon);
   return (
     <SidebarFooter>
-      {primaryEnvironmentId !== null ? (
+      {!gcpLoginAsIcon && primaryEnvironmentId !== null ? (
         <GcpLoginStatus environmentId={primaryEnvironmentId} className="px-2" />
       ) : null}
       <SidebarProviderUpdatePill />

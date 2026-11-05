@@ -544,6 +544,8 @@ export const ClientSettingsSchema = Schema.Struct({
   gcpDeployBannersOnlyWhenFollowed: Schema.Boolean.pipe(
     Schema.withDecodingDefault(Effect.succeed(true)),
   ),
+  /** The expanded sidebar shows the Google Cloud login as an icon, not a line of text. */
+  gcpLoginAsSidebarIcon: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
 });
 export type ClientSettings = typeof ClientSettingsSchema.Type;
 
@@ -1905,5 +1907,6 @@ export const ClientSettingsPatch = Schema.Struct({
   wordWrap: Schema.optionalKey(Schema.Boolean),
   mathRenderingEnabled: Schema.optionalKey(Schema.Boolean),
   gcpDeployBannersOnlyWhenFollowed: Schema.optionalKey(Schema.Boolean),
+  gcpLoginAsSidebarIcon: Schema.optionalKey(Schema.Boolean),
 });
 export type ClientSettingsPatch = typeof ClientSettingsPatch.Type;

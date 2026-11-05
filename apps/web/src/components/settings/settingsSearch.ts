@@ -793,6 +793,14 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["gcp google cloud deploy banner follow pop up composer cloud panel"],
   },
   {
+    id: "gcp-login-sidebar-icon",
+    title: "Show login as a sidebar icon",
+    to: "/settings/threads",
+    targetId: "google-cloud",
+    scope: "environment-defaults",
+    searchTerms: ["gcp gcloud google cloud login status account sidebar footer icon compact"],
+  },
+  {
     id: "thread-title-instructions",
     title: "Thread title instructions",
     to: "/settings/threads",

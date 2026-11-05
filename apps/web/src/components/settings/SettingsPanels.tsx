@@ -464,6 +464,9 @@ export function useSettingsRestore(onRestored?: () => void) {
     DEFAULT_UNIFIED_SETTINGS.gcpDeployBannersOnlyWhenFollowed
       ? ["Show deploys only when followed"]
       : []),
+    ...(settings.gcpLoginAsSidebarIcon !== DEFAULT_UNIFIED_SETTINGS.gcpLoginAsSidebarIcon
+      ? ["Show login as a sidebar icon"]
+      : []),
     ...(settings.panelAnimationDurationMs !== DEFAULT_UNIFIED_SETTINGS.panelAnimationDurationMs
       ? ["Panel animations"]
       : []),
@@ -645,6 +648,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       effortDisplay: DEFAULT_UNIFIED_SETTINGS.effortDisplay,
       mathRenderingEnabled: DEFAULT_UNIFIED_SETTINGS.mathRenderingEnabled,
       gcpDeployBannersOnlyWhenFollowed: DEFAULT_UNIFIED_SETTINGS.gcpDeployBannersOnlyWhenFollowed,
+      gcpLoginAsSidebarIcon: DEFAULT_UNIFIED_SETTINGS.gcpLoginAsSidebarIcon,
       timestampFormat: DEFAULT_UNIFIED_SETTINGS.timestampFormat,
       notificationMode: DEFAULT_UNIFIED_SETTINGS.notificationMode,
       inAppNotificationsEnabled: DEFAULT_UNIFIED_SETTINGS.inAppNotificationsEnabled,
@@ -2264,6 +2268,33 @@ export function ThreadsSettingsPanel() {
                   updateSettings({ gcpDeployBannersOnlyWhenFollowed: Boolean(checked) })
                 }
                 aria-label="Show deploys only when followed"
+              />
+            }
+          />
+        ) : null}
+        {settings.googleCloudEnabled ? (
+          <SettingsRow
+            {...searchableSetting("gcp-login-sidebar-icon")}
+            resetAction={
+              settings.gcpLoginAsSidebarIcon !== DEFAULT_UNIFIED_SETTINGS.gcpLoginAsSidebarIcon ? (
+                <SettingResetButton
+                  label="show login as a sidebar icon"
+                  onClick={() =>
+                    updateSettings({
+                      gcpLoginAsSidebarIcon: DEFAULT_UNIFIED_SETTINGS.gcpLoginAsSidebarIcon,
+                    })
+                  }
+                />
+              ) : null
+            }
+            description="On: the expanded sidebar shows your login as a cloud icon next to Usage, and the account is in its tooltip. Off: it shows a line of text with the account."
+            control={
+              <Switch
+                checked={settings.gcpLoginAsSidebarIcon}
+                onCheckedChange={(checked) =>
+                  updateSettings({ gcpLoginAsSidebarIcon: Boolean(checked) })
+                }
+                aria-label="Show login as a sidebar icon"
               />
             }
           />
