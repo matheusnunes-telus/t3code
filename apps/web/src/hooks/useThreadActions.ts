@@ -773,7 +773,10 @@ export function useThreadActions() {
     return result;
   };
 
-  const settleThread = async (target: ScopedThreadRef) => {
+  const settleThread = async (
+    target: ScopedThreadRef,
+    options?: { readonly suggestJiraDone?: boolean },
+  ) => {
     if (!readEnvironmentServerConfigLoaded(target.environmentId)) {
       return AsyncResult.failure(
         Cause.fail(
@@ -806,7 +809,9 @@ export function useThreadActions() {
       markThreadVisited(scopedThreadKey(target), wokeAt);
     }
     // The server checks its setting and the ticket, and does nothing for chats without one.
-    void jiraCommand({ type: "suggestDoneOnSettle", threadId: target.threadId });
+    if (options?.suggestJiraDone !== false) {
+      void jiraCommand({ type: "suggestDoneOnSettle", threadId: target.threadId });
+    }
     showThreadUndoNotice({
       action: "Settled",
       claim: action,

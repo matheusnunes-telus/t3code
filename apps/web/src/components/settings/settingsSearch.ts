@@ -785,6 +785,14 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["gcp gcloud sdk binary location install"],
   },
   {
+    id: "gcp-wait-for-prod",
+    title: "Wait for Prod before finishing chats",
+    to: "/settings/threads",
+    targetId: "google-cloud",
+    scope: "environment-defaults",
+    searchTerms: ["gcp google cloud merge settle deploy production release np jira done finish"],
+  },
+  {
     id: "gcp-deploy-banners-followed",
     title: "Show deploys only when followed",
     to: "/settings/threads",

@@ -58,6 +58,7 @@ import { useJiraComposerBanners } from "./jira/useJiraComposerBanners";
 import { SCRATCH_PROJECT_TITLE } from "./settings/ProjectSettingsPanel.logic";
 import { useJiraSnapshot } from "~/state/jira";
 import { gcpLinkForProject, useGcpSnapshot } from "~/state/gcp";
+import { useGcpDeliveryBanners } from "./gcp/useGcpDeliveryBanners";
 import { useGcpDeployBanners } from "./gcp/useGcpDeployBanners";
 import { ArrowRightLeftIcon, FolderOpenIcon } from "lucide-react";
 import { feedbackBannerItem } from "./chat/ComposerFeedback";
@@ -2570,6 +2571,11 @@ export default function ChatView(props: ChatViewProps) {
     activeThreadKey,
     settings.gcpDeployBannersOnlyWhenFollowed,
   );
+  const gcpDeliveryBannerItems = useGcpDeliveryBanners(
+    isServerThread ? environmentId : null,
+    activeThreadShell?.id ?? null,
+    activeThreadKey,
+  );
   // By title too, because older "No project" chats sit outside today's scratch folder.
   const activeChatHasNoProject =
     activeProjectIsScratch || activeProject?.title === SCRATCH_PROJECT_TITLE;
@@ -2690,6 +2696,7 @@ export default function ChatView(props: ChatViewProps) {
         ...systemComposerBannerItems,
         ...handoffBannerItems,
         ...jiraBannerItems,
+        ...gcpDeliveryBannerItems,
         ...gcpDeployBannerItems,
       ];
     }
@@ -2702,6 +2709,7 @@ export default function ChatView(props: ChatViewProps) {
       ...systemComposerBannerItems,
       ...handoffBannerItems,
       ...jiraBannerItems,
+      ...gcpDeliveryBannerItems,
       ...gcpDeployBannerItems,
       branchMismatchBannerItem({
         mismatchKey: activeBranchMismatchKey,

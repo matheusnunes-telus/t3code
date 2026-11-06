@@ -1400,6 +1400,8 @@ export const ServerSettings = Schema.Struct({
 
   /** Watches the gcloud login and shows linked Google Cloud projects; it stays idle without gcloud. */
   googleCloudEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  /** In repos with a Prod deploy linked, a merge leaves the chat open until you finish it. */
+  gcpWaitForProd: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   /** The gcloud binary to use; empty looks on PATH and in the usual install folders. */
   gcloudPath: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
 
@@ -1756,6 +1758,7 @@ export const ServerSettingsPatch = Schema.Struct({
   jiraSuggestDoneOnSettle: Schema.optionalKey(Schema.Boolean),
   jiraKeepOpenTicketTabs: Schema.optionalKey(Schema.Boolean),
   googleCloudEnabled: Schema.optionalKey(Schema.Boolean),
+  gcpWaitForProd: Schema.optionalKey(Schema.Boolean),
   gcloudPath: Schema.optionalKey(TrimmedString),
   reviewGuideInstructions: Schema.optionalKey(TrimmedString),
   pullRequestMergeMethod: Schema.optionalKey(Schema.NullOr(PullRequestMergeMethod)),

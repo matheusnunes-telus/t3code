@@ -246,6 +246,8 @@ export const JiraCommand = Schema.Union([
     threadId: ThreadId,
     key: JiraIssueKey,
     reason: Schema.optional(Schema.String),
+    /** The work is finished, so the card always offers a status change. */
+    merged: Schema.optional(Schema.Boolean),
   }),
   /** A chat was settled: drafts a "Done" status change when its ticket is still open. */
   Schema.Struct({ type: Schema.Literal("suggestDoneOnSettle"), threadId: ThreadId }),

@@ -140,6 +140,49 @@ export const GcpDeployRun = Schema.Struct({
 });
 export type GcpDeployRun = typeof GcpDeployRun.Type;
 
+/** How far a merged pull request got, from merged to live in the last environment. */
+export const GcpDeliveryStage = Schema.Literals([
+  /** Merged, and no run of the first environment has its commit yet. */
+  "merged",
+  "deploying-test",
+  "test-failed",
+  /** Passed the first environment; the release is the user's call. */
+  "on-test",
+  "deploying-prod",
+  "prod-failed",
+  /** A passed run contains the commit. It may not cover this change, so the user confirms. */
+  "in-prod",
+]);
+export type GcpDeliveryStage = typeof GcpDeliveryStage.Type;
+
+/** A merged pull request of an unsettled chat, in a project with a Prod deploy linked. */
+export const GcpDelivery = Schema.Struct({
+  threadId: Schema.String,
+  /** The link it belongs to. */
+  key: Schema.String,
+  title: Schema.String,
+  repository: Schema.String,
+  number: Schema.Number,
+  url: Schema.String,
+  mergedAt: Schema.String,
+  /** The merge commit; null until GitHub has answered. */
+  commit: Schema.NullOr(Schema.String),
+  stage: GcpDeliveryStage,
+  /** Environment names, as the user linked them. */
+  testEnvironment: Schema.NullOr(Schema.String),
+  prodEnvironment: Schema.String,
+  /** The run behind the stage, if any. */
+  run: Schema.NullOr(
+    Schema.Struct({
+      url: Schema.String,
+      label: Schema.String,
+      headSha: Schema.String,
+      status: Schema.String,
+    }),
+  ),
+});
+export type GcpDelivery = typeof GcpDelivery.Type;
+
 export const GcpSnapshot = Schema.Struct({
   enabled: Schema.Boolean,
   auth: GcpAuthState,
@@ -154,6 +197,8 @@ export const GcpSnapshot = Schema.Struct({
   deploys: Schema.Array(GcpDeployRun),
   /** Runs that finished since the client last cleared them, to announce once. */
   finishedDeploys: Schema.Array(Schema.String),
+  /** Merged pull requests of unsettled chats, on their way to Prod. */
+  deliveries: Schema.Array(GcpDelivery),
 });
 export type GcpSnapshot = typeof GcpSnapshot.Type;
 

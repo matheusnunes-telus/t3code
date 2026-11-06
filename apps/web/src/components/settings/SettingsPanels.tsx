@@ -2245,6 +2245,21 @@ export function ThreadsSettingsPanel() {
         ) : null}
         {settings.googleCloudEnabled ? (
           <SettingsRow
+            serverScoped
+            settingKeys={["gcpWaitForProd"]}
+            {...searchableSetting("gcp-wait-for-prod")}
+            description="On: in a repo with a Prod deploy linked, a merge doesn't end the chat. It stays open under Waiting for Prod until you finish it, and the Jira update comes then. Off: a merge settles the chat and drafts the Jira update right away."
+            control={
+              <Switch
+                checked={settings.gcpWaitForProd}
+                onCheckedChange={(checked) => updateSettings({ gcpWaitForProd: Boolean(checked) })}
+                aria-label="Wait for Prod before finishing chats"
+              />
+            }
+          />
+        ) : null}
+        {settings.googleCloudEnabled ? (
+          <SettingsRow
             {...searchableSetting("gcp-deploy-banners-followed")}
             resetAction={
               settings.gcpDeployBannersOnlyWhenFollowed !==

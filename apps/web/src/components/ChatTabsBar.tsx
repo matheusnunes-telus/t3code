@@ -56,6 +56,9 @@ import { useStableCallback } from "../hooks/useStableCallback";
 import { serverEnvironment } from "../state/server";
 import { usePrimaryEnvironmentId } from "../state/environments";
 import { issueByKey, threadTicketKeys, useJiraSnapshot } from "../state/jira";
+import { useGcpSnapshot } from "../state/gcp";
+import { cardsResolved } from "./gcp/gcpDelivery.logic";
+import { useGcpFinishingStore } from "./gcp/gcpFinishingStore";
 import { usePrimarySettings } from "../hooks/useSettings";
 import { useNowMinute } from "../hooks/useNowMinute";
 import {
@@ -264,6 +267,12 @@ export function ChatTabsBar() {
   const jiraSnapshot = useJiraSnapshot(usePrimaryEnvironmentId());
   // The sweep waits for the ticket list, or it would not know which chats still have open tickets.
   const jiraReady = !keepOpenTicketTabs || jiraSnapshot !== null;
+  const gcpSnapshot = useGcpSnapshot(usePrimaryEnvironmentId());
+  const waitForProd = usePrimarySettings((settings) => settings.gcpWaitForProd);
+  // Likewise for the chats still waiting for Prod.
+  const gcpReady = !waitForProd || gcpSnapshot !== null;
+  const finishing = useGcpFinishingStore((state) => state.finishing);
+  const cancelFinishing = useGcpFinishingStore((state) => state.cancel);
   const moveTab = useChatTabsStore((state) => state.moveTab);
   // Drag a tab sideways to reorder it inside its group.
   const [draggingTabKey, setDraggingTabKey] = useState<string | null>(null);
@@ -370,7 +379,7 @@ export function ChatTabsBar() {
 
   // End of the day (local time) settles the open tabs and clears the strip, like Arc. A window
   // that was closed over midnight does it on startup. Pinned and running chats keep their tab,
-  // and so do chats whose Jira ticket is not Done.
+  // and so do chats waiting for Prod and chats whose Jira ticket is not Done.
   const sweepTabsOfTheDay = useStableCallback(() => {
     const swept = sweepTabs(localDayKey(new Date()), (key) => {
       const thread = threadByKey.get(key);
@@ -381,6 +390,7 @@ export function ChatTabsBar() {
       ) {
         return false;
       }
+      if (gcpSnapshot?.deliveries.some((delivery) => delivery.threadId === thread.id)) return false;
       if (!keepOpenTicketTabs || jiraSnapshot?.enabled !== true) return true;
       return !threadTicketKeys(jiraSnapshot, thread.id).some(
         (ticket) => issueByKey(jiraSnapshot, ticket)?.statusCategory !== "done",
@@ -389,7 +399,7 @@ export function ChatTabsBar() {
     for (const key of swept) settleTabThread(key);
     if (activeThreadKey && swept.includes(activeThreadKey)) void navigateToThreadKey(null);
   });
-  const threadsLoaded = threadByKey.size > 0 && jiraReady;
+  const threadsLoaded = threadByKey.size > 0 && jiraReady && gcpReady;
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- a timer to the next local midnight is outside React; threads must be loaded first so the sweep can tell running and pinned chats apart.
   useEffect(() => {
     if (!threadsLoaded) return;
@@ -402,6 +412,25 @@ export function ChatTabsBar() {
     );
     return () => window.clearTimeout(timer);
   }, [threadsLoaded, sweepTabsOfTheDay]);
+
+  // Finish chat ends here, because an open tab means an unsettled chat. Its Jira cards may have
+  // suggested Done already, so settling doesn't offer it again.
+  const finishChat = useStableCallback((threadKey: string) => {
+    const ref = parseScopedThreadKey(threadKey);
+    cancelFinishing(threadKey);
+    if (!ref) return;
+    const next = closeTab(threadKey);
+    void settleThread(ref, { suggestJiraDone: false });
+    if (threadKey === activeThreadKey) void navigateToThreadKey(next);
+  });
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Jira applies cards on the server after the click, so settling follows its snapshot, not a handler.
+  useEffect(() => {
+    for (const [threadKey, chat] of Object.entries(finishing)) {
+      if (chat.phase !== "reviewing") continue;
+      const threadId = parseScopedThreadKey(threadKey)?.threadId;
+      if (cardsResolved(chat, jiraSnapshot?.changeSets ?? [], threadId)) finishChat(threadKey);
+    }
+  }, [finishing, jiraSnapshot, finishChat]);
 
   const handleCloseTab = (threadKey: string) => {
     const files = filesTabByThreadKey.get(threadKey);

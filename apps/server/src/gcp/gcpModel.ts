@@ -2,6 +2,7 @@ import type {
   GcpCloudProject,
   GcpDeployRun,
   GcpCluster,
+  GcpDeliveryStage,
   GcpResourceState,
   GcpRunJob,
   GcpRunService,
@@ -456,4 +457,64 @@ export function imagesServeCommit(
   });
   if (tags.length === 0) return null;
   return tags.some((tag) => sha.startsWith(tag) || tag.startsWith(sha.slice(0, 7)));
+}
+
+/** "github.com/owner/repo" as "owner/repo", the way pull requests name their repository. */
+const linkRepository = (key: string) => key.split("/").slice(-2).join("/").toLowerCase();
+
+/** The environment changes are finally released to: named like production, or the last of several. */
+export function prodEnvironmentOf(link: GcpProjectLink): GcpEnvironment | null {
+  const deploying = link.environments.filter((environment) => environment.deployWorkflow !== null);
+  const named = deploying.find((environment) =>
+    /\b(prod|prd|production)\b/i.test(environment.name),
+  );
+  if (named !== undefined) return named;
+  return deploying.length > 1 ? (deploying.at(-1) ?? null) : null;
+}
+
+/** The pull requests that still have to reach Prod: merged, in the link's own repo. */
+export function deliverablePullRequests<
+  T extends {
+    readonly repository: string;
+    readonly snapshot?: { readonly state: string } | null | undefined;
+  },
+>(link: GcpProjectLink, pullRequests: ReadonlyArray<T>): ReadonlyArray<T> {
+  if (prodEnvironmentOf(link) === null) return [];
+  const repository = linkRepository(link.key);
+  return pullRequests.filter(
+    (pullRequest) =>
+      pullRequest.snapshot?.state === "merged" &&
+      pullRequest.repository.toLowerCase() === repository,
+  );
+}
+
+const isRunning = (run: GcpDeployRun) => run.status !== "completed";
+const passed = (run: GcpDeployRun) => run.status === "completed" && run.conclusion === "success";
+/** A run someone stopped says nothing about the change, so it doesn't count either way. */
+const counts = (run: GcpDeployRun) =>
+  run.status !== "completed" || (run.conclusion !== "cancelled" && run.conclusion !== "skipped");
+
+/**
+ * The stage a merged commit reached, from the runs that contain it, newest first. Once a run
+ * passed the commit is out there, so a later failure doesn't take that back.
+ */
+export function deliveryStage(input: {
+  readonly testRuns: ReadonlyArray<GcpDeployRun>;
+  readonly prodRuns: ReadonlyArray<GcpDeployRun>;
+}): { readonly stage: GcpDeliveryStage; readonly run: GcpDeployRun | null } {
+  const prodRuns = input.prodRuns.filter(counts);
+  const testRuns = input.testRuns.filter(counts);
+  const prodPassed = prodRuns.find(passed);
+  if (prodPassed !== undefined) return { stage: "in-prod", run: prodPassed };
+  const prodLatest = prodRuns[0];
+  if (prodLatest !== undefined) {
+    return { stage: isRunning(prodLatest) ? "deploying-prod" : "prod-failed", run: prodLatest };
+  }
+  const testPassed = testRuns.find(passed);
+  if (testPassed !== undefined) return { stage: "on-test", run: testPassed };
+  const testLatest = testRuns[0];
+  if (testLatest !== undefined) {
+    return { stage: isRunning(testLatest) ? "deploying-test" : "test-failed", run: testLatest };
+  }
+  return { stage: "merged", run: null };
 }

@@ -42,6 +42,7 @@ import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 
 import * as ServerConfig from "../config.ts";
+import { GcpDeliveryHook } from "../gcp/GcpService.ts";
 import * as ProcessRunner from "../processRunner.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
 import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
@@ -180,7 +181,7 @@ export class JiraService extends Context.Service<
     }) => Effect.Effect<void, JiraError>;
     readonly proposeChanges: (input: {
       /** A merge always offers a status change, even when the model suggests none. */
-      readonly merged?: boolean;
+      readonly merged?: boolean | undefined;
       readonly threadId: ThreadId;
       readonly key: string;
       readonly reason?: string | undefined;
@@ -215,6 +216,7 @@ export const make = Effect.gen(function* () {
   const serverSettings = yield* ServerSettings.ServerSettingsService;
   const registry = yield* ProviderInstanceRegistry.ProviderInstanceRegistry;
   const threads = yield* ThreadManagementService.ThreadManagementService;
+  const holdsForProd = yield* GcpDeliveryHook;
   const runner = yield* ProcessRunner.ProcessRunner;
   const scope = yield* Effect.scope;
 
@@ -1629,6 +1631,10 @@ export const make = Effect.gen(function* () {
         }));
       }
       if (events.length === 0) continue;
+      // The work isn't finished yet: the card comes when the chat is finished.
+      if (merged && holdsForProd !== undefined && (yield* holdsForProd(records.value.thread))) {
+        continue;
+      }
       for (const entry of current.links.filter((candidate) => candidate.threadId === threadId)) {
         yield* fork(
           proposeChanges({ threadId, key: entry.key, reason: events.join("; "), merged }),

@@ -44,6 +44,7 @@ Last synced with the official `main`: 2026-11-03.
 
 ## Google Cloud
 
+- In a repo with a Prod deploy linked, a merge no longer ends the chat. T3 follows the chat's own commit through NP and Prod, shows where it is above the composer, and lists the chat under "Waiting for Prod" in the sidebar. Its tab stays open through the end-of-day clean-up. There is no Jira card at merge. When a Prod run has the commit, or you press "Prod not needed", Finish drafts the Jira update, then settles the chat and closes its tab. Prod stays manual. "Wait for Prod before finishing chats" under Threads > Google Cloud turns it off.
 - The expanded sidebar shows the Google Cloud login as a cloud icon next to Usage, like the collapsed sidebar. The account is in its tooltip, and a dot shows when something needs you. "Show login as a sidebar icon" brings the line of text back.
 - Deploy banners above the composer only show for deploys you follow. Press "Follow in this chat" on a deploy in the Cloud panel. A setting ("Show deploys only when followed") turns this off to show every deploy of the project again.
 - Finished deploys no longer pop up as toasts or desktop notifications. The deploy banners above the composer and the Cloud panel still show them.

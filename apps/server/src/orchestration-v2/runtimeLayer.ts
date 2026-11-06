@@ -164,7 +164,9 @@ const layerRunExecutionServiceProvided = RunExecutionService.layer.pipe(
   ),
 );
 
-const layerGcpProvided = GcpService.layer.pipe(Layer.provide(ProcessRunner.layer));
+const layerGcpProvided = GcpService.layer.pipe(
+  Layer.provide(Layer.merge(ProcessRunner.layer, ProjectionStore.layer)),
+);
 
 const layerProviderTurnStartServiceProvided = ProviderTurnStartService.layer.pipe(
   Layer.provide(
@@ -316,7 +318,13 @@ const layerProviderContinuationWorkerProvided = ProviderContinuationService.laye
   ),
 );
 const layerJiraProvided = JiraService.layer.pipe(
-  Layer.provide(Layer.mergeAll(layerThreadManagementProvided, ProcessRunner.layer)),
+  Layer.provide(
+    Layer.mergeAll(
+      layerThreadManagementProvided,
+      ProcessRunner.layer,
+      GcpService.layerDeliveryHook.pipe(Layer.provide(layerGcpProvided)),
+    ),
+  ),
 );
 const layerThreadTitleRegenerationProvided = ThreadTitleRegenerationService.layer.pipe(
   Layer.provide(

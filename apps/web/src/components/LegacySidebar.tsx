@@ -150,7 +150,9 @@ import { projectEnvironment } from "../state/projects";
 import { threadEnvironment, useEnvironmentThread } from "../state/threads";
 import { readUnloadedThreadCount } from "../state/olderSettledShelf";
 import { useEnvironment, useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
+import { useGcpSnapshot } from "../state/gcp";
 import { buildThreadRouteParams, resolveActiveThreadRouteRef } from "../threadRoutes";
+import { GcpWaitingForProd } from "./gcp/GcpWaitingForProd";
 import {
   JiraSidebarTicketList,
   SidebarGroupByToggle,
@@ -3589,6 +3591,7 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const jiraSnapshot = useJiraSnapshot(primaryEnvironmentId);
   const jiraEnabled = jiraSnapshot?.enabled === true;
+  const gcpSnapshot = useGcpSnapshot(primaryEnvironmentId);
   const [groupBy, setGroupBy] = useSidebarGroupBy();
   const ticketMode = jiraEnabled && groupBy === "ticket";
 
@@ -3761,6 +3764,13 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
           </div>
         </div>
 
+        {gcpSnapshot !== null && primaryEnvironmentId !== null ? (
+          <GcpWaitingForProd
+            environmentId={primaryEnvironmentId}
+            snapshot={gcpSnapshot}
+            routeThreadKey={routeThreadKey}
+          />
+        ) : null}
         {ticketMode && jiraSnapshot !== null && primaryEnvironmentId !== null ? (
           <JiraSidebarTicketList
             environmentId={primaryEnvironmentId}

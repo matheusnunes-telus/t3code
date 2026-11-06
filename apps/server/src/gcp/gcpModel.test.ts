@@ -3,6 +3,8 @@ import { describe, expect, it } from "@effect/vitest";
 import {
   classifyLogin,
   currentJobOf,
+  deliverablePullRequests,
+  deliveryStage,
   imagesServeCommit,
   parseWorkflowRuns,
   environmentNameOf,
@@ -14,6 +16,7 @@ import {
   parseClusters,
   parseRunJobs,
   parseRunServices,
+  prodEnvironmentOf,
   suggestEnvironments,
 } from "./gcpModel.ts";
 
@@ -337,5 +340,90 @@ describe("deploy runs", () => {
     expect(imagesServeCommit(["registry/app/api:947f0f1"], sha)).toBe(true);
     expect(imagesServeCommit(["registry/app/api:08f06c5043"], sha)).toBe(false);
     expect(imagesServeCommit(["registry/app/api:latest", null], sha)).toBeNull();
+  });
+});
+
+describe("delivery to Prod", () => {
+  const environment = (name: string, deployWorkflow: string | null = "deploy.yml") => ({
+    name,
+    projectId: `${name}-id`,
+    region: null,
+    runtime: "cloud-run" as const,
+    deployWorkflow,
+  });
+  const link = (environments: ReadonlyArray<ReturnType<typeof environment>>) => ({
+    key: "github.com/Acme/App",
+    title: "app",
+    projectIds: ["project"],
+    workspaceRoot: "/repo",
+    environments,
+    terraformRepos: [],
+  });
+  const run = (
+    status: "queued" | "waiting" | "in_progress" | "completed",
+    conclusion: string | null = null,
+  ) => ({
+    id: `${status}-${conclusion}`,
+    key: "github.com/Acme/App",
+    environment: "Prod",
+    workflow: "deploy.yml",
+    number: 1,
+    status,
+    conclusion,
+    url: "https://example.test/run",
+    headSha: "abc",
+    title: "Deploy",
+    createdAt: "2026-11-06T00:00:00.000Z",
+    updatedAt: "2026-11-06T00:00:00.000Z",
+    currentJob: null,
+    verified: null,
+  });
+
+  it("finds Prod by name, or as the last of several environments", () => {
+    expect(prodEnvironmentOf(link([environment("NP"), environment("Prod")]))?.name).toBe("Prod");
+    expect(prodEnvironmentOf(link([environment("Dev"), environment("Live")]))?.name).toBe("Live");
+    expect(prodEnvironmentOf(link([environment("Staging")]))).toBeNull();
+    expect(prodEnvironmentOf(link([environment("NP"), environment("Prod", null)]))).toBeNull();
+  });
+
+  it("holds only merged pull requests of the link's own repo", () => {
+    const pullRequests = [
+      { repository: "acme/app", snapshot: { state: "merged" } },
+      { repository: "acme/app", snapshot: { state: "open" } },
+      { repository: "acme/app-terraform", snapshot: { state: "merged" } },
+      { repository: "acme/app", snapshot: null },
+    ];
+    expect(
+      deliverablePullRequests(link([environment("NP"), environment("Prod")]), pullRequests),
+    ).toEqual([pullRequests[0]]);
+    expect(deliverablePullRequests(link([environment("NP")]), pullRequests)).toEqual([]);
+  });
+
+  it.each([
+    ["no runs yet", [], [], "merged"],
+    ["a running test deploy", [run("in_progress")], [], "deploying-test"],
+    ["a failed test deploy", [run("completed", "failure")], [], "test-failed"],
+    ["a passed test deploy", [run("completed", "success")], [], "on-test"],
+    [
+      "a prod run held for approval",
+      [run("completed", "success")],
+      [run("waiting")],
+      "deploying-prod",
+    ],
+    [
+      "a cancelled prod run",
+      [run("completed", "success")],
+      [run("completed", "cancelled")],
+      "on-test",
+    ],
+    ["a failed prod run", [], [run("completed", "failure")], "prod-failed"],
+    [
+      "a pass before a later failure",
+      [],
+      [run("completed", "failure"), run("completed", "success")],
+      "in-prod",
+    ],
+  ] as const)("reads %s", (_name, testRuns, prodRuns, stage) => {
+    expect(deliveryStage({ testRuns, prodRuns }).stage).toBe(stage);
   });
 });

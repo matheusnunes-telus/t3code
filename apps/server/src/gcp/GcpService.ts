@@ -3,6 +3,7 @@ import {
   GcpCloudProject,
   type GcpCommand,
   type GcpCommandResult,
+  GcpDelivery,
   type GcpDeployRun,
   type GcpEnvironmentResources,
   GcpError,
@@ -23,14 +24,18 @@ import * as Schema from "effect/Schema";
 import * as Schedule from "effect/Schedule";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
+import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
 import * as NodeOS from "node:os";
 
 import * as ServerConfig from "../config.ts";
+import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as ProcessRunner from "../processRunner.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import {
   classifyLogin,
   currentJobOf,
+  deliverablePullRequests,
+  deliveryStage,
   imagesServeCommit,
   parseWorkflowRuns,
   parseClusters,
@@ -41,6 +46,7 @@ import {
   isTerraformCandidate,
   matchCloudProjects,
   nameTokens,
+  prodEnvironmentOf,
   suggestEnvironments,
   type WorkflowFile,
 } from "./gcpModel.ts";
@@ -53,12 +59,23 @@ export class GcpTurnContextHook extends Context.Reference<
   ((projectId: string) => Effect.Effect<string | null>) | undefined
 >("t3/gcp/GcpTurnContextHook", { defaultValue: () => undefined }) {}
 
+type DeliveryHoldInput = Pick<ProjectionStore.ProjectionThreadPullRequests, "projectId"> & {
+  readonly pullRequests?: ProjectionStore.ProjectionThreadPullRequests["pullRequests"] | undefined;
+};
+
+/** Lets settling and Jira ask whether a chat still waits for Prod without depending on this service. */
+export class GcpDeliveryHook extends Context.Reference<
+  ((thread: DeliveryHoldInput) => Effect.Effect<boolean>) | undefined
+>("t3/gcp/GcpDeliveryHook", { defaultValue: () => undefined }) {}
+
 export class GcpService extends Context.Service<
   GcpService,
   {
     readonly subscribe: () => Stream.Stream<GcpSnapshot>;
     readonly command: (input: GcpCommand) => Effect.Effect<GcpCommandResult, GcpError>;
     readonly turnContext: (projectId: string) => Effect.Effect<string | null>;
+    /** Read from the chat's own pull requests, so it holds from the moment of the merge. */
+    readonly holdsForProd: (thread: DeliveryHoldInput) => Effect.Effect<boolean>;
   }
 >()("t3/gcp/GcpService") {}
 
@@ -68,15 +85,24 @@ const StoreFile = Schema.Struct({
   version: Schema.Literal(1),
   links: Schema.Array(GcpProjectLink),
   cloudProjects: Schema.Array(GcpCloudProject),
+  /** Saved so a client that starts before the first poll still sees which chats wait. */
+  deliveries: Schema.optionalKey(Schema.Array(GcpDelivery)),
 });
 type StoreFile = typeof StoreFile.Type;
 const EMPTY_STORE: StoreFile = { version: 1, links: [], cloudProjects: [] };
 const decodeStore = Schema.decodeUnknownOption(Schema.fromJsonString(StoreFile));
 const encodeStore = Schema.encodeSync(Schema.fromJsonString(StoreFile));
+const encodeDeliveries = Schema.encodeSync(Schema.fromJsonString(Schema.Array(GcpDelivery)));
 const decodeJson = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Unknown));
 const decodeProjects = Schema.decodeUnknownOption(
   Schema.fromJsonString(
     Schema.Array(Schema.Struct({ projectId: Schema.String, name: Schema.optional(Schema.String) })),
+  ),
+);
+
+const decodeMergeCommit = Schema.decodeUnknownOption(
+  Schema.fromJsonString(
+    Schema.Struct({ mergeCommit: Schema.NullOr(Schema.Struct({ oid: Schema.String })) }),
   ),
 );
 
@@ -96,6 +122,7 @@ export const make = Effect.gen(function* () {
   const { stateDir } = yield* ServerConfig.ServerConfig;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
   const runner = yield* ProcessRunner.ProcessRunner;
+  const projections = yield* ProjectionStore.ProjectionStoreV2;
   const scope = yield* Effect.scope;
 
   const auth = yield* Ref.make<GcpAuthState>(INITIAL_AUTH);
@@ -121,10 +148,16 @@ export const make = Effect.gen(function* () {
   const changes = yield* PubSub.sliding<void>(1);
   const checkLock = yield* Semaphore.make(1);
   const signInLock = yield* Semaphore.make(1);
+  // Whether a run's commit contains a merge never changes, so each pair is asked once.
+  const containsCache = new Map<string, boolean>();
 
   const settings = serverSettings.getSettings.pipe(
-    Effect.map((value) => ({ enabled: value.googleCloudEnabled, gcloudPath: value.gcloudPath })),
-    Effect.orElseSucceed(() => ({ enabled: true, gcloudPath: "" })),
+    Effect.map((value) => ({
+      enabled: value.googleCloudEnabled,
+      gcloudPath: value.gcloudPath,
+      waitForProd: value.gcpWaitForProd,
+    })),
+    Effect.orElseSucceed(() => ({ enabled: true, gcloudPath: "", waitForProd: true })),
   );
 
   const setAuth = (patch: Partial<GcpAuthState>) =>
@@ -367,7 +400,7 @@ export const make = Effect.gen(function* () {
   });
 
   const currentSnapshot = Effect.gen(function* () {
-    const { enabled } = yield* settings;
+    const { enabled, waitForProd } = yield* settings;
     const current = yield* Ref.get(store);
     return {
       enabled,
@@ -377,6 +410,7 @@ export const make = Effect.gen(function* () {
       resources: yield* Ref.get(resources),
       deploys: yield* Ref.get(deploys),
       finishedDeploys: yield* Ref.get(finishedDeploys),
+      deliveries: enabled && waitForProd ? (current.deliveries ?? []) : [],
       loading: [...(yield* Ref.get(loading))],
     } satisfies GcpSnapshot;
   });
@@ -422,7 +456,11 @@ export const make = Effect.gen(function* () {
       Stream.runForEach((next) => {
         const changed =
           next.googleCloudEnabled !== previous.enabled || next.gcloudPath !== previous.gcloudPath;
-        previous = { enabled: next.googleCloudEnabled, gcloudPath: next.gcloudPath };
+        previous = {
+          enabled: next.googleCloudEnabled,
+          gcloudPath: next.gcloudPath,
+          waitForProd: next.gcpWaitForProd,
+        };
         return changed && next.googleCloudEnabled ? fork(checkLogin) : Effect.void;
       }),
     );
@@ -626,6 +664,7 @@ export const make = Effect.gen(function* () {
     }
     const recent = next.toSorted((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 30);
     yield* Ref.set(deploys, recent);
+    yield* trackDeliveries(gh, next);
     if (finished.length > 0) {
       yield* Ref.update(finishedDeploys, (current) => [
         ...current,
@@ -645,6 +684,146 @@ export const make = Effect.gen(function* () {
     }
   });
 
+  const mergeCommitOf = Effect.fn("GcpService.mergeCommitOf")(function* (
+    gh: string,
+    repository: string,
+    number: number,
+  ) {
+    const viewed = yield* run(
+      gh,
+      ["pr", "view", String(number), "--repo", repository, "--json", "mergeCommit"],
+      "30 seconds",
+    );
+    const decoded = viewed.exitCode === 0 ? decodeMergeCommit(viewed.stdout) : undefined;
+    return decoded !== undefined && decoded._tag === "Some"
+      ? (decoded.value.mergeCommit?.oid ?? null)
+      : null;
+  });
+
+  /** A run started before the merge can't contain it, so most runs cost no GitHub call. */
+  const runContains = Effect.fn("GcpService.runContains")(function* (
+    gh: string,
+    repository: string,
+    delivery: { readonly commit: string; readonly mergedAt: string },
+    deployRun: GcpDeployRun,
+  ) {
+    if (deployRun.headSha === delivery.commit) return true;
+    if (Date.parse(deployRun.createdAt) < Date.parse(delivery.mergedAt)) return false;
+    const key = `${repository}:${delivery.commit}:${deployRun.headSha}`;
+    const known = containsCache.get(key);
+    if (known !== undefined) return known;
+    const compared = yield* run(
+      gh,
+      [
+        "api",
+        `repos/${repository}/compare/${delivery.commit}...${deployRun.headSha}`,
+        "--jq",
+        ".status",
+      ],
+      "30 seconds",
+    );
+    if (compared.exitCode !== 0) return false;
+    const status = compared.stdout.trim();
+    const contains = status === "ahead" || status === "identical";
+    containsCache.set(key, contains);
+    return contains;
+  });
+
+  /** Rebuilds the waiting list from unsettled chats, so settling a chat is what ends its wait. */
+  const trackDeliveries = Effect.fn("GcpService.trackDeliveries")(function* (
+    gh: string,
+    runs: ReadonlyArray<GcpDeployRun>,
+  ) {
+    const current = yield* Ref.get(store);
+    const saved = current.deliveries ?? [];
+    const next: Array<GcpDelivery> = [];
+    if ((yield* settings).waitForProd) {
+      const threads = yield* projections
+        .getThreadsWithPullRequests()
+        .pipe(Effect.orElseSucceed(() => null));
+      // Keeps the list as it is rather than emptying it on a failed read.
+      if (threads === null) return;
+      const known = new Map(
+        saved.map((entry) => [`${entry.threadId}:${entry.repository}#${entry.number}`, entry]),
+      );
+      for (const thread of threads) {
+        if (thread.settledOverride === "settled" || thread.settledAt !== null) continue;
+        if (thread.lineage.parentThreadId !== null) continue;
+        const link = current.links.find((entry) => entry.projectIds.includes(thread.projectId));
+        const prod = link === undefined ? null : prodEnvironmentOf(link);
+        if (link === undefined || prod === null) continue;
+        const test = link.environments.find(
+          (entry) => entry.deployWorkflow !== null && entry.name !== prod.name,
+        );
+        const merged = deliverablePullRequests(
+          link,
+          visibleThreadPullRequests(thread.pullRequests ?? []),
+        );
+        for (const pullRequest of merged) {
+          const snapshot = pullRequest.snapshot;
+          if (snapshot === null || snapshot.mergedAt == null) continue;
+          const mergedAt = snapshot.mergedAt;
+          const { repository, number } = pullRequest;
+          const commit =
+            known.get(`${thread.id}:${repository}#${number}`)?.commit ??
+            (yield* mergeCommitOf(gh, repository, number));
+          const containing = (environment: string | undefined) =>
+            commit === null || environment === undefined
+              ? Effect.succeed<ReadonlyArray<GcpDeployRun>>([])
+              : Effect.filter(
+                  runs.filter(
+                    (entry) => entry.key === link.key && entry.environment === environment,
+                  ),
+                  (entry) => runContains(gh, repository, { commit, mergedAt }, entry),
+                );
+          const { stage, run: stageRun } = deliveryStage({
+            testRuns: yield* containing(test?.name),
+            prodRuns: yield* containing(prod.name),
+          });
+          next.push({
+            threadId: thread.id,
+            key: link.key,
+            title: snapshot.title,
+            repository,
+            number,
+            url: pullRequest.url,
+            mergedAt,
+            commit,
+            stage,
+            testEnvironment: test?.name ?? null,
+            prodEnvironment: prod.name,
+            run:
+              stageRun === null
+                ? null
+                : {
+                    url: stageRun.url,
+                    label: `${stageRun.workflow.split("/").at(-1) ?? stageRun.workflow}${stageRun.number === null ? "" : ` #${stageRun.number}`}`,
+                    headSha: stageRun.headSha,
+                    status: stageRun.status,
+                  },
+          });
+        }
+      }
+    }
+    if (encodeDeliveries(next) === encodeDeliveries(saved)) return;
+    yield* updateStore((value) => ({ ...value, deliveries: next }));
+  });
+
+  const holdsForProd: GcpService["Service"]["holdsForProd"] = Effect.fn("GcpService.holdsForProd")(
+    function* (thread) {
+      const { enabled, waitForProd } = yield* settings;
+      if (!enabled || !waitForProd) return false;
+      const link = (yield* Ref.get(store)).links.find((entry) =>
+        entry.projectIds.includes(thread.projectId),
+      );
+      if (link === undefined) return false;
+      return (
+        deliverablePullRequests(link, visibleThreadPullRequests(thread.pullRequests ?? [])).length >
+        0
+      );
+    },
+  );
+
   const turnContext = Effect.fn("GcpService.turnContext")(function* (projectId: string) {
     if (!(yield* settings).enabled) return null;
     const link = (yield* Ref.get(store)).links.find((entry) =>
@@ -655,10 +834,18 @@ export const make = Effect.gen(function* () {
     return formatTurnContext({ link, gcloudPath: current.gcloudPath, account: current.account });
   });
 
-  return GcpService.of({ subscribe, command, turnContext });
+  return GcpService.of({ subscribe, command, turnContext, holdsForProd });
 });
 
 export const layer = Layer.effect(GcpService, make);
+
+export const layerDeliveryHook = Layer.effect(
+  GcpDeliveryHook,
+  Effect.gen(function* () {
+    const service = yield* GcpService;
+    return service.holdsForProd;
+  }),
+);
 
 export const layerTurnContextHook = Layer.effect(
   GcpTurnContextHook,

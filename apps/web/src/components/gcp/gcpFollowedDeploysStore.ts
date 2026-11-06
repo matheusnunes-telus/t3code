@@ -5,6 +5,7 @@ import { resolveStorage } from "~/lib/storage";
 
 /** Per chat, only this many followed deploys are remembered. Older ones are long finished. */
 const MAX_FOLLOWED_PER_THREAD = 20;
+const MAX_DISMISSED_DELIVERIES = 100;
 
 /**
  * The deploys each chat follows, by scoped thread key. A deploy only shows as a banner above the
@@ -14,12 +15,20 @@ interface GcpFollowedDeploysState {
   followedByThreadKey: Record<string, ReadonlyArray<string>>;
   follow: (threadKey: string, runId: string) => void;
   unfollow: (threadKey: string, runId: string) => void;
+  /** "Not yet" answers on the prod banner, each for one run; a newer run asks again. */
+  dismissedDeliveries: ReadonlyArray<string>;
+  dismissDelivery: (key: string) => void;
 }
 
 export const useGcpFollowedDeploysStore = create<GcpFollowedDeploysState>()(
   persist(
     (set) => ({
       followedByThreadKey: {},
+      dismissedDeliveries: [],
+      dismissDelivery: (key) =>
+        set((state) => ({
+          dismissedDeliveries: [...state.dismissedDeliveries, key].slice(-MAX_DISMISSED_DELIVERIES),
+        })),
       follow: (threadKey, runId) =>
         set((state) => {
           const current = state.followedByThreadKey[threadKey] ?? [];
@@ -49,7 +58,10 @@ export const useGcpFollowedDeploysStore = create<GcpFollowedDeploysState>()(
         resolveStorage(typeof window !== "undefined" ? window.localStorage : undefined),
       ),
       version: 1,
-      partialize: ({ followedByThreadKey }) => ({ followedByThreadKey }),
+      partialize: ({ followedByThreadKey, dismissedDeliveries }) => ({
+        followedByThreadKey,
+        dismissedDeliveries,
+      }),
     },
   ),
 );
