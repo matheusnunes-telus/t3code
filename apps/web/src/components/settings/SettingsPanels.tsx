@@ -23,6 +23,7 @@ import {
   type ResponseStreamingMode,
   type QuitConfirmationMode,
   SidebarProjectSortOrder,
+  SidebarView,
 } from "@t3tools/contracts/settings";
 import { desktopUpdateChannelOf } from "@t3tools/shared/cliRelease";
 import { createModelSelection } from "@t3tools/shared/model";
@@ -79,6 +80,8 @@ import { DraftInput } from "../ui/draft-input";
 import { Input } from "../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Switch } from "../ui/switch";
+import { Toggle, ToggleGroup } from "../ui/toggle-group";
+import { SIDEBAR_VIEW_LABELS } from "../sidebar/sidebarView";
 import { ScopedSwitch } from "./ScopedSwitch";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -486,6 +489,9 @@ export function useSettingsRestore(onRestored?: () => void) {
     ...(settings.soundOnlyForCompletion !== DEFAULT_UNIFIED_SETTINGS.soundOnlyForCompletion
       ? ["Sound only when finished"]
       : []),
+    ...(settings.sidebarViews.join() === DEFAULT_UNIFIED_SETTINGS.sidebarViews.join()
+      ? []
+      : ["Sidebar views"]),
     ...(settings.sidebarProjectGroupingMode !== DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode
       ? ["Project Grouping"]
       : []),
@@ -670,6 +676,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       environmentIdentificationMode: DEFAULT_UNIFIED_SETTINGS.environmentIdentificationMode,
       glassOpacity: DEFAULT_UNIFIED_SETTINGS.glassOpacity,
       panelAnimationDurationMs: DEFAULT_UNIFIED_SETTINGS.panelAnimationDurationMs,
+      sidebarViews: DEFAULT_UNIFIED_SETTINGS.sidebarViews,
       sidebarProjectGroupingMode: DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode,
       sidebarProjectSortOrder: DEFAULT_UNIFIED_SETTINGS.sidebarProjectSortOrder,
       sidebarWorkingShelfEnabled: DEFAULT_UNIFIED_SETTINGS.sidebarWorkingShelfEnabled,
@@ -801,19 +808,6 @@ export function LegacyFeaturesSection() {
           />
         }
       />
-      <SettingsRow
-        {...searchableSetting("legacy-sidebar")}
-        description="Restore per-project thread trees, sub-projects and Jira groups instead of the default flat sidebar."
-        control={
-          <Switch
-            checked={settings.legacySidebarEnabled}
-            onCheckedChange={(checked) =>
-              updateSettings({ legacySidebarEnabled: Boolean(checked) })
-            }
-            aria-label="Sidebar (legacy)"
-          />
-        }
-      />
     </SettingsSection>
   );
 }
@@ -854,6 +848,37 @@ export function GeneralSettingsPanel() {
       </SettingsSection>
 
       <SettingsSection id="sidebar" title="Sidebar">
+        <SettingsRow
+          {...searchableSetting("sidebar-views")}
+          description="Views the switcher at the top of the sidebar offers. Plain is a flat thread list, Legacy groups threads into project folders, and Projects shows project trees with sub-projects. With one view picked, the switcher hides."
+          resetAction={
+            settings.sidebarViews.join() === DEFAULT_UNIFIED_SETTINGS.sidebarViews.join() ? null : (
+              <SettingResetButton
+                label="sidebar views"
+                onClick={() =>
+                  updateSettings({ sidebarViews: DEFAULT_UNIFIED_SETTINGS.sidebarViews })
+                }
+              />
+            )
+          }
+          control={
+            <ToggleGroup
+              multiple
+              aria-label="Sidebar views"
+              value={[...settings.sidebarViews]}
+              onValueChange={(values) => {
+                const views = SidebarView.literals.filter((view) => values.includes(view));
+                if (views.length > 0) updateSettings({ sidebarViews: views });
+              }}
+            >
+              {SidebarView.literals.map((view) => (
+                <Toggle key={view} value={view}>
+                  {SIDEBAR_VIEW_LABELS[view]}
+                </Toggle>
+              ))}
+            </ToggleGroup>
+          }
+        />
         <SettingsRow
           {...searchableSetting("project-grouping")}
           description="Combine matching repositories across environments."
@@ -931,7 +956,7 @@ export function GeneralSettingsPanel() {
         />
         <SettingsRow
           {...searchableSetting("working-shelf")}
-          description="Fold working and monitoring threads into a Working section. They return to the top of the inbox when they need you. The boring sidebar in Labs has no Working section."
+          description="Fold working and monitoring threads into a Working section. They return to the top of the inbox when they need you. The Legacy sidebar view has no Working section."
           resetAction={
             settings.sidebarWorkingShelfEnabled !==
             DEFAULT_UNIFIED_SETTINGS.sidebarWorkingShelfEnabled ? (

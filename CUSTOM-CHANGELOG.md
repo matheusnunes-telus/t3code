@@ -12,6 +12,7 @@ Last synced with the official `main`: 2026-11-08.
 
 ## Sidebar
 
+- Three sidebar views, switched at the top of the sidebar: Plain (the default flat list), Legacy (chats grouped into project folders) and Projects (the fork's project bubbles). Pick which views the switcher offers under "Sidebar views" in Settings, General; with one picked, the switcher hides. This replaces the "Sidebar (legacy)" and boring sidebar switches, and the Projects / Tickets toggle is gone.
 - Projects drawn as bubbles, with collapse/expand all, pinned chats on top and settled chats dimmed.
 - Sub-projects, either folder-nested or named. You can reorder them, create one from a project row, start a new chat from a sub-project header, and drag chats between sub-projects. Long chat lists are cut short, with a "Show all" button.
 - Subagent chats are folded under their main chat, with an "N subagents" toggle.

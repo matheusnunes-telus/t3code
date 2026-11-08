@@ -72,6 +72,9 @@ export type DiffLayout = typeof DiffLayout.Type;
 const DEFAULT_DIFF_LAYOUT: DiffLayout = "stacked";
 
 export const SidebarProjectSortOrder = Schema.Literals(["updated_at", "created_at", "manual"]);
+// Custom fork: plain is the default sidebar, legacy its project folders mode, projects our tree.
+export const SidebarView = Schema.Literals(["plain", "legacy", "projects"]);
+export type SidebarView = typeof SidebarView.Type;
 export type SidebarProjectSortOrder = typeof SidebarProjectSortOrder.Type;
 export const DEFAULT_SIDEBAR_PROJECT_SORT_ORDER: SidebarProjectSortOrder = "updated_at";
 
@@ -539,9 +542,12 @@ export const ClientSettingsSchema = Schema.Struct({
   threadDetailsItems: Schema.Record(Schema.String, Schema.Boolean).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
   ),
-  // Opt-in for the removed legacy sidebar. Still read so those users land in
-  // the boring sidebar; the boring sidebar toggle clears it.
+  // Custom fork: true picks the Projects sidebar view and boringSidebarEnabled the
+  // Legacy one. sidebarViews lists the views the sidebar switcher offers.
   legacySidebarEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  sidebarViews: Schema.Array(SidebarView).pipe(
+    Schema.withDecodingDefault(Effect.succeed<ReadonlyArray<SidebarView>>(SidebarView.literals)),
+  ),
   sidebarWorkingShelfEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   threadMenuMoveToProject: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   sidebarProjectGroupingMode: SidebarProjectGroupingMode.pipe(
@@ -1990,6 +1996,7 @@ export const ClientSettingsPatch = Schema.Struct({
   threadDetailsUsageEnabled: Schema.optionalKey(Schema.Boolean),
   threadDetailsItems: Schema.optionalKey(Schema.Record(Schema.String, Schema.Boolean)),
   legacySidebarEnabled: Schema.optionalKey(Schema.Boolean),
+  sidebarViews: Schema.optionalKey(Schema.Array(SidebarView)),
   sidebarWorkingShelfEnabled: Schema.optionalKey(Schema.Boolean),
   threadMenuMoveToProject: Schema.optionalKey(Schema.Boolean),
   sidebarProjectGroupingMode: Schema.optionalKey(SidebarProjectGroupingMode),
