@@ -2,7 +2,7 @@
 
 This fork is the official [pingdotgg/t3code](https://github.com/pingdotgg/t3code) plus the changes below. The `custom` branch merges the official `main` from time to time. Everything listed here is what this version adds or changes compared to it.
 
-Last synced with the official `main`: 2026-11-03.
+Last synced with the official `main`: 2026-11-08.
 
 ## The app itself
 

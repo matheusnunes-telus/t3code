@@ -193,6 +193,8 @@ it("keeps full density when many automations make the content tall", async () =>
 
 it("stays full while expanded server rows overflow", async () => {
   using fixture = setup();
+  // Custom fork: the inline card starts closed, so open it first.
+  useRightPanelStore.getState().setThreadPanelOpen(threadB, "inline", true);
   await using _screen = await render(
     <Card threadRef={threadB} inline fixture={fixture} rows={2} serverOverflowRows={4} />,
   );
