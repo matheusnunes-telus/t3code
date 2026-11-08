@@ -11,6 +11,7 @@ import {
   type GcpSnapshot,
 } from "@t3tools/contracts";
 import * as Clock from "effect/Clock";
+import * as Config from "effect/Config";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
@@ -200,9 +201,10 @@ export const make = Effect.gen(function* () {
 
   const findGcloud = Effect.gen(function* () {
     const { gcloudPath } = yield* settings;
+    const systemPath = yield* Config.String("PATH").pipe(Effect.orElseSucceed(() => ""));
     const candidates = gcloudCandidates({
       configuredPath: gcloudPath,
-      pathEntries: (process.env.PATH ?? "").split(process.platform === "win32" ? ";" : ":"),
+      pathEntries: systemPath.split(process.platform === "win32" ? ";" : ":"),
       home: NodeOS.homedir(),
       platform: process.platform,
     });
@@ -555,7 +557,8 @@ export const make = Effect.gen(function* () {
   });
 
   const findGh = Effect.gen(function* () {
-    const entries = (process.env.PATH ?? "").split(process.platform === "win32" ? ";" : ":");
+    const systemPath = yield* Config.String("PATH").pipe(Effect.orElseSucceed(() => ""));
+    const entries = systemPath.split(process.platform === "win32" ? ";" : ":");
     const binary = process.platform === "win32" ? "gh.exe" : "gh";
     const candidates = [
       ...entries.filter((entry) => entry.length > 0),

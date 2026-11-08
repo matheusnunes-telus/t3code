@@ -27,7 +27,6 @@ import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import type { ConnectorAgent, ConnectorAgentResult } from "@t3tools/provider-core/server/driver";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
-import * as Data from "effect/Data";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -140,10 +139,10 @@ const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
  * Why a Jira call failed, so sync status can say "signed out" rather than "failed". "agent" is
  * the model run itself failing, such as at a usage limit, which says nothing about Jira.
  */
-class JiraCallError extends Data.TaggedError("JiraCallError")<{
-  readonly kind: "signed-out" | "unavailable" | "agent" | "failed";
-  readonly message: string;
-}> {}
+class JiraCallError extends Schema.TaggedError<JiraCallError>()("JiraCallError", {
+  kind: Schema.Literals(["signed-out", "unavailable", "agent", "failed"]),
+  message: Schema.String,
+}) {}
 
 export interface JiraFirstMessage {
   readonly threadId: ThreadId;

@@ -20,7 +20,6 @@ import {
 import {
   getLocalStorageItem,
   removeLocalStorageItem,
-  setLocalStorageItem,
 } from "../hooks/useLocalStorage";
 import {
   isRichTextBoldShortcut,
@@ -72,7 +71,6 @@ import { registerCommands, registerMenuAction } from "../shortcuts/dispatcher";
 import { resolveThreadRouteRef } from "../threadRoutes";
 
 const MACOS_TRAFFIC_LIGHTS_LEFT_INSET = "var(--desktop-window-controls-inset, 90px)";
-const THREAD_SIDEBAR_OPEN_STORAGE_KEY = "t3code:sidebar:open";
 
 function subscribeToViewportWidth(onChange: () => void): () => void {
   window.addEventListener("resize", onChange);
@@ -129,23 +127,6 @@ function readInitialThreadSidebarWidth(): number {
   } catch (error) {
     console.error("Could not read persisted thread sidebar width.", error);
     return resolveInitialThreadSidebarWidth(null, window.innerWidth);
-  }
-}
-
-function readInitialThreadSidebarOpen(): boolean {
-  try {
-    return getLocalStorageItem(THREAD_SIDEBAR_OPEN_STORAGE_KEY, Schema.Boolean) ?? true;
-  } catch (error) {
-    console.error("Could not read persisted thread sidebar mode.", error);
-    return true;
-  }
-}
-
-function persistThreadSidebarOpen(open: boolean) {
-  try {
-    setLocalStorageItem(THREAD_SIDEBAR_OPEN_STORAGE_KEY, open, Schema.Boolean);
-  } catch (error) {
-    console.error("Could not persist thread sidebar mode.", error);
   }
 }
 
@@ -475,8 +456,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
         // bar when tabs are showing.
         className="h-dvh! min-h-0! [--sidebar-rail-top:var(--workspace-topbar-height)] [&:has([data-chat-tabs-bar])]:[--sidebar-rail-top:2.75rem]"
         data-panel-animations={routePanelAnimationsActive ? "true" : "false"}
-        defaultOpen={readInitialThreadSidebarOpen()}
-        onOpenChange={persistThreadSidebarOpen}
+        storageKey="chat_thread_sidebar_open"
         style={sidebarProviderStyle}
       >
         <SidebarBrandWidthProbe isElectron={isElectron} onWidthChange={setBrandWidth} />

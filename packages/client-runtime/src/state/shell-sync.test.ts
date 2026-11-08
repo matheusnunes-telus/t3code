@@ -56,7 +56,10 @@ const LIVE_SHELL_SNAPSHOT: OrchestrationV2ShellSnapshot = {
 function session(client: WsRpcProtocolClient): RpcSession.RpcSession {
   return {
     client,
-    initialConfig: Effect.succeed({ shellResumeCompletionMarker: true } as never),
+    initialConfig: Effect.succeed({
+      shellResumeCompletionMarker: true,
+      environment: { serverVersion: "1.0.0" },
+    } as never),
     subscribeServerConfig: (input = {}) => client.subscribeServerConfig(input),
     ready: Effect.void,
     probe: Effect.void,
@@ -819,12 +822,12 @@ describe("environment shell synchronization", () => {
     () =>
       Effect.gen(function* () {
         const events = yield* Queue.unbounded<OrchestrationV2ShellStreamItem>();
-        const subscribeInput = yield* Deferred.make<unknown>();
+        const subscribeInputs = yield* Queue.unbounded<unknown>();
         const loadOptions = yield* Ref.make<ReadonlyArray<unknown>>([]);
         const client = {
           [ORCHESTRATION_V2_WS_METHODS.subscribeShell]: (input: unknown) =>
             Stream.unwrap(
-              Deferred.succeed(subscribeInput, input).pipe(Effect.as(Stream.fromQueue(events))),
+              Queue.offer(subscribeInputs, input).pipe(Effect.as(Stream.fromQueue(events))),
             ),
         } as unknown as WsRpcProtocolClient;
         const familySession: RpcSession.RpcSession = {
@@ -833,12 +836,14 @@ describe("environment shell synchronization", () => {
             shellResumeCompletionMarker: true,
             shellThreadFamilies: true,
             shellOlderSettled: true,
+            environment: { serverVersion: "1.0.0", databaseMigration: 70 },
           } as never),
         };
+        const activeSession = yield* SubscriptionRef.make(Option.some(familySession));
         const supervisor = EnvironmentSupervisor.EnvironmentSupervisor.of({
           target: TARGET,
           state: yield* SubscriptionRef.make(AVAILABLE_CONNECTION_STATE),
-          session: yield* SubscriptionRef.make(Option.some(familySession)),
+          session: activeSession,
           prepared: yield* SubscriptionRef.make(Option.some(PREPARED)),
           connect: Effect.void,
           disconnect: Effect.void,
@@ -873,7 +878,7 @@ describe("environment shell synchronization", () => {
           SubscriptionRef.changes(shellState).pipe(Stream.filter(predicate), Stream.runHead);
 
         // Custom fork: the legacy sidebar needs every thread, so neither transport omits any.
-        const subscribed = yield* Deferred.await(subscribeInput);
+        const subscribed = yield* Queue.take(subscribeInputs);
         expect(subscribed).toMatchObject({ afterSequence: 1 });
         expect(subscribed).not.toHaveProperty("omitIdleSubagents");
         expect(subscribed).not.toHaveProperty("omitOlderSettled");
@@ -906,6 +911,27 @@ describe("environment shell synchronization", () => {
           yield* stateWhere((state) => state.generation > loaded.generation),
         );
         expect(reset.removedAt.size).toBe(0);
+
+        // A reconnect resumes the server-loaded shell from its cursor, with no second HTTP load.
+        yield* SubscriptionRef.set(activeSession, Option.some({ ...familySession }));
+        expect(yield* Queue.take(subscribeInputs)).toMatchObject({ afterSequence: 5 });
+        expect(yield* Ref.get(loadOptions)).toHaveLength(1);
+
+        // A migrated server may have rewritten rows without events, so it reloads.
+        yield* SubscriptionRef.set(
+          activeSession,
+          Option.some({
+            ...familySession,
+            initialConfig: familySession.initialConfig.pipe(
+              Effect.map((config) => ({
+                ...config,
+                environment: { ...config.environment, databaseMigration: 71 },
+              })),
+            ),
+          }),
+        );
+        yield* Queue.take(subscribeInputs);
+        expect(yield* Ref.get(loadOptions)).toHaveLength(2);
       }),
   );
 
@@ -1075,7 +1101,16 @@ describe("environment shell synchronization", () => {
       );
       yield* Deferred.await(firstFillStarted);
 
-      yield* SubscriptionRef.set(activeSession, Option.some(session(client)));
+      // A new server build makes the next session reload instead of resuming.
+      yield* SubscriptionRef.set(
+        activeSession,
+        Option.some({
+          ...session(client),
+          initialConfig: Effect.succeed({
+            environment: { serverVersion: "2.0.0" },
+          } as never),
+        }),
+      );
       yield* SubscriptionRef.changes(shellState).pipe(
         Stream.filter(
           (state) => Option.isSome(state.snapshot) && state.snapshot.value.snapshotSequence === 2,

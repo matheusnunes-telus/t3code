@@ -114,6 +114,7 @@ export interface TimelineRowActivityState {
   /** The newest assistant message; "Mark as unread" shows under it once the turn is done. */
   latestAssistantMessageId: MessageId | null;
   backgroundWorktreeSetup: WorktreeSetupSnapshot | null;
+  liveAnswerPreview: string | null;
 }
 
 export const TimelineRowCtx = createContext<TimelineRowSharedState>(null!);
