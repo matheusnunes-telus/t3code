@@ -22,7 +22,7 @@ Mistakes that cost Matheus a round trip, from a sweep of the chats between 2026-
 
 - **Overlaps, overflow, edges** (2026-10-20, 2026-10-21). He found a header touching the macOS buttons, a button covering another, tabs covering the sidebar icon. *Rule:* for each UI change, look at screenshots of collapsed, hover, overflowing (many tabs) and narrow states. Check the top-left corner (traffic lights x=16, y=19).
 - **Two screen sizes.** He moves between a laptop and a 2160x1080 ultrawide. Check sizes that are not the one you tested.
-- **Two sidebars** (2026-11-06). He uses `LegacySidebar.tsx` (`legacySidebarEnabled` in Labs); the dev app starts on `Sidebar.tsx`. *Rule:* add sidebar UI to both, and turn the legacy one on before you check it.
+- **Three sidebar views** (2026-11-06, updated 2026-11-08). Plain and Legacy (project folders) are upstream's `Sidebar.tsx`; Projects, the one he uses, is the fork's `LegacySidebar.tsx` (upstream deleted that file in #21039, so it gets no upstream fixes). The dev app starts on Plain. *Rule:* add sidebar UI to both files, and pick each view with the switcher at the top of the sidebar before you check it.
 - **Screenshots he sends may show as "unavailable".** They are in `~/.t3/custom/userdata/attachments/`. Look there first.
 
 ## Parallel chats
