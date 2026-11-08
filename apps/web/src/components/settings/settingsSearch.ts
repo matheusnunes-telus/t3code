@@ -416,6 +416,14 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/appearance",
   },
   {
+    id: "sidebar-views",
+    title: "Sidebar views",
+    to: "/settings/general",
+    searchTerms: [
+      "plain legacy projects switcher boring folders project tree old classic flat sub-projects",
+    ],
+  },
+  {
     id: "project-grouping",
     title: "Project grouping",
     to: "/settings/general",
@@ -464,12 +472,6 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Agents can move threads",
     to: "/settings/general",
     searchTerms: ["agent tool move chat thread another project t3_thread_organize"],
-  },
-  {
-    id: "boring-sidebar",
-    title: "Boring sidebar (group by project)",
-    to: "/settings/labs",
-    searchTerms: ["beta folders project tree legacy old classic sidebar"],
   },
   {
     id: "boring-sidebar-multiline",
@@ -877,12 +879,6 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Context window indicator (legacy)",
     to: "/settings/labs",
     searchTerms: ["composer meter usage tokens circle old"],
-  },
-  {
-    id: "legacy-sidebar",
-    title: "Sidebar (legacy)",
-    to: "/settings/labs",
-    searchTerms: ["project thread tree old flat list sub-projects jira"],
   },
   {
     id: "keybindings",

@@ -53,6 +53,7 @@ import { primaryServerSettingsAtom, serverEnvironment } from "~/state/server";
 import { useEnvironments, usePrimaryEnvironment } from "~/state/environments";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { useTheme } from "./useTheme";
+import { resolveSidebarView } from "~/components/sidebar/sidebarView";
 import {
   environmentSession,
   environmentSessionStatesAtom,
@@ -416,7 +417,7 @@ export function useEnvironmentIdentificationMode(): EnvironmentIdentificationMod
 }
 
 export function useBoringSidebarEnabled(): boolean {
-  return useClientSettings((settings) => settings.boringSidebarEnabled);
+  return useClientSettings((settings) => resolveSidebarView(settings) === "legacy");
 }
 
 /**
@@ -425,8 +426,8 @@ export function useBoringSidebarEnabled(): boolean {
  */
 export function useLegacySidebarEnabled(): boolean {
   const settingsHydrated = useClientSettingsHydrated();
-  const legacySidebarEnabled = useClientSettings((settings) => settings.legacySidebarEnabled);
-  return settingsHydrated && legacySidebarEnabled;
+  const projectsView = useClientSettings((settings) => resolveSidebarView(settings) === "projects");
+  return settingsHydrated && projectsView;
 }
 
 export async function prepareModelPreferencesPatch(
