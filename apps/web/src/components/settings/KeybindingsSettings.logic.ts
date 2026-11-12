@@ -60,6 +60,7 @@ export type KeybindingCommandOption = KeybindingCommand;
 const CORE_WHEN_VARIABLES = [
   "terminalFocus",
   "terminalOpen",
+  "previewOpen",
   "isWeb",
   "isDesktop",
   "true",
@@ -388,6 +389,7 @@ export function commandLabel(command: KeybindingCommand): string {
   if (command === "chatTab.cycleRecent") return "Chat Tabs: Previous Used Tab";
   if (command === "chatTab.cycleRecentReverse") return "Chat Tabs: Next Used Tab";
   if (command === "preview.focusUrl") return "Preview: Focus URL";
+  if (command === "preview.find") return "Preview: Find on Page";
   const raw = String(command);
   if (raw.startsWith("script.") && raw.endsWith(".run")) {
     return `Run Script: ${titleCaseCommandSegment(raw.slice("script.".length, -".run".length))}`;

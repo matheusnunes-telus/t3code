@@ -24,6 +24,8 @@ export interface TurnItemPositionStoreV2Shape {
     readonly runOrdinal?: number;
     /** The bucket this run's earlier items went into, when the caller just allocated them. */
     readonly runBucket?: number;
+    // `run_start` takes the run's unused first slot, ahead of its items, and appends once it is taken.
+    readonly placement?: "append" | "run_start";
   }) => Effect.Effect<number, TurnItemPositionStoreError>;
   readonly normalize: (
     item: OrchestrationV2TurnItem,
@@ -51,6 +53,7 @@ export const layer: Layer.Layer<TurnItemPositionStoreV2, never, SqlClient.SqlCli
           runId,
           runOrdinal: suppliedRunOrdinal,
           runBucket: suppliedRunBucket,
+          placement = "append",
         }) {
           const existing = yield* sql<{ readonly ordinal: number }>`
           SELECT ordinal
@@ -100,6 +103,8 @@ export const layer: Layer.Layer<TurnItemPositionStoreV2, never, SqlClient.SqlCli
               bucket = Math.max(runOrdinal, latestBucket);
             }
           }
+          // A run sharing a later run's bucket has no first slot of its own, so it appends.
+          const runStart = placement === "run_start" && bucket === runOrdinal;
           const lowerBound = bucket * 1_000_000;
           const upperBound = runOrdinal === null ? 999_999 : lowerBound + 999_999;
           yield* sql`
@@ -107,7 +112,11 @@ export const layer: Layer.Layer<TurnItemPositionStoreV2, never, SqlClient.SqlCli
           SELECT
             ${threadId},
             ${turnItemId},
-            COALESCE(MAX(ordinal), ${lowerBound}) + 1
+            ${
+              runStart
+                ? sql`CASE WHEN COALESCE(MIN(ordinal), ${upperBound}) > ${lowerBound} THEN ${lowerBound} ELSE MAX(ordinal) + 1 END`
+                : sql`COALESCE(MAX(ordinal), ${lowerBound}) + 1`
+            }
           FROM orchestration_v2_turn_item_positions
           WHERE thread_id = ${threadId}
             AND ordinal >= ${lowerBound}

@@ -9,7 +9,6 @@ import {
   type EnvironmentId,
   type MessageId,
   type ProviderInstanceId,
-  type ProviderInteractionMode,
   type RuntimeMode,
   type ScopedThreadRef,
   type ThreadId,
@@ -23,7 +22,7 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import { readLocalApi } from "../../localApi";
 import { findRevertCheckpoint } from "../../session-logic";
-import { type ChatMessage } from "../../types";
+import { type ChatMessage, DEFAULT_INTERACTION_MODE } from "../../types";
 import { newMessageId, newThreadId, randomUUID } from "~/lib/utils";
 import { buildThreadRouteParams } from "../../threadRoutes";
 import { useComposerDraftStore } from "../../composerDraftStore";
@@ -68,7 +67,6 @@ interface TimelineRewindInput {
   readonly turnDiffSummaries: ReadonlyArray<ThreadCheckpointSummary>;
   readonly serverVisibleTurnItems: ThreadStructure["visibleTurnItems"];
   readonly runtimeMode: RuntimeMode;
-  readonly interactionMode: ProviderInteractionMode;
 }
 
 /**
@@ -97,7 +95,6 @@ export function useTimelineRewind(input: TimelineRewindInput) {
     turnDiffSummaries,
     serverVisibleTurnItems,
     runtimeMode,
-    interactionMode,
     usageLimitedRun,
   } = input;
   const navigate = useNavigate();
@@ -266,7 +263,7 @@ export function useTimelineRewind(input: TimelineRewindInput) {
             : { messageId: newMessageId(), role: "user", text: editedText ?? "", attachments: [] },
         ...(modelSelection ? { modelSelection } : {}),
         runtimeMode,
-        interactionMode,
+        interactionMode: DEFAULT_INTERACTION_MODE,
         dispatchMode: "start",
       },
     });

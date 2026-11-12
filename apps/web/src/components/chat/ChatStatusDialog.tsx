@@ -1,5 +1,5 @@
 import type { ThreadStructure } from "@t3tools/client-runtime/state/models";
-import type { ProviderInteractionMode, RuntimeMode, ServerProvider } from "@t3tools/contracts";
+import type { RuntimeMode, ServerProvider } from "@t3tools/contracts";
 import { formatModelSelectionEffort } from "@t3tools/client-runtime/state/thread-execution";
 import type { ReactNode } from "react";
 
@@ -38,7 +38,6 @@ export function ChatStatusDialog(props: {
   provider: ServerProvider | null;
   projection: ThreadStructure | null;
   runtimeMode: RuntimeMode;
-  interactionMode: ProviderInteractionMode;
   cwd: string | null;
 }) {
   const { provider, projection } = props;
@@ -97,9 +96,7 @@ export function ChatStatusDialog(props: {
               {effort ? <span className="text-muted-foreground"> · {effort} effort</span> : null}
             </Row>
             <Row label="Permissions">
-              {props.interactionMode === "plan"
-                ? `Plan mode · ${RUNTIME_MODE_LABELS[props.runtimeMode]}`
-                : RUNTIME_MODE_LABELS[props.runtimeMode]}
+              {RUNTIME_MODE_LABELS[props.runtimeMode]}
             </Row>
             <Row label="Folder">
               <span className="font-mono text-xs">
