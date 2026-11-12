@@ -15,18 +15,9 @@ export interface ChatTab {
 
 const MAX_CLOSED_TABS = 25;
 
-/** The local calendar day, like "2026-11-03". The daily tab sweep runs when it changes. */
-export function localDayKey(date: Date): string {
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${date.getFullYear()}-${month}-${day}`;
-}
-
 interface ChatTabsStoreState {
   tabs: ChatTab[];
   closedThreadKeys: string[];
-  /** The day the tabs were last cleared; null until the first run. */
-  lastSweptDay: string | null;
   /** Left-to-right order of the project groups in the tab strip. */
   groupOrder: string[];
   setGroupOrder: (groupOrder: string[]) => void;
@@ -42,12 +33,6 @@ interface ChatTabsStoreState {
    */
   removeTab: (threadKey: string) => string | null;
   removeTabs: (threadKeys: ReadonlySet<string>) => void;
-  /**
-   * Arc-style end-of-day clean-up. When `day` is newer than the last sweep, drops the tabs
-   * `shouldSweep` accepts and returns their keys so the caller can settle those chats.
-   * The first run only records the day.
-   */
-  sweepTabs: (day: string, shouldSweep: (threadKey: string) => boolean) => string[];
 }
 
 export const useChatTabsStore = create<ChatTabsStoreState>()(
@@ -55,7 +40,6 @@ export const useChatTabsStore = create<ChatTabsStoreState>()(
     (set, get) => ({
       tabs: [],
       closedThreadKeys: [],
-      lastSweptDay: null,
       groupOrder: [],
       setGroupOrder: (groupOrder) => set({ groupOrder }),
       openTab: (threadKey, options) =>
@@ -124,22 +108,6 @@ export const useChatTabsStore = create<ChatTabsStoreState>()(
           if (!state.tabs.some((tab) => threadKeys.has(tab.threadKey))) return state;
           return { tabs: state.tabs.filter((tab) => !threadKeys.has(tab.threadKey)) };
         }),
-      sweepTabs: (day, shouldSweep) => {
-        const { lastSweptDay, tabs } = get();
-        if (lastSweptDay === day) return [];
-        if (lastSweptDay === null) {
-          set({ lastSweptDay: day });
-          return [];
-        }
-        const swept = tabs.filter((tab) => shouldSweep(tab.threadKey)).map((tab) => tab.threadKey);
-        const sweptKeys = new Set(swept);
-        set({
-          lastSweptDay: day,
-          tabs: tabs.filter((tab) => !sweptKeys.has(tab.threadKey)),
-          closedThreadKeys: [],
-        });
-        return swept;
-      },
     }),
     {
       name: "t3code:chat-tabs:v1",
@@ -147,10 +115,9 @@ export const useChatTabsStore = create<ChatTabsStoreState>()(
         resolveStorage(typeof window !== "undefined" ? window.localStorage : undefined),
       ),
       version: 1,
-      partialize: ({ tabs, closedThreadKeys, lastSweptDay, groupOrder }) => ({
+      partialize: ({ tabs, closedThreadKeys, groupOrder }) => ({
         tabs,
         closedThreadKeys,
-        lastSweptDay,
         groupOrder,
       }),
     },

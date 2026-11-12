@@ -34,7 +34,7 @@ import {
   stepRecentTabCycle,
 } from "../chatTabCycle";
 import { moveGroupId } from "../chatTabGroups";
-import { localDayKey, useChatTabsStore } from "../chatTabsStore";
+import { useChatTabsStore } from "../chatTabsStore";
 import { deriveProjectIdentity } from "../projectIdentity";
 import { projectIconColorClassName } from "../projectIconColors";
 import { useThreadActions } from "../hooks/useThreadActions";
@@ -55,11 +55,9 @@ import { cn } from "../lib/utils";
 import { useStableCallback } from "../hooks/useStableCallback";
 import { serverEnvironment } from "../state/server";
 import { usePrimaryEnvironmentId } from "../state/environments";
-import { issueByKey, threadTicketKeys, useJiraSnapshot } from "../state/jira";
-import { useGcpSnapshot } from "../state/gcp";
+import { useJiraSnapshot } from "../state/jira";
 import { cardsResolved } from "./gcp/gcpDelivery.logic";
 import { useGcpFinishingStore } from "./gcp/gcpFinishingStore";
-import { usePrimarySettings } from "../hooks/useSettings";
 import { useNowMinute } from "../hooks/useNowMinute";
 import {
   formatPromptCacheRemaining,
@@ -261,16 +259,8 @@ export function ChatTabsBar() {
   const closeTab = useChatTabsStore((state) => state.closeTab);
   const popClosedTab = useChatTabsStore((state) => state.popClosedTab);
   const removeTabs = useChatTabsStore((state) => state.removeTabs);
-  const sweepTabs = useChatTabsStore((state) => state.sweepTabs);
   const { settleThread, unsettleThread } = useThreadActions();
-  const keepOpenTicketTabs = usePrimarySettings((settings) => settings.jiraKeepOpenTicketTabs);
   const jiraSnapshot = useJiraSnapshot(usePrimaryEnvironmentId());
-  // The sweep waits for the ticket list, or it would not know which chats still have open tickets.
-  const jiraReady = !keepOpenTicketTabs || jiraSnapshot !== null;
-  const gcpSnapshot = useGcpSnapshot(usePrimaryEnvironmentId());
-  const waitForProd = usePrimarySettings((settings) => settings.gcpWaitForProd);
-  // Likewise for the chats still waiting for Prod.
-  const gcpReady = !waitForProd || gcpSnapshot !== null;
   const finishing = useGcpFinishingStore((state) => state.finishing);
   const cancelFinishing = useGcpFinishingStore((state) => state.cancel);
   const moveTab = useChatTabsStore((state) => state.moveTab);
@@ -376,42 +366,6 @@ export function ChatTabsBar() {
     if (!ref || !threadByKey.has(threadKey)) return;
     void settleThread(ref);
   };
-
-  // End of the day (local time) settles the open tabs and clears the strip, like Arc. A window
-  // that was closed over midnight does it on startup. Pinned and running chats keep their tab,
-  // and so do chats waiting for Prod and chats whose Jira ticket is not Done.
-  const sweepTabsOfTheDay = useStableCallback(() => {
-    const swept = sweepTabs(localDayKey(new Date()), (key) => {
-      const thread = threadByKey.get(key);
-      if (
-        thread === undefined ||
-        thread.pinnedAt != null ||
-        !threadRuntimeCanArchive(thread.runtime)
-      ) {
-        return false;
-      }
-      if (gcpSnapshot?.deliveries.some((delivery) => delivery.threadId === thread.id)) return false;
-      if (!keepOpenTicketTabs || jiraSnapshot?.enabled !== true) return true;
-      return !threadTicketKeys(jiraSnapshot, thread.id).some(
-        (ticket) => issueByKey(jiraSnapshot, ticket)?.statusCategory !== "done",
-      );
-    });
-    for (const key of swept) settleTabThread(key);
-    if (activeThreadKey && swept.includes(activeThreadKey)) void navigateToThreadKey(null);
-  });
-  const threadsLoaded = threadByKey.size > 0 && jiraReady && gcpReady;
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- a timer to the next local midnight is outside React; threads must be loaded first so the sweep can tell running and pinned chats apart.
-  useEffect(() => {
-    if (!threadsLoaded) return;
-    sweepTabsOfTheDay();
-    const now = new Date();
-    const nextMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
-    const timer = window.setTimeout(
-      sweepTabsOfTheDay,
-      nextMidnight.getTime() - now.getTime() + 1000,
-    );
-    return () => window.clearTimeout(timer);
-  }, [threadsLoaded, sweepTabsOfTheDay]);
 
   // Finish chat ends here, because an open tab means an unsettled chat. Its Jira cards may have
   // suggested Done already, so settling doesn't offer it again.

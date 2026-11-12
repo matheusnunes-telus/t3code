@@ -31,7 +31,7 @@ Last synced with the official `main`: 2026-11-08.
 - An unsent new chat gets a temporary italic "New chat" tab.
 - A "+" button after the last tab opens a new tab.
 - Archiving or deleting a chat closes its tab.
-- An open tab means an unsettled chat. Closing a tab settles the chat (Cmd+Shift+T reopens it and un-settles it). At the end of each day, open tabs are settled and cleared, like Arc. Pinned and running chats keep their tab.
+- An open tab means an unsettled chat. Closing a tab settles the chat (Cmd+Shift+T reopens it and un-settles it).
 - When tabs overflow, a normal wheel or swipe scrolls them sideways. Scrolled tabs stop before the sidebar toggle.
 - The tab strip sits a bit lower, leaving a strip above it to drag the window.
 - Tabs are grouped by project: chats without a project first, then the projects. A line under each group has the project's color. It thickens on hover, and dragging it slides the group sideways to reorder the groups. Tabs reorder only inside their group: the dragged tab follows the pointer and the others slide aside to show where it will land.
@@ -45,7 +45,7 @@ Last synced with the official `main`: 2026-11-08.
 
 ## Google Cloud
 
-- In a repo with a Prod deploy linked, a merge no longer ends the chat. T3 follows the chat's own commit through NP and Prod, shows where it is above the composer, and lists the chat under "Waiting for Prod" in the sidebar. Its tab stays open through the end-of-day clean-up. There is no Jira card at merge. When a Prod run has the commit, or you press "Prod not needed", Finish drafts the Jira update, then settles the chat and closes its tab. Prod stays manual. "Wait for Prod before finishing chats" under Threads > Google Cloud turns it off.
+- In a repo with a Prod deploy linked, a merge no longer ends the chat. T3 follows the chat's own commit through NP and Prod, shows where it is above the composer, and lists the chat under "Waiting for Prod" in the sidebar. There is no Jira card at merge. When a Prod run has the commit, or you press "Prod not needed", Finish drafts the Jira update, then settles the chat and closes its tab. Prod stays manual. "Wait for Prod before finishing chats" under Threads > Google Cloud turns it off.
 - The expanded sidebar shows the Google Cloud login as a cloud icon next to Usage, like the collapsed sidebar. The account is in its tooltip, and a dot shows when something needs you. "Show login as a sidebar icon" brings the line of text back.
 - Deploy banners above the composer only show for deploys you follow. Press "Follow in this chat" on a deploy in the Cloud panel. A setting ("Show deploys only when followed") turns this off to show every deploy of the project again.
 - Finished deploys no longer pop up as toasts or desktop notifications. The deploy banners above the composer and the Cloud panel still show them.
@@ -59,7 +59,6 @@ Last synced with the official `main`: 2026-11-08.
 - The "Likely ticket" card has a "Create new…" button, for when the suggested ticket isn't the right one.
 - A linked chat now drafts a Jira update only when its pull request merges, not when it opens. "Draft Jira updates when a pull request opens" under Threads > Jira turns the old behavior back on.
 - Settling a chat whose ticket is To Do or In Progress offers to move it to Done: the usual Jira update card (Status → Done) on that chat, plus a toast with "Open chat". Nothing is sent until you apply it. "Suggest Done when settling a chat" under Threads > Jira turns it off.
-- The end-of-day tab clean-up now leaves open the tab of any chat whose Jira ticket is not Done. "Keep tabs of chats with open tickets" under Threads > Jira turns it off.
 
 ## Messages
 
