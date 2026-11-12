@@ -2,7 +2,7 @@
 
 This fork is the official [pingdotgg/t3code](https://github.com/pingdotgg/t3code) plus the changes below. The `custom` branch merges the official `main` from time to time. Everything listed here is what this version adds or changes compared to it.
 
-Last synced with the official `main`: 2026-11-08.
+Last synced with the official `main`: 2026-11-12.
 
 ## The app itself
 
@@ -78,7 +78,7 @@ Last synced with the official `main`: 2026-11-08.
 ## Cost and prompt cache
 
 - A stats popover in the chat header shows messages, tokens by type, an estimated cost, and whether the prompt cache is still warm.
-- Claude chats show a prompt cache countdown in the context meter, and a warning when the cache is about to expire.
+- Claude chats show a prompt cache countdown in the context meter, and a warning when the cache is about to expire. The official app removed the meter; the fork keeps it under Settings → Labs → "Context window indicator".
 - A warning that switching models re-caches the chat, with roughly how many tokens that costs.
 
 ## Smaller changes
